@@ -1,0 +1,14 @@
+node_modules/
+
+.DS_Store
+Thumbs.db
+*.log
+
+.iconv-install-failed
+.clang-format-install-failed
+hooks/js/__tests__/fixtures/
+plugins/*/.plugin-data/
+plugins/*/hooks/js/__tests__/fixtures/
+
+*.tmp
+*.bak

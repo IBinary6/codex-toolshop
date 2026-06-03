@@ -1,0 +1,34 @@
+{
+  "name": "cpp-style-enforcer-codex",
+  "version": "0.1.0",
+  "description": "C++ code style enforcement for Codex using clang-format, cpplint, copyright headers, BOM handling, and commit-time checks.",
+  "author": {
+    "name": "IBinary6"
+  },
+  "license": "MIT",
+  "keywords": [
+    "cpp",
+    "google-style",
+    "clang-format",
+    "cpplint",
+    "hooks",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/codex-hooks.json",
+  "interface": {
+    "displayName": "C++ Style Enforcer",
+    "shortDescription": "Enforce team C++ style automatically in Codex.",
+    "longDescription": "Automatically applies the team's C++ style workflow in Codex: clang-format, UTF-8 BOM normalization, copyright headers, cpplint checks, and commit-time blocking for violations.",
+    "developerName": "IBinary6",
+    "category": "Coding",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Configure C++ style enforcement for this project."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

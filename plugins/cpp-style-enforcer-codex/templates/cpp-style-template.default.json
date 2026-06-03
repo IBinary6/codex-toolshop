@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "mode": "incremental",
+  "checks": { "clangFormat": true, "copyright": true, "cpplint": true, "bom": true },
+  "copyrightInfo": {
+    "company": "",
+    "author": "",
+    "dateFormat": "YYYY/MM/DD HH:mm"
+  }
+}
