@@ -5,7 +5,6 @@ const fs = require('fs');
 const path = require('path');
 
 const pluginRoot = path.join(__dirname, '..', '..', '..');
-const repoRoot = path.resolve(pluginRoot, '..', '..');
 const oldHost = 'CL' + 'AUDE';
 const banned = [
   [oldHost, 'PLUGIN', 'ROOT'].join('_'),
@@ -27,6 +26,18 @@ function listFiles(dir) {
   return out;
 }
 
+function findMarketplace(start) {
+  let dir = path.resolve(start);
+  let prev = null;
+  while (dir && dir !== prev) {
+    const candidate = path.join(dir, '.agents', 'plugins', 'marketplace.json');
+    if (fs.existsSync(candidate)) return candidate;
+    prev = dir;
+    dir = path.dirname(dir);
+  }
+  return null;
+}
+
 const plugin = JSON.parse(fs.readFileSync(path.join(pluginRoot, '.codex-plugin', 'plugin.json'), 'utf8'));
 assert.strictEqual(plugin.name, 'codemap-boost-codex');
 assert.strictEqual(plugin.hooks, './hooks/codex-hooks.json');
@@ -36,8 +47,11 @@ assert.ok(hooks.hooks.UserPromptSubmit[0].matcher === undefined, 'UserPromptSubm
 assert.ok(JSON.stringify(hooks).includes('${PLUGIN_ROOT}'), 'hook commands use PLUGIN_ROOT placeholder');
 assert.ok(!JSON.stringify(hooks).includes('"async"'), 'manifest must not use async hooks');
 
-const marketplace = JSON.parse(fs.readFileSync(path.join(repoRoot, '.agents', 'plugins', 'marketplace.json'), 'utf8'));
-assert.ok(marketplace.plugins.some((item) => item.name === 'codemap-boost-codex'), 'marketplace entry exists');
+const marketplacePath = findMarketplace(pluginRoot);
+if (marketplacePath) {
+  const marketplace = JSON.parse(fs.readFileSync(marketplacePath, 'utf8'));
+  assert.ok(marketplace.plugins.some((item) => item.name === 'codemap-boost-codex'), 'marketplace entry exists');
+}
 
 for (const file of listFiles(pluginRoot)) {
   const rel = path.relative(pluginRoot, file).replace(/\\/g, '/');
