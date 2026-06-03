@@ -1,0 +1,33 @@
+{
+  "name": "codemap-boost-codex",
+  "version": "0.1.0",
+  "description": "CodeMap workflow for Codex using code-review-graph MCP guidance, background graph updates, and AGENTS.md instructions.",
+  "author": {
+    "name": "IBinary6"
+  },
+  "license": "MIT",
+  "keywords": [
+    "codemap",
+    "code-review-graph",
+    "graphify",
+    "hooks",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/codex-hooks.json",
+  "interface": {
+    "displayName": "CodeMap Boost",
+    "shortDescription": "Nudge Codex toward code-review-graph for code structure work.",
+    "longDescription": "Maintains Codex-native CodeMap guidance in AGENTS.md, starts background code-review-graph updates, protects generated graph output from commits, and nudges prompts, shell searches, and subagents toward graph-aware code exploration.",
+    "developerName": "IBinary6",
+    "category": "Coding",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Set up CodeMap Boost for this Codex environment."
+    ],
+    "brandColor": "#0F766E"
+  }
+}

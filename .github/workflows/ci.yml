@@ -22,3 +22,7 @@ jobs:
       - name: Validate cpp-style-enforcer-codex
         working-directory: plugins/cpp-style-enforcer-codex
         run: npm test
+
+      - name: Validate codemap-boost-codex
+        working-directory: plugins/codemap-boost-codex
+        run: npm test

@@ -1,21 +1,24 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawnSync, spawn } = require('child_process');
 
 const isWindows = process.platform === 'win32';
 // 插件根：hooks/js/lib → hooks/js → hooks → 插件根。
-// 优先用 hook 运行时注入的 CLAUDE_PLUGIN_ROOT；缺失（如直接 node 跑测试）回退到相对 __dirname。
-const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || path.join(__dirname, '..', '..', '..');
+// 优先用 Codex hook 注入的 PLUGIN_ROOT；缺失（如直接 node 跑测试）回退到相对 __dirname。
+const PLUGIN_ROOT = process.env.PLUGIN_ROOT || path.join(__dirname, '..', '..', '..');
 
 /**
- * 持久数据目录（~/.claude/plugins/data/{id}/）。由 hook 运行时注入 CLAUDE_PLUGIN_DATA。
- * 缺失（直接 node 跑测试 / 老版本宿主）→ null，调用方据此降级。
+ * 持久数据目录。Codex hook 运行时注入 PLUGIN_DATA。
+ * 缺失（直接 node 跑测试）→ CODEX_HOME 或用户级 Codex 数据目录。
  */
 function pluginDataDir() {
-  const d = process.env.CLAUDE_PLUGIN_DATA;
-  return d ? d : null;
+  const d = process.env.PLUGIN_DATA;
+  if (d) return d;
+  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+  return path.join(codexHome, 'plugins', 'data', 'cpp-style-enforcer-codex');
 }
 
 /**
@@ -147,8 +150,8 @@ function detectClangFormat(opts) {
 
 /**
  * 按双保险顺序解析一个模块的入口绝对路径，找不到返回 null。
- * 顺序：(a) ${CLAUDE_PLUGIN_ROOT}/node_modules/<name>（打包的，本地/git 源装即用）
- *      (b) ${CLAUDE_PLUGIN_DATA}/node_modules/<name>（兜底，SessionStart 装的）
+ * 顺序：(a) ${PLUGIN_ROOT}/node_modules/<name>（打包的，本地/git 源装即用）
+ *      (b) ${PLUGIN_DATA}/node_modules/<name>（兜底，SessionStart 装的）
  * 用 require.resolve(paths) 让 Node 在指定目录树里解析。全程不抛。
  * @param {string} name 模块名
  * @returns {string|null} 解析到的入口路径

@@ -1,7 +1,7 @@
 'use strict';
 
 const { readStdinJson } = require('./lib/stdin');
-const { passSilent, blockClaude, diag } = require('./lib/protocol');
+const { passSilent, blockCodex, diag } = require('./lib/protocol');
 const { resolveFilePath, shouldHandle } = require('./lib/target');
 const { loadConfig } = require('./lib/config');
 const { repoRoot, isNew } = require('./lib/git');
@@ -66,7 +66,7 @@ async function main() {
     const suppressCopyright = !(copyrightInfo && copyrightInfo.company) || checks.copyright === false;
     const violations = step('cpplint', () => runCpplint(filePath, { root, suppressCopyright })) || [];
     if (violations.length > 0) {
-      return blockClaude(formatViolations(violations));
+      return blockCodex(formatViolations(violations));
     }
   }
 

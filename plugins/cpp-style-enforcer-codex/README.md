@@ -59,7 +59,7 @@ codex plugin add cpp-style-enforcer-codex@codex-toolshop
 插件运行时的可写数据优先使用 Codex 提供的环境变量：
 
 ```text
-CLAUDE_PLUGIN_DATA
+PLUGIN_DATA
 ```
 
 如果宿主没有提供该环境变量，插件会回退到用户级 Codex 插件数据目录。插件安装目录本身按只读、可替换包处理。
@@ -71,4 +71,3 @@ CLAUDE_PLUGIN_DATA
 - `clang-format` 可选；缺失时插件会尽量安全降级或尝试准备可用工具
 
 hook 默认保持安静，只在需要阻止操作或提示关键问题时输出 Codex hook 决策。
-

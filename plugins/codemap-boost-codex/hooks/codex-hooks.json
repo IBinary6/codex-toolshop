@@ -1,0 +1,67 @@
+{
+  "description": "CodeMap Boost Codex hook integration",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" session_start",
+            "timeout": 10,
+            "statusMessage": "Preparing CodeMap guidance"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|apply_patch|Bash|mcp__.*(?:write|edit|create|replace|insert)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" post_tool_use",
+            "timeout": 10,
+            "statusMessage": "Updating CodeMap graph"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" pre_bash",
+            "timeout": 5,
+            "statusMessage": "Checking code search strategy"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" user_prompt_submit",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" subagent_start",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

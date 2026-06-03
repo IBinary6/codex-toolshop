@@ -7,11 +7,12 @@ const path = require('path');
 const pluginRoot = path.join(__dirname, '..', '..', '..');
 const entry = path.join(pluginRoot, 'hooks', 'js', 'session_start.js');
 
-// 用临时 HOME 隔离全局模板，避免污染真实 ~/.claude
+// 用临时 HOME 隔离全局模板，避免污染真实 ~/.codex
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cse-home-'));
 const env = { ...process.env, HOME: tmpHome, USERPROFILE: tmpHome };
-delete env.CLAUDE_PROJECT_DIR; // 避免外部环境干扰 cwd 判定
-const userTpl = path.join(tmpHome, '.claude', 'cpp-style-template.json');
+delete env.PLUGIN_ROOT;
+delete env.PLUGIN_DATA;
+const userTpl = path.join(tmpHome, '.codex', 'cpp-style-template.json');
 
 const tmps = [];
 function runHook(input = { hook_event_name: 'SessionStart' }) {

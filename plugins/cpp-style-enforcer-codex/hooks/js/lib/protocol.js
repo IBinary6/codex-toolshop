@@ -12,9 +12,9 @@ function passSilent() {
 
 /**
  * PostToolUse 强制修复：exit 0 + stdout {decision:"block",reason}
- * @param {string} reason 喂给 Claude 的修复指令
+ * @param {string} reason 喂给 Codex 的修复指令
  */
-function blockClaude(reason) {
+function blockCodex(reason) {
   process.stdout.write(JSON.stringify({ decision: 'block', reason }));
   process.exit(0);
 }
@@ -34,9 +34,9 @@ function denyTool(reason) {
   process.exit(0);
 }
 
-/** 诊断信息（用户/Claude 可见），绝不混入 stdout */
+/** 诊断信息（用户/Codex 可见），绝不混入 stdout */
 function diag(message) {
   process.stderr.write(String(message) + '\n');
 }
 
-module.exports = { passSilent, blockClaude, denyTool, diag };
+module.exports = { passSilent, blockCodex, denyTool, diag };

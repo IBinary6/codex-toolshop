@@ -37,9 +37,8 @@ try {
  */
 function seedProjectConfig(input) {
   try {
-    // 取会话 cwd：stdin.cwd > CLAUDE_PROJECT_DIR > process.cwd()
+    // 取会话 cwd：stdin.cwd > process.cwd()
     const cwd = (input && typeof input.cwd === 'string' && input.cwd)
-      || process.env.CLAUDE_PROJECT_DIR
       || process.cwd();
     const root = repoRoot(cwd); // 非 git → null
     if (!root) return;

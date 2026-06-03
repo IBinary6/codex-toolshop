@@ -15,9 +15,12 @@ assert.strictEqual(tpl.copyrightInfo.company, '', 'company 缺省空串');
 assert.strictEqual(tpl.copyrightInfo.author, '', 'author 缺省空串');
 assert.strictEqual(tpl.copyrightInfo.dateFormat, 'YYYY/MM/DD HH:mm', 'dateFormat 缺省值');
 
-// plugin.json 版本必须为 0.3.2
-const pj = JSON.parse(fs.readFileSync(path.join(pluginRoot, '.claude-plugin', 'plugin.json'), 'utf-8'));
-assert.strictEqual(pj.version, '0.3.2', '版本应升到 0.3.2');
+// Codex 插件清单必须位于 .codex-plugin/plugin.json，并与当前插件版本一致
+const pj = JSON.parse(fs.readFileSync(path.join(pluginRoot, '.codex-plugin', 'plugin.json'), 'utf-8'));
+assert.strictEqual(pj.name, 'cpp-style-enforcer-codex', 'Codex 插件名应正确');
+assert.strictEqual(pj.version, '0.1.0', 'Codex 插件版本应与 package.json 同步');
+assert.strictEqual(pj.hooks, './hooks/codex-hooks.json', 'Codex 插件应声明 hook manifest');
+assert.strictEqual(pj.skills, './skills/', 'Codex 插件应声明 skills 目录');
 
 // 目录骨架存在
 for (const d of ['hooks/js/lib', 'hooks/js/steps', 'hooks/js/__tests__']) {

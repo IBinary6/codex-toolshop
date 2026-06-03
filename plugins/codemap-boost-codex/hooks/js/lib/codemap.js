@@ -1,0 +1,175 @@
+'use strict';
+
+const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawnSync } = require('child_process');
+
+const {
+  codexHome,
+  commandExists,
+  ensureDir,
+  isGitRepo,
+  markerExists,
+  repoRoot,
+  spawnDetached,
+  writeMarker,
+} = require('./runtime');
+
+const BLOCK_START = '<!-- codemap-boost-codex:start -->';
+const BLOCK_END = '<!-- codemap-boost-codex:end -->';
+const AGENTS_BLOCK = `${BLOCK_START}
+## CodeMap Boost
+
+本机已安装 CodeMap Boost。涉及代码结构、符号、调用关系、引用关系、影响面或代码审查上下文时，优先使用 code-review-graph MCP 工具：
+
+- 先调用 \`mcp__code_review_graph__get_minimal_context_tool\` 获取低 token 概览。
+- 符号、函数、类、调用链、引用关系优先用 \`semantic_search_nodes_tool\`、\`query_graph_tool\`、\`get_impact_radius_tool\`。
+- 支持 \`detail_level\` 的工具默认传 \`minimal\`，只有信息不足时再升级。
+- \`rg\`、\`grep\`、\`Select-String\` 只用于纯文本、注释或字符串搜索。
+
+${BLOCK_END}
+`;
+
+function agentsPath(home = codexHome()) {
+  return path.join(home, 'AGENTS.md');
+}
+
+function ensureAgentsBlock(home = codexHome()) {
+  const target = agentsPath(home);
+  let existing = '';
+  try {
+    existing = fs.readFileSync(target, 'utf8');
+  } catch (error) {
+    if (error.code !== 'ENOENT') return false;
+  }
+  let next = '';
+  if (existing.includes(BLOCK_START) && existing.includes(BLOCK_END)) {
+    const start = existing.indexOf(BLOCK_START);
+    const end = existing.indexOf(BLOCK_END, start) + BLOCK_END.length;
+    next = existing.slice(0, start).replace(/\s+$/, '')
+      + '\n\n' + AGENTS_BLOCK.trimEnd()
+      + existing.slice(end);
+  } else {
+    next = existing.replace(/\s+$/, '');
+    next += (next ? '\n\n' : '') + AGENTS_BLOCK.trimEnd() + '\n';
+  }
+  if (next === existing) return true;
+  ensureDir(path.dirname(target));
+  fs.writeFileSync(target, next, 'utf8');
+  return true;
+}
+
+function ensureGitignore(cwd) {
+  const root = repoRoot(cwd);
+  if (!root) return false;
+  const target = path.join(root, '.gitignore');
+  let content = '';
+  try {
+    content = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
+  } catch (_) {
+    return false;
+  }
+  const entries = ['.code-review-graph/', 'graphify-out/'];
+  const missing = entries.filter((entry) => !content.split(/\r?\n/).includes(entry));
+  if (missing.length === 0) return true;
+  let append = content && !content.endsWith('\n') ? '\n' : '';
+  append += '# CodeMap generated output\n';
+  append += missing.join('\n') + '\n';
+  fs.appendFileSync(target, append, 'utf8');
+  return true;
+}
+
+function canUseCrg() {
+  return commandExists('code-review-graph');
+}
+
+function lockName(prefix, cwd) {
+  const key = crypto.createHash('sha1').update(path.resolve(cwd)).digest('hex').slice(0, 16);
+  return `${prefix}-${key}.lock`;
+}
+
+function tryWriteLock(file) {
+  try {
+    fs.writeFileSync(file, String(process.pid), { flag: 'wx' });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function startCrgBuild(cwd) {
+  if (!isGitRepo(cwd) || !canUseCrg()) return false;
+  const graphDir = path.join(repoRoot(cwd), '.code-review-graph');
+  if (fs.existsSync(graphDir)) return false;
+  const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-build', cwd));
+  if (!tryWriteLock(lockFile)) return false;
+  const code = `
+    const fs = require('fs');
+    const { spawnSync } = require('child_process');
+    try {
+      spawnSync('code-review-graph', ['build', '--repo', ${JSON.stringify(cwd)}], {
+        cwd: ${JSON.stringify(cwd)},
+        stdio: 'ignore',
+        windowsHide: true
+      });
+    } finally {
+      try { fs.unlinkSync(${JSON.stringify(lockFile)}); } catch (_) {}
+    }
+  `;
+  return !!spawnDetached(process.execPath, ['-e', code], { cwd });
+}
+
+function startCrgUpdate(cwd) {
+  if (!isGitRepo(cwd) || !canUseCrg()) return false;
+  return !!spawnDetached('code-review-graph', ['update', '--repo', cwd], { cwd });
+}
+
+function registerCrgMcp() {
+  if (!canUseCrg()) return false;
+  if (markerExists('.crg-codex-register-failed')) return false;
+  try {
+    const result = spawnSync('code-review-graph', ['install', '--platform', 'codex'], {
+      stdio: 'ignore',
+      timeout: 30000,
+      windowsHide: process.platform === 'win32',
+    });
+    if (!result.error && result.status === 0) return true;
+  } catch (_) {}
+  writeMarker('.crg-codex-register-failed');
+  return false;
+}
+
+const CONTEXT = [
+  'CodeMap Boost: for symbol, function, class, call graph, reference, impact, or review-context work, prefer code-review-graph MCP tools before text search.',
+  'Start with mcp__code_review_graph__get_minimal_context_tool, then use semantic_search_nodes_tool, query_graph_tool, or get_impact_radius_tool as needed.',
+  'Use detail_level="minimal" first. Use rg/grep only for literal text, comments, or strings.',
+].join(' ');
+
+function promptLooksStructural(text) {
+  const value = String(text || '').toLowerCase();
+  return /symbol|function|class|caller|callee|call graph|reference|impact|review context|codemap|code map|代码结构|符号|函数|类|调用|引用|影响面|代码审查/.test(value);
+}
+
+function bashLooksLikeCodeSearch(command) {
+  const value = String(command || '');
+  if (!/\b(rg|grep|findstr|Select-String)\b/i.test(value)) return false;
+  return !/\.code-review-graph|graphify-out/.test(value);
+}
+
+module.exports = {
+  BLOCK_START,
+  BLOCK_END,
+  AGENTS_BLOCK,
+  CONTEXT,
+  agentsPath,
+  ensureAgentsBlock,
+  ensureGitignore,
+  canUseCrg,
+  startCrgBuild,
+  startCrgUpdate,
+  registerCrgMcp,
+  promptLooksStructural,
+  bashLooksLikeCodeSearch,
+};

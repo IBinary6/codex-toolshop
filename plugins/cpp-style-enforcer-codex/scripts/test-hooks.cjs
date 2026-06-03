@@ -31,8 +31,8 @@ function runHook(name, payload, cwd, dataDir) {
     encoding: 'utf8',
     env: {
       ...process.env,
-      CLAUDE_PLUGIN_ROOT: pluginRoot,
-      CLAUDE_PLUGIN_DATA: dataDir,
+      PLUGIN_ROOT: pluginRoot,
+      PLUGIN_DATA: dataDir,
     },
     windowsHide: process.platform === 'win32',
   });

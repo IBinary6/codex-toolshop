@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/run-hook.cjs\" session_start",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" session_start",
             "timeout": 10,
             "async": false,
             "statusMessage": "Preparing C++ style enforcement"
@@ -21,7 +21,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/run-hook.cjs\" post_edit",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" post_edit",
             "timeout": 30,
             "async": false,
             "statusMessage": "Checking C++ style"
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/run-hook.cjs\" pre_commit",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" pre_commit",
             "timeout": 30,
             "async": false,
             "statusMessage": "Checking staged C++ files"

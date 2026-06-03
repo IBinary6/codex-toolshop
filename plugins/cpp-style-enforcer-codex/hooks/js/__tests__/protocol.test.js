@@ -20,9 +20,9 @@ assert.strictEqual(r.status, 0, 'passSilent exit 0');
 assert.strictEqual(r.stdout, '', 'passSilent stdout 空');
 assert.strictEqual(r.stderr, '', 'passSilent stderr 空');
 
-// blockClaude: exit0, stdout 是 {decision:block,reason}
-r = runFn('p.blockClaude("FIX_THIS");');
-assert.strictEqual(r.status, 0, 'blockClaude exit 0');
+// blockCodex: exit0, stdout 是 {decision:block,reason}
+r = runFn('p.blockCodex("FIX_THIS");');
+assert.strictEqual(r.status, 0, 'blockCodex exit 0');
 const block = JSON.parse(r.stdout);
 assert.strictEqual(block.decision, 'block', 'decision=block');
 assert.strictEqual(block.reason, 'FIX_THIS', 'reason 透传');

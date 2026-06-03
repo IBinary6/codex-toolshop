@@ -7,7 +7,7 @@ const { userTemplatePath, DEFAULT_CONFIG } = require('./config.js');
 const README_CONTENT = `cpp-style-enforcer 项目配置说明
 ================================
 配置文件：.claude-cpp-style/cpp-style.json
-全局模板：~/.claude/cpp-style-template.json（所有项目的继承基础，修改此文件对所有项目生效）
+全局模板：~/.codex/cpp-style-template.json（所有项目的继承基础，修改此文件对所有项目生效）
 
 -----------------------------------------------------------
 字段说明
@@ -27,7 +27,7 @@ checks (object)
   新文件（git 未追踪）或 mode=full 时生效的检查开关。
   checks.clangFormat (boolean, 默认 true)  — 是否用 clang-format 格式化整个文件。
   checks.copyright   (boolean, 默认 true)  — 是否插入/更新版权头（需 copyrightInfo.company 非空）。
-  checks.cpplint     (boolean, 默认 true)  — 是否运行 cpplint 风格检查；违规会阻塞 Claude。
+  checks.cpplint     (boolean, 默认 true)  — 是否运行 cpplint 风格检查；违规会阻塞 Codex 当前操作。
   checks.bom         (boolean, 默认 true)  — 是否确保文件有 UTF-8 BOM。
   示例：新文件跳过 cpplint → "checks": { "cpplint": false }
 
@@ -97,7 +97,7 @@ copyrightInfo (object)
 -----------------------------------------------------------
 全局模板修改方式
 -----------------------------------------------------------
-全局模板路径：~/.claude/cpp-style-template.json（Windows: C:\\Users\\<用户名>\\.claude\\cpp-style-template.json）
+全局模板路径：~/.codex/cpp-style-template.json（Windows: C:\\Users\\<用户名>\\.codex\\cpp-style-template.json）
 修改全局模板后，所有未设置项目级配置的项目都会继承新值。
 已有项目级配置（本文件所在目录的 cpp-style.json）的字段优先于全局模板。
 `;
@@ -108,11 +108,11 @@ copyrightInfo (object)
  *
  * - root 为 null（非 git）→ 不生成（无可靠项目根概念）。
  * - root/.claude-cpp-style/cpp-style.json 已存在 → 绝不覆盖，直接返回。
- * - 内容来源：全局模板 ~/.claude/cpp-style-template.json；缺失/损坏 → 硬编码默认 schema。
+ * - 内容来源：全局模板 ~/.codex/cpp-style-template.json；缺失/损坏 → 硬编码默认 schema。
  * - 写文件 UTF-8 无 BOM、LF；失败 try/catch 不崩。
  *
  * @param {string|null} root git 仓库根
- * @param {string} [templatePath] 全局模板路径（默认 ~/.claude/cpp-style-template.json）
+ * @param {string} [templatePath] 全局模板路径（默认 ~/.codex/cpp-style-template.json）
  */
 function ensureProjectConfig(root, templatePath = userTemplatePath()) {
   if (!root) return;

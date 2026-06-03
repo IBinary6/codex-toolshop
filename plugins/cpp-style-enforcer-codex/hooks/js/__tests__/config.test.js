@@ -5,7 +5,7 @@ const path = require('path');
 const { loadConfig, ensureUserTemplate, DEFAULT_CONFIG } = require('../lib/config.js');
 
 // 隔离：本测试所有 ensureUserTemplate/loadConfig 调用都显式传入临时路径参数，
-// 绝不依赖 os.homedir() 默认值，因此绝不读写真实 ~/.claude/cpp-style-template.json。
+// 绝不依赖 os.homedir() 默认值，因此绝不读写真实 ~/.codex/cpp-style-template.json。
 // 额外用 cleanup 收集所有临时目录，finally 统一删除。
 const cleanupDirs = [];
 function mkTmp(prefix) {

@@ -43,16 +43,20 @@ assert.strictEqual(parsed[1].line, 12, 'line 解析');
 assert.strictEqual(parsed[1].category, 'whitespace/braces', 'category 解析');
 assert.ok(/Missing space/.test(parsed[1].message), 'message 解析');
 
-// ---- buildFilterArg：无基础 filter 项，空时不传 --filter ----
-assert.strictEqual(buildFilterArg({}), null, '无任何 filter 项时返回 null（调用方不传 --filter）');
+// ---- buildFilterArg：保留团队默认 filter 项，并按需追加版权屏蔽 ----
+assert.strictEqual(
+  buildFilterArg({}),
+  '--filter=-whitespace/indent_namespace',
+  '默认屏蔽 namespace 缩进误报',
+);
 assert.strictEqual(
   buildFilterArg({ suppressCopyright: true }),
-  '--filter=-legal/copyright',
-  'suppressCopyright 仅含 -legal/copyright',
+  '--filter=-whitespace/indent_namespace,-legal/copyright',
+  'suppressCopyright 追加 -legal/copyright',
 );
 assert.ok(
-  !String(buildFilterArg({ suppressCopyright: false })).includes('--filter'),
-  '不抑制版权且无额外项时无 --filter',
+  String(buildFilterArg({ suppressCopyright: false })).includes('-whitespace/indent_namespace'),
+  '不抑制版权时仍保留团队默认 filter',
 );
 
 // ---- runCpplint：真实文件名下无误报 + 原文件零改动（需 python）----
