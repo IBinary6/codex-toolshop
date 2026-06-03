@@ -12,3 +12,6 @@ plugins/*/hooks/js/__tests__/fixtures/
 
 *.tmp
 *.bak
+# CodeMap generated output
+.code-review-graph/
+graphify-out/

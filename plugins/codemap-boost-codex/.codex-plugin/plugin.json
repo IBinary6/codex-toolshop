@@ -1,6 +1,6 @@
 {
   "name": "codemap-boost-codex",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "CodeMap workflow for Codex using code-review-graph MCP guidance, background graph updates, and AGENTS.md instructions.",
   "author": {
     "name": "IBinary6"

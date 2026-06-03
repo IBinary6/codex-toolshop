@@ -38,7 +38,7 @@ codex plugin add codemap-boost-codex@codex-toolshop
 
 ```bash
 python -m pip install "code-review-graph[all]"
-code-review-graph install --platform codex
+code-review-graph install --platform codex --no-hooks --no-instructions --no-skills --yes
 python -m pip install "graphifyy[all]"
 ```
 
@@ -47,8 +47,10 @@ python -m pip install "graphifyy[all]"
 插件首次启动时也会在后台尝试准备缺失的 CLI，并执行：
 
 ```bash
-code-review-graph install --platform codex
+code-review-graph install --platform codex --no-hooks --no-instructions --no-skills --yes
 ```
+
+这一步只注册 code-review-graph MCP，不安装第三方 hooks、不改写 Codex 全局说明、不生成第三方 skills。Codex hooks 和 `$CODEX_HOME/AGENTS.md` 托管块都由本插件自己管理。
 
 如果安装或注册失败，会写入插件数据目录中的失败标记，避免每次会话反复重试。
 

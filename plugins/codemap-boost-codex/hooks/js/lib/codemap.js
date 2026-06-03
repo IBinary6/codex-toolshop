@@ -126,11 +126,21 @@ function startCrgUpdate(cwd) {
   return !!spawnDetached('code-review-graph', ['update', '--repo', cwd], { cwd });
 }
 
-function registerCrgMcp() {
-  if (!canUseCrg()) return false;
+function registerCrgMcp(options = {}) {
+  const canUse = options.canUseCrg || canUseCrg;
+  const spawn = options.spawnSync || spawnSync;
+  if (!canUse()) return false;
   if (markerExists('.crg-codex-register-failed')) return false;
   try {
-    const result = spawnSync('code-review-graph', ['install', '--platform', 'codex'], {
+    const result = spawn('code-review-graph', [
+      'install',
+      '--platform',
+      'codex',
+      '--no-hooks',
+      '--no-instructions',
+      '--no-skills',
+      '--yes',
+    ], {
       stdio: 'ignore',
       timeout: 30000,
       windowsHide: process.platform === 'win32',
@@ -158,6 +168,38 @@ function bashLooksLikeCodeSearch(command) {
   return !/\.code-review-graph|graphify-out/.test(value);
 }
 
+function isLegacyCrgHook(group) {
+  const text = JSON.stringify(group);
+  return text.includes('code-review-graph status')
+    || text.includes('code-review-graph update --skip-flows');
+}
+
+function cleanLegacyCrgHooks(home = codexHome()) {
+  const target = path.join(home, 'hooks.json');
+  let parsed = null;
+  try {
+    parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    return false;
+  }
+  if (!parsed || typeof parsed !== 'object' || !parsed.hooks) return false;
+  let changed = false;
+  for (const eventName of Object.keys(parsed.hooks)) {
+    if (!Array.isArray(parsed.hooks[eventName])) continue;
+    const next = parsed.hooks[eventName].filter((group) => !isLegacyCrgHook(group));
+    if (next.length !== parsed.hooks[eventName].length) {
+      changed = true;
+      if (next.length === 0) delete parsed.hooks[eventName];
+      else parsed.hooks[eventName] = next;
+    }
+  }
+  if (!changed) return false;
+  ensureDir(path.dirname(target));
+  fs.writeFileSync(target, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
+  return true;
+}
+
 module.exports = {
   BLOCK_START,
   BLOCK_END,
@@ -170,6 +212,7 @@ module.exports = {
   startCrgBuild,
   startCrgUpdate,
   registerCrgMcp,
+  cleanLegacyCrgHooks,
   promptLooksStructural,
   bashLooksLikeCodeSearch,
 };
