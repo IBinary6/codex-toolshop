@@ -200,6 +200,26 @@ function cleanLegacyCrgHooks(home = codexHome()) {
   return true;
 }
 
+function cleanLegacyCrgGitHook(cwd) {
+  const root = repoRoot(cwd);
+  if (!root) return false;
+  const target = path.join(root, '.git', 'hooks', 'pre-commit');
+  let content = '';
+  try {
+    content = fs.readFileSync(target, 'utf8');
+  } catch (_) {
+    return false;
+  }
+  if (!content.includes('Installed by code-review-graph')) return false;
+  if (!content.includes('code-review-graph update')) return false;
+  try {
+    fs.unlinkSync(target);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 module.exports = {
   BLOCK_START,
   BLOCK_END,
@@ -213,6 +233,7 @@ module.exports = {
   startCrgUpdate,
   registerCrgMcp,
   cleanLegacyCrgHooks,
+  cleanLegacyCrgGitHook,
   promptLooksStructural,
   bashLooksLikeCodeSearch,
 };

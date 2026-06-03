@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { cleanLegacyCrgHooks, registerCrgMcp } = require('../lib/codemap');
+const { cleanLegacyCrgGitHook, cleanLegacyCrgHooks, registerCrgMcp } = require('../lib/codemap');
 
 function mkdirp(dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -99,6 +99,41 @@ function writeJson(file, value) {
   } finally {
     if (oldPluginData === undefined) delete process.env.PLUGIN_DATA;
     else process.env.PLUGIN_DATA = oldPluginData;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-clean-git-hook-'));
+  try {
+    const repo = path.join(tmp, 'repo');
+    mkdirp(repo);
+    const init = require('node:child_process').spawnSync('git', ['init'], {
+      cwd: repo,
+      encoding: 'utf8',
+      windowsHide: process.platform === 'win32',
+    });
+    assert.strictEqual(init.status, 0, init.stderr);
+
+    const hook = path.join(repo, '.git', 'hooks', 'pre-commit');
+    fs.writeFileSync(hook, [
+      '#!/bin/sh',
+      '# Installed by code-review-graph. Remove this file to disable pre-commit graph checks.',
+      'code-review-graph update || true',
+      '',
+    ].join('\n'), 'utf8');
+    assert.strictEqual(cleanLegacyCrgGitHook(repo), true);
+    assert.ok(!fs.existsSync(hook), 'legacy code-review-graph git hook is removed');
+
+    fs.writeFileSync(hook, [
+      '#!/bin/sh',
+      '# user hook',
+      'echo keep-me',
+      '',
+    ].join('\n'), 'utf8');
+    assert.strictEqual(cleanLegacyCrgGitHook(repo), false);
+    assert.ok(fs.existsSync(hook), 'unrelated user git hook is preserved');
+  } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }
