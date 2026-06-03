@@ -40,10 +40,12 @@ function main() {
 
   const plugin = readJson(path.join(pluginRoot, '.codex-plugin', 'plugin.json'), 'plugin.json');
   assert(plugin.name === 'codemap-boost-codex', 'plugin name is wrong');
-  assert(plugin.hooks === './hooks/codex-hooks.json', 'plugin must declare hooks manifest');
+  assert(plugin.hooks === './hooks/hooks.json', 'plugin must declare default Codex hooks manifest');
   assert(plugin.skills === './skills/', 'plugin must declare skills directory');
 
-  const hooks = readJson(path.join(pluginRoot, 'hooks', 'codex-hooks.json'), 'hooks manifest');
+  const hooks = readJson(path.join(pluginRoot, 'hooks', 'hooks.json'), 'hooks manifest');
+  const legacyHooks = readJson(path.join(pluginRoot, 'hooks', 'codex-hooks.json'), 'legacy hooks manifest');
+  assert(JSON.stringify(legacyHooks) === JSON.stringify(hooks), 'legacy codex-hooks.json must match hooks/hooks.json');
   for (const eventName of ['SessionStart', 'PostToolUse', 'PreToolUse', 'UserPromptSubmit', 'SubagentStart']) {
     assert(hooks.hooks[eventName], `${eventName} hook missing`);
   }

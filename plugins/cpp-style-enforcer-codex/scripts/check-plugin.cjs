@@ -54,14 +54,19 @@ function main() {
     '.codex-plugin/plugin.json'
   );
   assert(plugin.name === 'cpp-style-enforcer-codex', 'plugin name is wrong');
-  assert(plugin.hooks === './hooks/codex-hooks.json', 'plugin must declare codex hooks');
+  assert(plugin.hooks === './hooks/hooks.json', 'plugin must declare default Codex hooks manifest');
   assert(plugin.skills === './skills/', 'plugin must declare skills directory');
   assert(Array.isArray(plugin.interface.defaultPrompt), 'defaultPrompt must be an array');
 
   const hooks = readJson(
+    path.join(pluginRoot, 'hooks', 'hooks.json'),
+    'hooks/hooks.json'
+  );
+  const legacyHooks = readJson(
     path.join(pluginRoot, 'hooks', 'codex-hooks.json'),
     'hooks/codex-hooks.json'
   );
+  assert(JSON.stringify(legacyHooks) === JSON.stringify(hooks), 'legacy codex-hooks.json must match hooks/hooks.json');
   assert(hooks.hooks.SessionStart, 'SessionStart hook missing');
   assert(hooks.hooks.PostToolUse, 'PostToolUse hook missing');
   assert(hooks.hooks.PreToolUse, 'PreToolUse hook missing');

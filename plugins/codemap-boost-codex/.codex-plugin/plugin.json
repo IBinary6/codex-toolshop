@@ -1,6 +1,6 @@
 {
   "name": "codemap-boost-codex",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CodeMap workflow for Codex using code-review-graph MCP guidance, background graph updates, and AGENTS.md instructions.",
   "author": {
     "name": "IBinary6"
@@ -14,7 +14,7 @@
     "codex"
   ],
   "skills": "./skills/",
-  "hooks": "./hooks/codex-hooks.json",
+  "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "CodeMap Boost",
     "shortDescription": "Nudge Codex toward code-review-graph for code structure work.",

@@ -40,9 +40,11 @@ function findMarketplace(start) {
 
 const plugin = JSON.parse(fs.readFileSync(path.join(pluginRoot, '.codex-plugin', 'plugin.json'), 'utf8'));
 assert.strictEqual(plugin.name, 'codemap-boost-codex');
-assert.strictEqual(plugin.hooks, './hooks/codex-hooks.json');
+assert.strictEqual(plugin.hooks, './hooks/hooks.json');
 
-const hooks = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'hooks', 'codex-hooks.json'), 'utf8'));
+const hooks = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'hooks', 'hooks.json'), 'utf8'));
+const legacyHooks = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'hooks', 'codex-hooks.json'), 'utf8'));
+assert.deepStrictEqual(legacyHooks, hooks, 'hooks/codex-hooks.json must stay in sync with hooks/hooks.json');
 assert.ok(hooks.hooks.UserPromptSubmit[0].matcher === undefined, 'UserPromptSubmit must not use matcher');
 assert.ok(JSON.stringify(hooks).includes('${PLUGIN_ROOT}'), 'hook commands use PLUGIN_ROOT placeholder');
 assert.ok(!JSON.stringify(hooks).includes('"async"'), 'manifest must not use async hooks');

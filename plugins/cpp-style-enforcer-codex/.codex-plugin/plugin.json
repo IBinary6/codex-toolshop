@@ -1,6 +1,6 @@
 {
   "name": "cpp-style-enforcer-codex",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "C++ code style enforcement for Codex using clang-format, cpplint, copyright headers, BOM handling, and commit-time checks.",
   "author": {
     "name": "IBinary6"
@@ -15,7 +15,7 @@
     "codex"
   ],
   "skills": "./skills/",
-  "hooks": "./hooks/codex-hooks.json",
+  "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "C++ Style Enforcer",
     "shortDescription": "Enforce team C++ style automatically in Codex.",

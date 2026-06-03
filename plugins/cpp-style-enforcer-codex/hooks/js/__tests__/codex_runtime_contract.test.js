@@ -47,7 +47,9 @@ for (const file of listFiles(pluginRoot)) {
   }
 }
 
-const hooks = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'hooks', 'codex-hooks.json'), 'utf8'));
+const hooks = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'hooks', 'hooks.json'), 'utf8'));
+const legacyHooks = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'hooks', 'codex-hooks.json'), 'utf8'));
+assert.deepStrictEqual(legacyHooks, hooks, 'hooks/codex-hooks.json must stay in sync with hooks/hooks.json');
 const hooksText = JSON.stringify(hooks);
 assert.ok(hooksText.includes('${PLUGIN_ROOT}'), 'hook commands must use ${PLUGIN_ROOT}');
 assert.ok(!hooksText.includes('${' + [oldHost, 'PLUGIN', 'ROOT'].join('_') + '}'), 'hook commands must not use old host placeholders');
