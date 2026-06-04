@@ -12,7 +12,9 @@ const runner = path.join(pluginRoot, 'scripts', 'run-hook.cjs');
 function runHook(name, payload, extraEnv = {}, enabled = true) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-nudge-'));
   try {
-    const enableEnv = enabled ? { CODEMAP_BOOST_ENABLE_GRAPH: '1' } : {};
+    const graphEnv = enabled
+      ? { CODEMAP_BOOST_ASSUME_CRG: '1' }
+      : { CODEMAP_BOOST_ASSUME_CRG: '1', CODEMAP_BOOST_DISABLE_GRAPH: '1' };
     return spawnSync(process.execPath, [runner, name], {
       cwd: tmp,
       input: JSON.stringify(payload || {}),
@@ -21,9 +23,8 @@ function runHook(name, payload, extraEnv = {}, enabled = true) {
         ...process.env,
         PLUGIN_ROOT: pluginRoot,
         PLUGIN_DATA: path.join(tmp, 'data'),
-        CODEMAP_BOOST_ASSUME_CRG: '1',
         CODEMAP_BOOST_DISABLE_BOOTSTRAP: '1',
-        ...enableEnv,
+        ...graphEnv,
         ...extraEnv,
       },
       windowsHide: process.platform === 'win32',
@@ -42,7 +43,7 @@ function parseOutput(result) {
 {
   const result = runHook('user_prompt_submit', { prompt: '帮我查一下 Foo::Bar 的调用关系' }, {}, false);
   assert.strictEqual(result.status, 0, result.stderr);
-  assert.strictEqual(result.stdout, '', 'inactive CodeMap should not nudge even when CRG exists');
+  assert.strictEqual(result.stdout, '', 'explicitly disabled CodeMap should not nudge even when CRG exists');
 }
 
 {

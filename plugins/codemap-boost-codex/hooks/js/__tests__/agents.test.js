@@ -54,17 +54,14 @@ try {
     '',
   ].join('\n'), 'utf8');
 
-  const inactive = runSession(repo, home);
+  const inactive = runSession(repo, home, { CODEMAP_BOOST_DISABLE_GRAPH: '1' });
   assert.strictEqual(inactive.status, 0, inactive.stderr);
-  assert.strictEqual(inactive.stdout, '', 'inactive SessionStart should be silent');
-  const cleaned = fs.readFileSync(inactiveAgents, 'utf8');
-  assert.ok(!cleaned.includes('codemap-boost-codex:start'), 'inactive SessionStart removes stale managed block');
-  assert.ok(!fs.existsSync(path.join(repo, '.gitignore')), 'inactive SessionStart should not touch project gitignore');
+  assert.strictEqual(inactive.stdout, '', 'SessionStart without CLI should be silent');
+  const untouched = fs.readFileSync(inactiveAgents, 'utf8');
+  assert.ok(untouched.includes('old block'), 'SessionStart without CLI should not rewrite AGENTS.md');
+  assert.ok(!fs.existsSync(path.join(repo, '.gitignore')), 'SessionStart without CLI should not touch project gitignore');
 
-  const data = path.join(home, 'plugin-data');
-  fs.mkdirSync(data, { recursive: true });
-  fs.writeFileSync(path.join(data, '.codemap-boost-enabled'), '1', 'utf8');
-  const first = runSession(repo, home);
+  const first = runSession(repo, home, { CODEMAP_BOOST_ASSUME_CRG: '1' });
   assert.strictEqual(first.status, 0, first.stderr);
   assert.strictEqual(first.stdout, '', 'SessionStart should be silent');
   assert.strictEqual(first.stderr, '', 'SessionStart should keep stderr silent');
@@ -76,7 +73,7 @@ try {
   assert.ok(content.includes('mcp__code_review_graph__get_minimal_context_tool'), 'block names CRG MCP tools');
   assert.ok(!fs.existsSync(path.join(home, '.claude')), 'SessionStart must not create old host directories');
 
-  const second = runSession(repo, home);
+  const second = runSession(repo, home, { CODEMAP_BOOST_ASSUME_CRG: '1' });
   assert.strictEqual(second.status, 0, second.stderr);
   const again = fs.readFileSync(agents, 'utf8');
   assert.strictEqual((again.match(/codemap-boost-codex:start/g) || []).length, 1, 'managed block is idempotent');

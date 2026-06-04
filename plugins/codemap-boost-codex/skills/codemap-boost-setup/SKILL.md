@@ -9,7 +9,7 @@ Use this skill when the user asks how to configure, verify, or troubleshoot `cod
 
 ## Rule
 
-Do not install or register anything from passive hooks. Setup is the explicit opt-in path. Before running install commands, explain that setup may install Python packages and register a Codex MCP server.
+Do not install or register dependencies from passive hooks. Setup is the explicit dependency/MCP opt-in path. After setup installs `code-review-graph` into global PATH, hooks should work automatically on later Codex sessions without rerunning setup.
 
 ## Quick Checks
 
@@ -33,7 +33,8 @@ The setup script is idempotent:
 - If `code-review-graph` already exists, it does not reinstall it.
 - If `code-review-graph` is missing, it installs `code-review-graph[all]`.
 - It registers MCP with `--no-hooks --no-instructions --no-skills`.
-- It writes the Codex enable marker in plugin data so hooks may build/update graphs.
+- It writes a setup marker in plugin data for diagnostics.
+- Hooks build/update graphs whenever `code-review-graph` is available in PATH.
 
 Optional graphify support is enabled only when explicitly requested:
 
@@ -54,7 +55,7 @@ python -m pip install "graphifyy[all]"
 - Global guidance is managed in `$CODEX_HOME/AGENTS.md`.
 - Project graph output is `.code-review-graph/`.
 - Optional graphify output is `graphify-out/`.
-- Hooks stay silent until setup writes the enable marker.
+- Hooks stay silent only when `code-review-graph` is unavailable or explicitly disabled.
 - The plugin owns Codex hooks; do not let `code-review-graph install` add third-party hooks.
 - The plugin should not read or write old host directories.
 - Use code-review-graph MCP tools for symbols, callers, callees, references, impact analysis, and review context.

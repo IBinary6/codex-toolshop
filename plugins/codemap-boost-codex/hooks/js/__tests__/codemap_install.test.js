@@ -6,7 +6,6 @@ const os = require('os');
 const path = require('path');
 
 const {
-  cleanCrgMcpConfig,
   cleanLegacyCrgGitHook,
   cleanLegacyCrgHooks,
   registerCrgMcp,
@@ -67,39 +66,6 @@ function writeJson(file, value) {
     assert.strictEqual(cleaned.hooks.PostToolUse.length, 1, 'unrelated user hook is preserved');
     assert.strictEqual(cleaned.hooks.PostToolUse[0].hooks[0].command, 'node keep-me.js');
     assert.strictEqual(cleanLegacyCrgHooks(home), false, 'cleanup is idempotent');
-  } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
-  }
-}
-
-{
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-clean-mcp-'));
-  try {
-    const home = path.join(tmp, 'codex-home');
-    const config = path.join(home, 'config.toml');
-    mkdirp(home);
-    fs.writeFileSync(config, [
-      '[mcp_servers.deepwiki-cross-platform]',
-      'type = "stdio"',
-      'command = "npx"',
-      'args = ["-y", "mcp-deepwiki@latest"]',
-      '',
-      '[mcp_servers.code-review-graph]',
-      'type = "stdio"',
-      'command = "uvx"',
-      'args = ["code-review-graph", "serve"]',
-      '',
-      '[notice]',
-      'hide_full_access_warning = true',
-      '',
-    ].join('\n'), 'utf8');
-
-    assert.strictEqual(cleanCrgMcpConfig(home), true);
-    const cleaned = fs.readFileSync(config, 'utf8');
-    assert.ok(cleaned.includes('[mcp_servers.deepwiki-cross-platform]'), 'unrelated MCP config is preserved');
-    assert.ok(!cleaned.includes('[mcp_servers.code-review-graph]'), 'code-review-graph MCP config is removed');
-    assert.ok(cleaned.includes('[notice]'), 'following config sections are preserved');
-    assert.strictEqual(cleanCrgMcpConfig(home), false, 'MCP cleanup is idempotent');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

@@ -1,9 +1,9 @@
 'use strict';
 
 const { additionalContext, passSilent } = require('./lib/runtime');
-const { CONTEXT, canUseCrg, isCodeMapEnabled } = require('./lib/codemap');
+const { CONTEXT, isCodeMapEnabled } = require('./lib/codemap');
 
-if (!isCodeMapEnabled() || !canUseCrg()) {
+if (!isCodeMapEnabled()) {
   passSilent();
 } else {
   additionalContext('SubagentStart', CONTEXT);

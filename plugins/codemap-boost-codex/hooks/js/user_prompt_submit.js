@@ -1,7 +1,7 @@
 'use strict';
 
 const { additionalContext, passSilent, readStdinJson } = require('./lib/runtime');
-const { CONTEXT, canUseCrg, isCodeMapEnabled, promptLooksStructural } = require('./lib/codemap');
+const { CONTEXT, isCodeMapEnabled, promptLooksStructural } = require('./lib/codemap');
 
 function promptText(input) {
   if (!input || typeof input !== 'object') return '';
@@ -10,7 +10,7 @@ function promptText(input) {
 
 async function main() {
   const input = await readStdinJson({ timeoutMs: 2000 });
-  if (!isCodeMapEnabled() || !canUseCrg() || !promptLooksStructural(promptText(input))) return passSilent();
+  if (!isCodeMapEnabled() || !promptLooksStructural(promptText(input))) return passSilent();
   return additionalContext('UserPromptSubmit', CONTEXT);
 }
 
