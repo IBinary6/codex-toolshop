@@ -65,6 +65,8 @@ python -m pip install "graphifyy[all]"
 | `UserPromptSubmit` | 当用户问题涉及符号、调用、引用、影响面等结构问题时，提醒 Codex 优先使用图谱 MCP 工具。 |
 | `SubagentStart` | 子代理启动时注入同样的 CodeMap 使用规则。 |
 
+如果旧版本已经自动写入过 `code-review-graph serve` 的 Codex MCP 配置，新版本会在未 setup 状态下清理这段旧自动注册配置；其它 MCP 配置不会被修改。
+
 ## 生成文件
 
 项目内可能生成：

@@ -4,8 +4,10 @@ const { readStdinJson, hookCwd, passSilent } = require('./lib/runtime');
 const {
   cleanLegacyCrgGitHook,
   cleanLegacyCrgHooks,
+  cleanCrgMcpConfig,
   ensureAgentsBlock,
   ensureGitignore,
+  hasCodeMapMarker,
   isCodeMapEnabled,
   removeAgentsBlock,
   startCrgBuild,
@@ -22,6 +24,9 @@ async function main() {
     try { startCrgBuild(cwd); } catch (_) {}
   } else {
     try { removeAgentsBlock(); } catch (_) {}
+    if (!hasCodeMapMarker()) {
+      try { cleanCrgMcpConfig(); } catch (_) {}
+    }
   }
   passSilent();
 }

@@ -40,6 +40,10 @@ function agentsPath(home = codexHome()) {
   return path.join(home, 'AGENTS.md');
 }
 
+function configPath(home = codexHome()) {
+  return path.join(home, 'config.toml');
+}
+
 function ensureAgentsBlock(home = codexHome()) {
   const target = agentsPath(home);
   let existing = '';
@@ -101,14 +105,36 @@ function ensureGitignore(cwd) {
   return true;
 }
 
+function cleanCrgMcpConfig(home = codexHome()) {
+  const target = configPath(home);
+  let content = '';
+  try {
+    content = fs.readFileSync(target, 'utf8');
+  } catch (_) {
+    return false;
+  }
+  const sectionRe = /(?:^|\r?\n)\[mcp_servers\.code-review-graph\]\r?\n[\s\S]*?(?=\r?\n\[|$)/;
+  const match = content.match(sectionRe);
+  if (!match) return false;
+  const block = match[0];
+  if (!/code-review-graph/.test(block) || !/\bserve\b/.test(block)) return false;
+  const next = content.slice(0, match.index) + content.slice(match.index + block.length);
+  fs.writeFileSync(target, next.replace(/\s+$/, '\n'), 'utf8');
+  return true;
+}
+
 function canUseCrg() {
   return commandExists('code-review-graph');
+}
+
+function hasCodeMapMarker() {
+  return markerExists(ENABLED_MARKER);
 }
 
 function isCodeMapEnabled() {
   if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') return false;
   if (process.env.CODEMAP_BOOST_ENABLE_GRAPH === '1') return true;
-  return markerExists(ENABLED_MARKER);
+  return hasCodeMapMarker();
 }
 
 function enableCodeMap() {
@@ -342,10 +368,13 @@ module.exports = {
   CONTEXT,
   ENABLED_MARKER,
   agentsPath,
+  configPath,
   ensureAgentsBlock,
   removeAgentsBlock,
   ensureGitignore,
+  cleanCrgMcpConfig,
   canUseCrg,
+  hasCodeMapMarker,
   isCodeMapEnabled,
   enableCodeMap,
   startCrgBuild,
