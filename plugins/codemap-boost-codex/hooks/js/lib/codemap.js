@@ -17,12 +17,16 @@ const {
   writeMarker,
 } = require('./runtime');
 
+const ENABLED_MARKER = '.codemap-boost-enabled';
+const LOCK_BOOT_MS = 5000;
+const LOCK_STALE_MS = 4 * 60 * 60 * 1000;
+const UPDATE_THROTTLE_MS = 30 * 1000;
 const BLOCK_START = '<!-- codemap-boost-codex:start -->';
 const BLOCK_END = '<!-- codemap-boost-codex:end -->';
 const AGENTS_BLOCK = `${BLOCK_START}
 ## CodeMap Boost
 
-本机已安装 CodeMap Boost。涉及代码结构、符号、调用关系、引用关系、影响面或代码审查上下文时，优先使用 code-review-graph MCP 工具：
+本机已启用 CodeMap Boost。涉及代码结构、符号、调用关系、引用关系、影响面或代码审查上下文时，优先使用 code-review-graph MCP 工具：
 
 - 先调用 \`mcp__code_review_graph__get_minimal_context_tool\` 获取低 token 概览。
 - 符号、函数、类、调用链、引用关系优先用 \`semantic_search_nodes_tool\`、\`query_graph_tool\`、\`get_impact_radius_tool\`。
@@ -61,6 +65,22 @@ function ensureAgentsBlock(home = codexHome()) {
   return true;
 }
 
+function removeAgentsBlock(home = codexHome()) {
+  const target = agentsPath(home);
+  let existing = '';
+  try {
+    existing = fs.readFileSync(target, 'utf8');
+  } catch (_) {
+    return false;
+  }
+  if (!existing.includes(BLOCK_START) || !existing.includes(BLOCK_END)) return false;
+  const start = existing.indexOf(BLOCK_START);
+  const end = existing.indexOf(BLOCK_END, start) + BLOCK_END.length;
+  const next = (existing.slice(0, start) + existing.slice(end)).replace(/\s+$/, '');
+  fs.writeFileSync(target, next ? `${next}\n` : '', 'utf8');
+  return true;
+}
+
 function ensureGitignore(cwd) {
   const root = repoRoot(cwd);
   if (!root) return false;
@@ -85,9 +105,42 @@ function canUseCrg() {
   return commandExists('code-review-graph');
 }
 
+function isCodeMapEnabled() {
+  if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') return false;
+  if (process.env.CODEMAP_BOOST_ENABLE_GRAPH === '1') return true;
+  return markerExists(ENABLED_MARKER);
+}
+
+function enableCodeMap() {
+  writeMarker(ENABLED_MARKER);
+  return true;
+}
+
 function lockName(prefix, cwd) {
   const key = crypto.createHash('sha1').update(path.resolve(cwd)).digest('hex').slice(0, 16);
   return `${prefix}-${key}.lock`;
+}
+
+function isPidAlive(pid) {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function isLockActive(file) {
+  try {
+    const pid = Number.parseInt(fs.readFileSync(file, 'utf8').trim(), 10) || 0;
+    const stat = fs.statSync(file);
+    const age = Date.now() - stat.mtimeMs;
+    if (age <= LOCK_BOOT_MS) return true;
+    if (age <= LOCK_STALE_MS && isPidAlive(pid)) return true;
+    fs.unlinkSync(file);
+  } catch (_) {}
+  return false;
 }
 
 function tryWriteLock(file) {
@@ -99,18 +152,40 @@ function tryWriteLock(file) {
   }
 }
 
+function recentlyTouched(file, maxAgeMs) {
+  try {
+    return Date.now() - fs.statSync(file).mtimeMs < maxAgeMs;
+  } catch (_) {
+    return false;
+  }
+}
+
+function touchFile(file) {
+  try {
+    fs.writeFileSync(file, String(Date.now()));
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 function startCrgBuild(cwd) {
-  if (!isGitRepo(cwd) || !canUseCrg()) return false;
-  const graphDir = path.join(repoRoot(cwd), '.code-review-graph');
+  if (process.env.CODEMAP_BOOST_DISABLE_BACKGROUND === '1') return false;
+  if (!isCodeMapEnabled() || !isGitRepo(cwd) || !canUseCrg()) return false;
+  const root = repoRoot(cwd);
+  if (!root) return false;
+  const graphDir = path.join(root, '.code-review-graph');
   if (fs.existsSync(graphDir)) return false;
-  const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-build', cwd));
+  const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-build', root));
+  if (isLockActive(lockFile)) return false;
   if (!tryWriteLock(lockFile)) return false;
   const code = `
     const fs = require('fs');
     const { spawnSync } = require('child_process');
     try {
-      spawnSync('code-review-graph', ['build', '--repo', ${JSON.stringify(cwd)}], {
-        cwd: ${JSON.stringify(cwd)},
+      try { fs.writeFileSync(${JSON.stringify(lockFile)}, String(process.pid)); } catch (_) {}
+      spawnSync('code-review-graph', ['build', '--repo', ${JSON.stringify(root)}], {
+        cwd: ${JSON.stringify(root)},
         stdio: 'ignore',
         windowsHide: true
       });
@@ -118,12 +193,46 @@ function startCrgBuild(cwd) {
       try { fs.unlinkSync(${JSON.stringify(lockFile)}); } catch (_) {}
     }
   `;
-  return !!spawnDetached(process.execPath, ['-e', code], { cwd });
+  const child = spawnDetached(process.execPath, ['-e', code], { cwd: root });
+  if (!child) {
+    try { fs.unlinkSync(lockFile); } catch (_) {}
+    return false;
+  }
+  return true;
 }
 
 function startCrgUpdate(cwd) {
-  if (!isGitRepo(cwd) || !canUseCrg()) return false;
-  return !!spawnDetached('code-review-graph', ['update', '--repo', cwd], { cwd });
+  if (process.env.CODEMAP_BOOST_DISABLE_BACKGROUND === '1') return false;
+  if (!isCodeMapEnabled() || !isGitRepo(cwd) || !canUseCrg()) return false;
+  const root = repoRoot(cwd);
+  if (!root) return false;
+  if (!fs.existsSync(path.join(root, '.code-review-graph'))) return false;
+  const stampFile = path.join(os.tmpdir(), lockName('codemap-crg-update-stamp', root));
+  if (recentlyTouched(stampFile, UPDATE_THROTTLE_MS)) return false;
+  const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-update', root));
+  if (isLockActive(lockFile)) return false;
+  if (!tryWriteLock(lockFile)) return false;
+  touchFile(stampFile);
+  const code = `
+    const fs = require('fs');
+    const { spawnSync } = require('child_process');
+    try {
+      try { fs.writeFileSync(${JSON.stringify(lockFile)}, String(process.pid)); } catch (_) {}
+      spawnSync('code-review-graph', ['update', '--repo', ${JSON.stringify(root)}], {
+        cwd: ${JSON.stringify(root)},
+        stdio: 'ignore',
+        windowsHide: true
+      });
+    } finally {
+      try { fs.unlinkSync(${JSON.stringify(lockFile)}); } catch (_) {}
+    }
+  `;
+  const child = spawnDetached(process.execPath, ['-e', code], { cwd: root });
+  if (!child) {
+    try { fs.unlinkSync(lockFile); } catch (_) {}
+    return false;
+  }
+  return true;
 }
 
 function registerCrgMcp(options = {}) {
@@ -142,6 +251,7 @@ function registerCrgMcp(options = {}) {
       '--yes',
     ], {
       stdio: 'ignore',
+      shell: process.platform === 'win32',
       timeout: 30000,
       windowsHide: process.platform === 'win32',
     });
@@ -225,10 +335,14 @@ module.exports = {
   BLOCK_END,
   AGENTS_BLOCK,
   CONTEXT,
+  ENABLED_MARKER,
   agentsPath,
   ensureAgentsBlock,
+  removeAgentsBlock,
   ensureGitignore,
   canUseCrg,
+  isCodeMapEnabled,
+  enableCodeMap,
   startCrgBuild,
   startCrgUpdate,
   registerCrgMcp,

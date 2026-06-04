@@ -1,11 +1,10 @@
 'use strict';
 
-const { spawnSync, spawn } = require('child_process');
+const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { isWindows, markerExists, markerPath, writeMarker } = require('./runtime');
 const { commandExists } = require('./runtime');
-const { registerCrgMcp } = require('./codemap');
 
 function pipInstall(pkg) {
   for (const py of ['python', 'python3']) {
@@ -53,33 +52,9 @@ function ensureGraphify() {
   return ensureCli('graphify', 'graphifyy[all]', '.graphify-install-failed');
 }
 
-function spawnPrewarm() {
-  if (process.env.CODEMAP_BOOST_DISABLE_BOOTSTRAP === '1') return null;
-  try {
-    const child = spawn(process.execPath, [__filename, '--prewarm'], {
-      detached: true,
-      stdio: 'ignore',
-      env: process.env,
-      windowsHide: isWindows,
-    });
-    child.unref();
-    return child;
-  } catch (_) {
-    return null;
-  }
-}
-
 module.exports = {
   pipInstall,
   ensureCli,
   ensureCrg,
   ensureGraphify,
-  spawnPrewarm,
 };
-
-if (require.main === module && process.argv.includes('--prewarm')) {
-  try { ensureCrg(); } catch (_) {}
-  try { ensureGraphify(); } catch (_) {}
-  try { registerCrgMcp(); } catch (_) {}
-  process.exit(0);
-}

@@ -9,7 +9,7 @@ const { spawnSync } = require('child_process');
 const pluginRoot = path.join(__dirname, '..', '..', '..');
 const entry = path.join(pluginRoot, 'scripts', 'run-hook.cjs');
 
-function runSession(cwd, codexHome) {
+function runSession(cwd, codexHome, extraEnv = {}) {
   return spawnSync(process.execPath, [entry, 'session_start'], {
     cwd,
     input: JSON.stringify({ hook_event_name: 'SessionStart', cwd }),
@@ -20,7 +20,8 @@ function runSession(cwd, codexHome) {
       PLUGIN_ROOT: pluginRoot,
       PLUGIN_DATA: path.join(codexHome, 'plugin-data'),
       CODEMAP_BOOST_DISABLE_BOOTSTRAP: '1',
-      CODEMAP_BOOST_DISABLE_GRAPH: '1',
+      CODEMAP_BOOST_DISABLE_BACKGROUND: '1',
+      ...extraEnv,
     },
     windowsHide: process.platform === 'win32',
   });
@@ -42,6 +43,27 @@ try {
   fs.mkdirSync(repo, { recursive: true });
   sh(['init'], repo);
 
+  const inactiveAgents = path.join(home, 'AGENTS.md');
+  fs.mkdirSync(path.dirname(inactiveAgents), { recursive: true });
+  fs.writeFileSync(inactiveAgents, [
+    'before',
+    '<!-- codemap-boost-codex:start -->',
+    'old block',
+    '<!-- codemap-boost-codex:end -->',
+    'after',
+    '',
+  ].join('\n'), 'utf8');
+
+  const inactive = runSession(repo, home);
+  assert.strictEqual(inactive.status, 0, inactive.stderr);
+  assert.strictEqual(inactive.stdout, '', 'inactive SessionStart should be silent');
+  const cleaned = fs.readFileSync(inactiveAgents, 'utf8');
+  assert.ok(!cleaned.includes('codemap-boost-codex:start'), 'inactive SessionStart removes stale managed block');
+  assert.ok(!fs.existsSync(path.join(repo, '.gitignore')), 'inactive SessionStart should not touch project gitignore');
+
+  const data = path.join(home, 'plugin-data');
+  fs.mkdirSync(data, { recursive: true });
+  fs.writeFileSync(path.join(data, '.codemap-boost-enabled'), '1', 'utf8');
   const first = runSession(repo, home);
   assert.strictEqual(first.status, 0, first.stderr);
   assert.strictEqual(first.stdout, '', 'SessionStart should be silent');

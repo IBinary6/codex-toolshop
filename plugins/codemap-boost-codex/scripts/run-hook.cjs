@@ -24,8 +24,7 @@ function pluginDataDir(root) {
   const codexHome = process.env.CODEX_HOME
     ? path.resolve(process.env.CODEX_HOME)
     : path.join(os.homedir(), '.codex');
-  const safeName = path.basename(root).replace(/[^A-Za-z0-9._-]/g, '_') || 'codemap-boost-codex';
-  return path.join(codexHome, 'plugins', 'data', safeName);
+  return path.join(codexHome, 'plugins', 'data', 'codemap-boost-codex');
 }
 
 function readStdin() {
