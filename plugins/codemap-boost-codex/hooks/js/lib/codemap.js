@@ -240,18 +240,23 @@ function registerCrgMcp(options = {}) {
   const spawn = options.spawnSync || spawnSync;
   if (!canUse()) return false;
   if (markerExists('.crg-codex-register-failed')) return false;
+  const installArgs = [
+    'install',
+    '--platform',
+    'codex',
+    '--no-hooks',
+    '--no-instructions',
+    '--no-skills',
+    '--yes',
+  ];
+  const useCmdShim = process.platform === 'win32' && !options.spawnSync;
+  const command = useCmdShim ? 'cmd.exe' : 'code-review-graph';
+  const args = useCmdShim
+    ? ['/d', '/s', '/c', `code-review-graph ${installArgs.join(' ')}`]
+    : installArgs;
   try {
-    const result = spawn('code-review-graph', [
-      'install',
-      '--platform',
-      'codex',
-      '--no-hooks',
-      '--no-instructions',
-      '--no-skills',
-      '--yes',
-    ], {
+    const result = spawn(command, args, {
       stdio: 'ignore',
-      shell: process.platform === 'win32',
       timeout: 30000,
       windowsHide: process.platform === 'win32',
     });
