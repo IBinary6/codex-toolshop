@@ -67,9 +67,11 @@ function main() {
     'hooks/codex-hooks.json'
   );
   assert(JSON.stringify(legacyHooks) === JSON.stringify(hooks), 'legacy codex-hooks.json must match hooks/hooks.json');
+  assert(Object.keys(hooks).length === 1 && Object.prototype.hasOwnProperty.call(hooks, 'hooks'), 'hooks manifest must only contain top-level hooks key');
   assert(hooks.hooks.SessionStart, 'SessionStart hook missing');
   assert(hooks.hooks.PostToolUse, 'PostToolUse hook missing');
   assert(hooks.hooks.PreToolUse, 'PreToolUse hook missing');
+  assert(!JSON.stringify(hooks).includes('"async"'), 'Codex skips async command hooks; manifest must not contain async');
   assertNoAbsoluteCommandPaths(hooks);
 
   const nodeModules = path.join(pluginRoot, 'node_modules');

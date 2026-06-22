@@ -1,5 +1,4 @@
 {
-  "description": "CodeMap Boost Codex hook integration",
   "hooks": {
     "SessionStart": [
       {

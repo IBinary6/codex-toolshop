@@ -46,6 +46,7 @@ function main() {
   const hooks = readJson(path.join(pluginRoot, 'hooks', 'hooks.json'), 'hooks manifest');
   const legacyHooks = readJson(path.join(pluginRoot, 'hooks', 'codex-hooks.json'), 'legacy hooks manifest');
   assert(JSON.stringify(legacyHooks) === JSON.stringify(hooks), 'legacy codex-hooks.json must match hooks/hooks.json');
+  assert(Object.keys(hooks).length === 1 && Object.prototype.hasOwnProperty.call(hooks, 'hooks'), 'hooks manifest must only contain top-level hooks key');
   for (const eventName of ['SessionStart', 'PostToolUse', 'PreToolUse', 'UserPromptSubmit', 'SubagentStart']) {
     assert(hooks.hooks[eventName], `${eventName} hook missing`);
   }
