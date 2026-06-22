@@ -12,6 +12,9 @@ const runner = path.join(pluginRoot, 'scripts', 'run-hook.cjs');
 function runHook(name, payload, extraEnv = {}, enabled = true) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-nudge-'));
   try {
+    const pluginData = path.join(tmp, 'data');
+    fs.mkdirSync(pluginData, { recursive: true });
+    fs.writeFileSync(path.join(pluginData, '.codemap-boost-enabled'), '1', 'utf8');
     const graphEnv = enabled
       ? { CODEMAP_BOOST_ASSUME_CRG: '1' }
       : { CODEMAP_BOOST_ASSUME_CRG: '1', CODEMAP_BOOST_DISABLE_GRAPH: '1' };
@@ -22,7 +25,7 @@ function runHook(name, payload, extraEnv = {}, enabled = true) {
       env: {
         ...process.env,
         PLUGIN_ROOT: pluginRoot,
-        PLUGIN_DATA: path.join(tmp, 'data'),
+        PLUGIN_DATA: pluginData,
         CODEMAP_BOOST_DISABLE_BOOTSTRAP: '1',
         ...graphEnv,
         ...extraEnv,

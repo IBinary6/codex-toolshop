@@ -26,6 +26,13 @@ const r2 = formatViolations(dup);
 assert.ok(r2.includes('same'), '保留 1 条');
 assert.ok(!/还有/.test(r2), '去重后仅 1 条无「还有」提示');
 
+const multiFile = formatViolations([
+  { file: 'src/a.cpp', line: 3, category: 'whitespace/braces', message: 'bad' },
+  { file: 'src/b.cpp', line: 3, category: 'whitespace/braces', message: 'bad' },
+]);
+assert.ok(multiFile.includes('src/a.cpp:3'), '多文件输出应包含文件名 a');
+assert.ok(multiFile.includes('src/b.cpp:3'), '多文件输出应包含文件名 b');
+
 // ---- 软违规相关导出已删除：splitViolations/formatSoftViolations/SOFT_CATEGORIES 不再导出 ----
 const cpplintMod = require('../steps/cpplint.js');
 assert.strictEqual(cpplintMod.splitViolations, undefined, 'splitViolations 已删除');

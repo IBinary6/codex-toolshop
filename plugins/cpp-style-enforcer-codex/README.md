@@ -26,7 +26,7 @@ codex plugin add cpp-style-enforcer-codex@codex-toolshop
 
 | Hook | 触发时机 | 作用 |
 | --- | --- | --- |
-| `SessionStart` | Codex 会话启动、恢复或清理上下文后 | 准备 C++ 风格配置和必要运行环境。 |
+| `SessionStart` | Codex 会话启动、恢复或清理上下文后 | 准备 C++ 风格配置；不做网络安装。 |
 | `PostToolUse` | Codex 写入或编辑文件后 | 对 C/C++ 文件执行格式化、BOM 处理、版权头处理和 cpplint 检查。 |
 | `PreToolUse` | Codex 执行 Bash 命令前 | 识别提交相关命令，对暂存区 C/C++ 文件做提交前检查，违规时阻止提交。 |
 
@@ -49,10 +49,10 @@ codex plugin add cpp-style-enforcer-codex@codex-toolshop
 项目级覆盖配置放在项目根目录下：
 
 ```text
-.claude-cpp-style/cpp-style.json
+.codex-cpp-style/cpp-style.json
 ```
 
-保留 `.claude-cpp-style` 是为了兼容团队已有项目配置，不需要迁移旧项目。
+插件优先读取 `.codex-cpp-style`，同时兼容团队已有的 `.claude-cpp-style` 配置，不需要迁移旧项目。
 
 ## 运行态数据
 
@@ -68,6 +68,14 @@ PLUGIN_DATA
 
 - Node.js 18+
 - Python 3，用于运行内置 `cpplint.py`
-- `clang-format` 可选；缺失时插件会尽量安全降级或尝试准备可用工具
+- `clang-format` 可选；缺失时格式化步骤静默跳过，其他检查继续
+- `iconv-lite` 可选；缺失时 GBK 文件会跳过转码/BOM 处理，避免损坏原文件
+
+hook 运行期只检测依赖，不执行 `npm install` 或 `pip install`。如需补齐可选依赖，请在常规终端中预先安装，例如：
+
+```bash
+python -m pip install clang-format==18.1.8
+npm install iconv-lite@0.6.3
+```
 
 hook 默认保持安静，只在需要阻止操作或提示关键问题时输出 Codex hook 决策。

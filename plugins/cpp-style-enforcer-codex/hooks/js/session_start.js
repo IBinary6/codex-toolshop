@@ -2,7 +2,6 @@
 
 const path = require('path');
 const { ensureUserTemplate } = require('./lib/config');
-const { spawnPrewarm } = require('./lib/ensure_deps');
 const { readStdinJson } = require('./lib/stdin');
 const { repoRoot } = require('./lib/git');
 const { isCppProjectDir } = require('./lib/project');
@@ -17,16 +16,8 @@ try {
   // 复制失败（权限等）→ 静默吞掉，调用方按无全局模板降级硬编码默认
 }
 
-try {
-  // 后台 detached 预热 iconv-lite / clang-format，不阻塞 SessionStart、不占 10s timeout。
-  // 子进程 stdio:ignore 保持静默契约；失败返回 null，绝不影响 exit 0。
-  spawnPrewarm();
-} catch (_) {
-  // 预热不可用 → 编辑期 steps 走现有降级（GBK 跳过 / clang-format 跳过）
-}
-
 /**
- * SessionStart 提前生成 .claude-cpp-style：cwd 为 C++ git 项目时提前写一份本地配置，
+ * SessionStart 提前生成 .codex-cpp-style：cwd 为 C++ git 项目时提前写一份本地配置，
  * 进入会话即有配置，不必等编辑第一个文件。post_edit 仍保留按被编辑文件兜底
  * （覆盖 终端≠目标目录 / SessionStart 没覆盖到 的场景）。
  *

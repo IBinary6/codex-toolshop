@@ -1,6 +1,6 @@
 {
   "name": "codemap-boost-codex",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "CodeMap workflow for Codex using code-review-graph MCP guidance, background graph updates, and AGENTS.md instructions.",
   "author": {
     "name": "IBinary6"
@@ -18,7 +18,7 @@
   "interface": {
     "displayName": "CodeMap Boost",
     "shortDescription": "Nudge Codex toward code-review-graph for code structure work.",
-    "longDescription": "Maintains Codex-native CodeMap guidance in AGENTS.md when code-review-graph is available, protects generated graph output from commits, automatically builds or updates graphs from hooks, and nudges prompts, shell searches, and subagents toward graph-aware code exploration.",
+    "longDescription": "Maintains Codex-native CodeMap guidance in AGENTS.md when code-review-graph is available, builds or updates graphs from hooks without editing project .gitignore during passive sessions, and nudges prompts, shell searches, and subagents toward graph-aware code exploration.",
     "developerName": "IBinary6",
     "category": "Coding",
     "capabilities": [

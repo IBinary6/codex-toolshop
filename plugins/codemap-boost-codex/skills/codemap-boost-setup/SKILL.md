@@ -9,7 +9,7 @@ Use this skill when the user asks how to configure, verify, or troubleshoot `cod
 
 ## Rule
 
-Do not install or register dependencies from passive hooks. Setup is the explicit dependency/MCP opt-in path. After setup installs `code-review-graph` into global PATH, hooks should work automatically on later Codex sessions without rerunning setup.
+Do not install or register dependencies from passive hooks. Setup is the explicit dependency/MCP opt-in path. After setup writes the enable marker and `code-review-graph` is available in PATH, hooks should work automatically on later Codex sessions without rerunning setup.
 
 ## Quick Checks
 
@@ -33,8 +33,9 @@ The setup script is idempotent:
 - If `code-review-graph` already exists, it does not reinstall it.
 - If `code-review-graph` is missing, it installs `code-review-graph[all]`.
 - It registers MCP with `--no-hooks --no-instructions --no-skills`.
-- It writes a setup marker in plugin data for diagnostics.
-- Hooks build/update graphs whenever `code-review-graph` is available in PATH.
+- It writes a setup marker in plugin data.
+- It updates the target project's `.gitignore` for graph output directories; passive hooks do not edit `.gitignore`.
+- Hooks build/update graphs only when both the setup marker and `code-review-graph` are available.
 
 Optional graphify support is enabled only when explicitly requested:
 
@@ -55,7 +56,7 @@ python -m pip install "graphifyy[all]"
 - Global guidance is managed in `$CODEX_HOME/AGENTS.md`.
 - Project graph output is `.code-review-graph/`.
 - Optional graphify output is `graphify-out/`.
-- Hooks stay silent only when `code-review-graph` is unavailable or explicitly disabled.
+- Hooks stay silent when setup has not written the enable marker, `code-review-graph` is unavailable, or graph behavior is explicitly disabled.
 - The plugin owns Codex hooks; do not let `code-review-graph install` add third-party hooks.
 - The plugin should not read or write old host directories.
 - Use code-review-graph MCP tools for symbols, callers, callees, references, impact analysis, and review context.

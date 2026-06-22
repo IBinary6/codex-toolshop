@@ -61,6 +61,10 @@ try {
   assert.ok(untouched.includes('old block'), 'SessionStart without CLI should not rewrite AGENTS.md');
   assert.ok(!fs.existsSync(path.join(repo, '.gitignore')), 'SessionStart without CLI should not touch project gitignore');
 
+  const pluginData = path.join(home, 'plugin-data');
+  fs.mkdirSync(pluginData, { recursive: true });
+  fs.writeFileSync(path.join(pluginData, '.codemap-boost-enabled'), '1', 'utf8');
+
   const first = runSession(repo, home, { CODEMAP_BOOST_ASSUME_CRG: '1' });
   assert.strictEqual(first.status, 0, first.stderr);
   assert.strictEqual(first.stdout, '', 'SessionStart should be silent');
@@ -77,10 +81,7 @@ try {
   assert.strictEqual(second.status, 0, second.stderr);
   const again = fs.readFileSync(agents, 'utf8');
   assert.strictEqual((again.match(/codemap-boost-codex:start/g) || []).length, 1, 'managed block is idempotent');
-  assert.ok(fs.existsSync(path.join(repo, '.gitignore')), 'SessionStart creates or updates .gitignore');
-  const gitignore = fs.readFileSync(path.join(repo, '.gitignore'), 'utf8');
-  assert.ok(gitignore.includes('.code-review-graph/'), 'gitignore protects CRG output');
-  assert.ok(gitignore.includes('graphify-out/'), 'gitignore protects graphify output');
+  assert.ok(!fs.existsSync(path.join(repo, '.gitignore')), 'SessionStart does not dirty project .gitignore');
 
   console.log('agents.test.js PASS');
 } finally {

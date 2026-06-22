@@ -11,6 +11,7 @@ const { shouldHandle } = require('./lib/target');
 const { runCpplint, formatViolations } = require('./steps/cpplint');
 
 const isWindows = process.platform === 'win32';
+const PRE_COMMIT_DEADLINE_MS = 25000;
 
 /**
  * 收紧正则判定真正的 `git commit`：
@@ -20,10 +21,106 @@ const isWindows = process.platform === 'win32';
  * @param {string} command
  * @returns {boolean}
  */
+function tokenizeCommand(command) {
+  return String(command).trim().match(/(?:"[^"]*"|'[^']*'|\S+)/g) || [];
+}
+
+function unquote(token) {
+  return String(token).replace(/^(['"])(.*)\1$/, '$2');
+}
+
+function normalizedCommandTokens(segment) {
+  let tokens = tokenizeCommand(segment);
+  while (tokens.length > 0) {
+    const head = unquote(tokens[0]).toLowerCase();
+    if (head === 'command' || head === '&') {
+      tokens = tokens.slice(1);
+      continue;
+    }
+    if ((head === 'cmd' || head === 'cmd.exe') && tokens.length >= 3 && unquote(tokens[1]).toLowerCase() === '/c') {
+      return tokenizeCommand(tokens.slice(2).map(unquote).join(' '));
+    }
+    return tokens;
+  }
+  return tokens;
+}
+
+function gitSubcommand(tokens) {
+  if (tokens.length === 0 || unquote(tokens[0]) !== 'git') return null;
+  let i = 1;
+  while (i < tokens.length) {
+    const tok = unquote(tokens[i]);
+    if (tok === '-C' || tok === '-c' || tok === '--git-dir' || tok === '--work-tree') {
+      i += 2;
+      continue;
+    }
+    if (tok.startsWith('--git-dir=') || tok.startsWith('--work-tree=')) {
+      i += 1;
+      continue;
+    }
+    if (tok.startsWith('-')) {
+      i += 1;
+      continue;
+    }
+    return tok;
+  }
+  return null;
+}
+
+function segmentIsGitCommit(segment) {
+  const tokens = normalizedCommandTokens(segment);
+  if (tokens.length === 0) return false;
+  return gitSubcommand(tokens) === 'commit';
+}
+
+function gitCommitCwdFromTokens(tokens, cwd) {
+  if (tokens.length === 0 || unquote(tokens[0]) !== 'git') return null;
+  let current = path.resolve(cwd);
+  let i = 1;
+  while (i < tokens.length) {
+    const tok = unquote(tokens[i]);
+    if (tok === '-C') {
+      if (i + 1 >= tokens.length) return null;
+      current = path.resolve(current, unquote(tokens[i + 1]));
+      i += 2;
+      continue;
+    }
+    if (tok === '-c' || tok === '--git-dir' || tok === '--work-tree') {
+      i += 2;
+      continue;
+    }
+    if (tok.startsWith('--git-dir=') || tok.startsWith('--work-tree=')) {
+      i += 1;
+      continue;
+    }
+    if (tok.startsWith('-')) {
+      i += 1;
+      continue;
+    }
+    return tok === 'commit' ? current : null;
+  }
+  return null;
+}
+
+function commitCwd(command, baseCwd = process.cwd()) {
+  if (typeof command !== 'string') return null;
+  let current = path.resolve(baseCwd);
+  for (const segment of command.split(/\s*(?:&&|\|\||;|\|)\s*/)) {
+    const tokens = normalizedCommandTokens(segment);
+    if (tokens.length === 0) continue;
+    const head = unquote(tokens[0]).toLowerCase();
+    if (head === 'cd' && tokens.length >= 2) {
+      current = path.resolve(current, unquote(tokens[1]));
+      continue;
+    }
+    const target = gitCommitCwdFromTokens(tokens, current);
+    if (target) return target;
+  }
+  return null;
+}
+
 function isGitCommit(command) {
-  if (typeof command !== 'string') return false;
-  // ^\s*git\s+commit  且 commit 后不接连字符/字母数字（排除 commit-graph/commit-tree），后接空白/结尾/选项
-  return /^\s*git\s+commit(?![-\w])/.test(command);
+  return commitCwd(command) !== null;
 }
 
 /**
@@ -49,11 +146,12 @@ async function main() {
   if (!input) return passSilent();
 
   const command = input.tool_input && input.tool_input.command;
-  if (!isGitCommit(command)) return passSilent();
+  const baseCwd = input.cwd ? path.resolve(input.cwd) : process.cwd();
+  const cwd = commitCwd(command, baseCwd);
+  if (!cwd) return passSilent();
 
-  const cwd = process.cwd();
   // loadConfig/findProjectConfig 从 path.dirname(filePath) 向上找；传 cwd 下的探针文件，
-  // 使其 dirname 落在 cwd，从而包含 cwd 本身的 .claude-cpp-style/cpp-style.json。
+  // 使其 dirname 落在 cwd，从而包含 cwd 本身的 .codex-cpp-style/cpp-style.json。
   const config = loadConfig(path.join(cwd, '.cpp-style-probe'));
   if (config.enabled === false || !config.checks.cpplint) return passSilent();
 
@@ -68,10 +166,22 @@ async function main() {
 
   const suppressCopyright = !(config.copyrightInfo && config.copyrightInfo.company) || config.checks.copyright === false;
   const allViolations = [];
+  const deadline = Date.now() + PRE_COMMIT_DEADLINE_MS;
   for (const f of files) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 1000) {
+      allViolations.push({
+        file: path.relative(root, f),
+        line: 0,
+        category: 'runtime/timeout',
+        message: 'pre-commit cpplint 总耗时超限，剩余文件未检查',
+      });
+      break;
+    }
     try {
-      const v = runCpplint(f, { root, suppressCopyright });
+      const v = runCpplint(f, { root, suppressCopyright, timeoutMs: Math.min(15000, remainingMs) });
       for (const item of v) allViolations.push({ ...item, file: path.relative(root, f) });
+      if (v.some((item) => item.category === 'runtime/timeout')) break;
     } catch (e) {
       diag(`pre_commit cpplint 跳过 ${f}: ${e && e.message ? e.message : e}`);
     }
@@ -92,4 +202,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { isGitCommit, stagedCppFiles };
+module.exports = { isGitCommit, stagedCppFiles, tokenizeCommand, gitSubcommand, commitCwd };

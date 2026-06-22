@@ -2,11 +2,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { userTemplatePath, DEFAULT_CONFIG } = require('./config.js');
+const { userTemplatePath, DEFAULT_CONFIG, PROJECT_CONFIG_DIRS } = require('./config.js');
 
 const README_CONTENT = `cpp-style-enforcer 项目配置说明
 ================================
-配置文件：.claude-cpp-style/cpp-style.json
+配置文件：.codex-cpp-style/cpp-style.json（兼容读取旧 .claude-cpp-style/cpp-style.json）
 全局模板：~/.codex/cpp-style-template.json（所有项目的继承基础，修改此文件对所有项目生效）
 
 -----------------------------------------------------------
@@ -103,11 +103,11 @@ copyrightInfo (object)
 `;
 
 /**
- * 走全套流程且项目根缺少 .claude-cpp-style/cpp-style.json 时，从全局模板拷一份到项目根。
+ * 走全套流程且项目根缺少项目级 cpp-style.json 时，从全局模板拷一份到项目根。
  * 同时生成 README.txt 说明各字段用途（已存在不覆盖）。
  *
  * - root 为 null（非 git）→ 不生成（无可靠项目根概念）。
- * - root/.claude-cpp-style/cpp-style.json 已存在 → 绝不覆盖，直接返回。
+ * - root/.codex-cpp-style 或旧 root/.claude-cpp-style 已存在 → 绝不覆盖，直接返回。
  * - 内容来源：全局模板 ~/.codex/cpp-style-template.json；缺失/损坏 → 硬编码默认 schema。
  * - 写文件 UTF-8 无 BOM、LF；失败 try/catch 不崩。
  *
@@ -117,7 +117,10 @@ copyrightInfo (object)
 function ensureProjectConfig(root, templatePath = userTemplatePath()) {
   if (!root) return;
   try {
-    const dir = path.join(root, '.claude-cpp-style');
+    for (const name of PROJECT_CONFIG_DIRS) {
+      if (fs.existsSync(path.join(root, name, 'cpp-style.json'))) return;
+    }
+    const dir = path.join(root, '.codex-cpp-style');
     const target = path.join(dir, 'cpp-style.json');
     const readme = path.join(dir, 'README.txt');
 

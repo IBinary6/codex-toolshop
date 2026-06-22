@@ -16,10 +16,10 @@ function mkRepo() {
   sh(['init'], t);
   return t;
 }
-function relPath(root) { return path.join(root, '.claude-cpp-style', 'cpp-style.json'); }
+function relPath(root) { return path.join(root, '.codex-cpp-style', 'cpp-style.json'); }
 
 try {
-  // 1. 无 .claude-cpp-style + 有全局模板 → 生成，内容来自全局模板，无 BOM
+  // 1. 无项目配置 + 有全局模板 → 生成 Codex 路径，内容来自全局模板，无 BOM
   {
     const root = mkRepo();
     const tplDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tpl-'));
@@ -64,7 +64,7 @@ try {
   // 4. 已存在 cpp-style.json → 字节不变，绝不覆盖
   {
     const root = mkRepo();
-    const dir = path.join(root, '.claude-cpp-style');
+    const dir = path.join(root, '.codex-cpp-style');
     fs.mkdirSync(dir, { recursive: true });
     const p = path.join(dir, 'cpp-style.json');
     const custom = Buffer.from('{"enabled":false,"mode":"full"}\n', 'utf-8');
@@ -73,7 +73,19 @@ try {
     assert.ok(fs.readFileSync(p).equals(custom), '已存在则字节不变不覆盖');
   }
 
-  // 5. 非 git（root=null）→ 不生成、不崩
+  // 5. 旧 Claude 路径已存在 → 不生成 Codex 路径、不覆盖旧配置
+  {
+    const root = mkRepo();
+    const dir = path.join(root, '.claude-cpp-style');
+    fs.mkdirSync(dir, { recursive: true });
+    const legacy = path.join(dir, 'cpp-style.json');
+    fs.writeFileSync(legacy, '{"enabled":false}\n', 'utf-8');
+    ensureProjectConfig(root);
+    assert.ok(!fs.existsSync(relPath(root)), '旧配置存在时不额外生成 Codex 配置');
+    assert.strictEqual(fs.readFileSync(legacy, 'utf-8'), '{"enabled":false}\n');
+  }
+
+  // 6. 非 git（root=null）→ 不生成、不崩
   {
     assert.doesNotThrow(() => ensureProjectConfig(null), 'root=null 不应抛出');
   }

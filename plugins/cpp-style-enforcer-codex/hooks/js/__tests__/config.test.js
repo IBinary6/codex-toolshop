@@ -38,7 +38,7 @@ try {
 
   // ---- loadConfig：字段级覆盖（全局模板 ⊕ 项目）----
   const proj = mkTmp('proj-');
-  const cfgDir = path.join(proj, '.claude-cpp-style');
+  const cfgDir = path.join(proj, '.codex-cpp-style');
   fs.mkdirSync(cfgDir, { recursive: true });
   fs.writeFileSync(path.join(cfgDir, 'cpp-style.json'), JSON.stringify({ mode: 'full', checks: { cpplint: false }, copyrightInfo: { company: 'OVERRIDE' } }));
   const srcFile = path.join(proj, 'a.cpp');
@@ -52,9 +52,18 @@ try {
   assert.strictEqual(cfg.copyrightInfo.author, 'kevin', '未覆盖 author 回退全局');
   assert.strictEqual(cfg.enabled, true, 'enabled 缺省 true');
 
+  // ---- loadConfig：旧 Claude 路径仍兼容 ----
+  const legacyProj = mkTmp('legacy-proj-');
+  const legacyCfgDir = path.join(legacyProj, '.claude-cpp-style');
+  fs.mkdirSync(legacyCfgDir, { recursive: true });
+  fs.writeFileSync(path.join(legacyCfgDir, 'cpp-style.json'), JSON.stringify({ checks: { cpplint: false } }));
+  const legacySrc = path.join(legacyProj, 'legacy.cpp');
+  fs.writeFileSync(legacySrc, 'int legacy;');
+  assert.strictEqual(loadConfig(legacySrc, userPath).checks.cpplint, false, '旧 .claude-cpp-style 路径仍兼容');
+
   // ---- loadConfig：损坏 JSON 回退默认 ----
   const proj2 = mkTmp('proj2-');
-  const cfgDir2 = path.join(proj2, '.claude-cpp-style');
+  const cfgDir2 = path.join(proj2, '.codex-cpp-style');
   fs.mkdirSync(cfgDir2, { recursive: true });
   fs.writeFileSync(path.join(cfgDir2, 'cpp-style.json'), '{ broken json ');
   const src2 = path.join(proj2, 'b.cpp');
@@ -66,7 +75,7 @@ try {
 
   // ---- loadConfig：enabled:false 生效 ----
   const proj3 = mkTmp('proj3-');
-  const cfgDir3 = path.join(proj3, '.claude-cpp-style');
+  const cfgDir3 = path.join(proj3, '.codex-cpp-style');
   fs.mkdirSync(cfgDir3, { recursive: true });
   fs.writeFileSync(path.join(cfgDir3, 'cpp-style.json'), JSON.stringify({ enabled: false }));
   const src3 = path.join(proj3, 'c.cpp');

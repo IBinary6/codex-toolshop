@@ -12,6 +12,7 @@ const DEFAULT_CONFIG = {
   legacyChecks: { clangFormat: false, copyright: false, cpplint: false, bom: true },
   copyrightInfo: { company: '', author: '', dateFormat: 'YYYY/MM/DD HH:mm' },
 };
+const PROJECT_CONFIG_DIRS = ['.codex-cpp-style', '.claude-cpp-style'];
 
 /** 全局模板默认路径 ~/.codex/cpp-style-template.json */
 function userTemplatePath() {
@@ -45,14 +46,16 @@ function readJsonSafe(filePath) {
   }
 }
 
-/** 从被编辑文件向上找 .claude-cpp-style/cpp-style.json，找不到返回 null */
+/** 从被编辑文件向上找项目级 cpp-style.json，Codex 路径优先、Claude 旧路径兼容。 */
 function findProjectConfig(filePath) {
   try {
     let dir = path.dirname(path.resolve(filePath));
     let prev = null;
     while (dir && dir !== prev) {
-      const candidate = path.join(dir, '.claude-cpp-style', 'cpp-style.json');
-      if (fs.existsSync(candidate)) return candidate;
+      for (const name of PROJECT_CONFIG_DIRS) {
+        const candidate = path.join(dir, name, 'cpp-style.json');
+        if (fs.existsSync(candidate)) return candidate;
+      }
       prev = dir;
       dir = path.dirname(dir);
     }
@@ -106,4 +109,4 @@ function loadConfig(filePath, globalPath = userTemplatePath()) {
   return normalize(global, project);
 }
 
-module.exports = { loadConfig, ensureUserTemplate, userTemplatePath, DEFAULT_CONFIG };
+module.exports = { loadConfig, ensureUserTemplate, userTemplatePath, DEFAULT_CONFIG, PROJECT_CONFIG_DIRS };

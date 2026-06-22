@@ -36,6 +36,18 @@ function writeJson(file, value) {
               },
             ],
           },
+          {
+            hooks: [
+              {
+                type: 'command',
+                command: 'node keep-session.js',
+              },
+              {
+                type: 'command',
+                command: 'code-review-graph status || true',
+              },
+            ],
+          },
         ],
         PostToolUse: [
           {
@@ -52,7 +64,7 @@ function writeJson(file, value) {
             hooks: [
               {
                 type: 'command',
-                command: 'cat >/dev/null || true; code-review-graph update --skip-flows || true',
+                command: 'echo keep-user && code-review-graph update --skip-flows || true',
               },
             ],
           },
@@ -62,9 +74,12 @@ function writeJson(file, value) {
 
     assert.strictEqual(cleanLegacyCrgHooks(home), true);
     const cleaned = JSON.parse(fs.readFileSync(hooksPath, 'utf8'));
-    assert.ok(!cleaned.hooks.SessionStart, 'legacy SessionStart CRG hook is removed');
-    assert.strictEqual(cleaned.hooks.PostToolUse.length, 1, 'unrelated user hook is preserved');
+    assert.strictEqual(cleaned.hooks.SessionStart.length, 1, 'mixed SessionStart group is preserved');
+    assert.strictEqual(cleaned.hooks.SessionStart[0].hooks.length, 1, 'only legacy command is removed from mixed group');
+    assert.strictEqual(cleaned.hooks.SessionStart[0].hooks[0].command, 'node keep-session.js');
+    assert.strictEqual(cleaned.hooks.PostToolUse.length, 2, 'unrelated and mixed user hooks are preserved');
     assert.strictEqual(cleaned.hooks.PostToolUse[0].hooks[0].command, 'node keep-me.js');
+    assert.strictEqual(cleaned.hooks.PostToolUse[1].hooks[0].command, 'echo keep-user && code-review-graph update --skip-flows || true');
     assert.strictEqual(cleanLegacyCrgHooks(home), false, 'cleanup is idempotent');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -128,6 +143,27 @@ function writeJson(file, value) {
     ].join('\n'), 'utf8');
     assert.strictEqual(cleanLegacyCrgGitHook(repo), true);
     assert.ok(!fs.existsSync(hook), 'legacy code-review-graph git hook is removed');
+
+    fs.writeFileSync(hook, [
+      '#!/bin/sh',
+      '# Installed by code-review-graph. Remove this file to disable pre-commit graph checks.',
+      'code-review-graph update || true',
+      'echo keep-me',
+      '',
+    ].join('\n'), 'utf8');
+    assert.strictEqual(cleanLegacyCrgGitHook(repo), true);
+    assert.ok(fs.existsSync(hook), 'mixed user git hook is preserved');
+    assert.strictEqual(fs.readFileSync(hook, 'utf8'), '#!/bin/sh\necho keep-me\n');
+
+    fs.writeFileSync(hook, [
+      '#!/bin/sh',
+      '# Installed by code-review-graph. Remove this file to disable pre-commit graph checks.',
+      'code-review-graph update || true && echo keep-me',
+      '',
+    ].join('\n'), 'utf8');
+    assert.strictEqual(cleanLegacyCrgGitHook(repo), true);
+    assert.ok(fs.existsSync(hook), 'same-line mixed user git hook is preserved');
+    assert.strictEqual(fs.readFileSync(hook, 'utf8'), '#!/bin/sh\ncode-review-graph update || true && echo keep-me\n');
 
     fs.writeFileSync(hook, [
       '#!/bin/sh',

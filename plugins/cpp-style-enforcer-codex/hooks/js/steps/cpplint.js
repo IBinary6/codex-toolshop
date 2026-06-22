@@ -9,11 +9,22 @@ const isWindows = process.platform === 'win32';
 const MAX_ERRORS_SHOWN = 5;
 const CPPLINT_PY = path.join(__dirname, '..', 'cpplint', 'cpplint.py');
 
-/** 解析 python 可执行（python / python3），都没有返回 null */
+function splitArgs(value) {
+  return String(value || '').trim().split(/\s+/).filter(Boolean);
+}
+
+/** 解析 python 可执行（python / python3 / Windows py -3.11），都没有返回 null */
 function resolvePython() {
-  for (const cmd of ['python', 'python3']) {
-    const r = spawnSync(cmd, ['--version'], { stdio: 'pipe', windowsHide: isWindows });
-    if (!r.error && r.status === 0) return cmd;
+  const candidates = process.env.CPP_STYLE_PYTHON
+    ? [{ cmd: process.env.CPP_STYLE_PYTHON, args: splitArgs(process.env.CPP_STYLE_PYTHON_ARGS) }]
+    : [
+        { cmd: 'python', args: [] },
+        { cmd: 'python3', args: [] },
+        ...(isWindows ? [{ cmd: 'py', args: ['-3.11'] }] : []),
+      ];
+  for (const desc of candidates) {
+    const r = spawnSync(desc.cmd, [...desc.args, '--version'], { stdio: 'pipe', windowsHide: isWindows });
+    if (!r.error && r.status === 0) return desc;
   }
   return null;
 }
@@ -76,7 +87,7 @@ function buildFilterArg(options = {}) {
  *
  * filter 仅在 suppressCopyright 时含 -legal/copyright；无 filter 项时不传 --filter。
  * @param {string} filePath
- * @param {{root?:string, suppressCopyright?:boolean, extraFilters?:string[]}} options
+ * @param {{root?:string, suppressCopyright?:boolean, extraFilters?:string[], timeoutMs?:number}} options
  * @returns {Array<{line:number, category:string, message:string}>}
  */
 function runCpplint(filePath, options = {}) {
@@ -103,14 +114,20 @@ function runCpplint(filePath, options = {}) {
     if (hadBom) {
       try { fs.writeFileSync(filePath, body); stripped = true; } catch (_) { /* 写失败则带 BOM 跑 */ }
     }
-    const r = spawnSync(python, args, {
+    const r = spawnSync(python.cmd, [...python.args, ...args], {
       stdio: 'pipe',
-      timeout: 15000,
+      timeout: Math.max(1000, options.timeoutMs || 15000),
       maxBuffer: 16 * 1024 * 1024,
       windowsHide: isWindows,
     });
-    const stderr = (r.stderr || Buffer.alloc(0)).toString('utf-8');
-    violations = parseCpplintOutput(stderr);
+    if (r.error && r.error.code === 'ETIMEDOUT') {
+      violations = [{ line: 0, category: 'runtime/timeout', message: 'cpplint 执行超时，请缩小提交范围或稍后重试' }];
+    } else if (r.error) {
+      violations = [];
+    } else {
+      const stderr = (r.stderr || Buffer.alloc(0)).toString('utf-8');
+      violations = parseCpplintOutput(stderr);
+    }
   } catch (_) {
     violations = [];
   } finally {
@@ -123,22 +140,25 @@ function runCpplint(filePath, options = {}) {
 }
 
 /**
- * 逐字去重（key=line:category:message）→ 取前 5 → 拼 reason（含「还有 N 条」）。
+ * 逐字去重（key=file:line:category:message）→ 取前 5 → 拼 reason（含「还有 N 条」）。
  * 全部为硬违规，必须修复。
- * @param {Array<{line:number, category:string, message:string}>} violations
+ * @param {Array<{file?:string, line:number, category:string, message:string}>} violations
  * @returns {string}
  */
 function formatViolations(violations) {
   const seen = new Set();
   const unique = [];
   for (const v of violations) {
-    const key = `${v.line}:${v.category}:${v.message}`;
+    const key = `${v.file || ''}:${v.line}:${v.category}:${v.message}`;
     if (seen.has(key)) continue;
     seen.add(key);
     unique.push(v);
   }
   const shown = unique.slice(0, MAX_ERRORS_SHOWN);
-  const lines = shown.map((v) => `  - 行 ${v.line} [${v.category}] ${v.message}`);
+  const lines = shown.map((v) => {
+    const where = v.file ? `${v.file}:${v.line}` : `行 ${v.line}`;
+    return `  - ${where} [${v.category}] ${v.message}`;
+  });
   let reason = 'cpplint 检测到以下 C++ 风格违规，请修复：\n' + lines.join('\n');
   const remaining = unique.length - shown.length;
   if (remaining > 0) {

@@ -49,7 +49,7 @@ function matchLineEnding(formatted, source) {
 function applyClangFormat(filePath, opts) {
   const isNew = !opts || opts.isNew !== false; // 缺省 → 新文件整文件模式
   const root = opts && opts.root ? opts.root : null;
-  // 只检测不安装：每次编辑都跑，安装仅在 SessionStart 预热做。
+  // 只检测不安装：编辑 hook 不做 pip 安装，避免阻塞或超时。
   const detect = (opts && opts.detect) || detectClangFormat;
   let desc = null;
   try { desc = detect(); } catch (_) { desc = null; }

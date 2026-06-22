@@ -91,7 +91,7 @@ function canUseCrg() {
 
 function isCodeMapEnabled() {
   if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') return false;
-  return canUseCrg();
+  return markerExists(ENABLED_MARKER) && canUseCrg();
 }
 
 function enableCodeMap() {
@@ -266,10 +266,16 @@ function bashLooksLikeCodeSearch(command) {
   return !/\.code-review-graph|graphify-out/.test(value);
 }
 
-function isLegacyCrgHook(group) {
-  const text = JSON.stringify(group);
-  return text.includes('code-review-graph status')
-    || text.includes('code-review-graph update --skip-flows');
+function normalizeLegacyCommand(command) {
+  return String(command || '').trim().replace(/\s+/g, ' ');
+}
+
+function isLegacyCrgCommand(command) {
+  const normalized = normalizeLegacyCommand(command);
+  return normalized === 'code-review-graph status || true'
+    || normalized === 'code-review-graph update --skip-flows || true'
+    || normalized === 'cat >/dev/null || true; code-review-graph status || true'
+    || normalized === 'cat >/dev/null || true; code-review-graph update --skip-flows || true';
 }
 
 function cleanLegacyCrgHooks(home = codexHome()) {
@@ -285,7 +291,16 @@ function cleanLegacyCrgHooks(home = codexHome()) {
   let changed = false;
   for (const eventName of Object.keys(parsed.hooks)) {
     if (!Array.isArray(parsed.hooks[eventName])) continue;
-    const next = parsed.hooks[eventName].filter((group) => !isLegacyCrgHook(group));
+    const next = [];
+    for (const group of parsed.hooks[eventName]) {
+      if (!group || !Array.isArray(group.hooks)) {
+        next.push(group);
+        continue;
+      }
+      const hooks = group.hooks.filter((hook) => !isLegacyCrgCommand(hook && hook.command));
+      if (hooks.length !== group.hooks.length) changed = true;
+      if (hooks.length > 0) next.push({ ...group, hooks });
+    }
     if (next.length !== parsed.hooks[eventName].length) {
       changed = true;
       if (next.length === 0) delete parsed.hooks[eventName];
@@ -310,8 +325,21 @@ function cleanLegacyCrgGitHook(cwd) {
   }
   if (!content.includes('Installed by code-review-graph')) return false;
   if (!content.includes('code-review-graph update')) return false;
+  const lines = content.split(/\r?\n/);
+  const kept = lines.filter((line) =>
+    !line.includes('Installed by code-review-graph')
+    && normalizeLegacyCommand(line) !== 'code-review-graph update || true'
+  );
+  const meaningful = kept.filter((line) => {
+    const trimmed = line.trim();
+    return trimmed && trimmed !== '#!/bin/sh' && trimmed !== '#!/usr/bin/env sh';
+  });
   try {
-    fs.unlinkSync(target);
+    if (meaningful.length === 0) {
+      fs.unlinkSync(target);
+    } else {
+      fs.writeFileSync(target, `${kept.join('\n').replace(/\s+$/, '')}\n`, 'utf8');
+    }
     return true;
   } catch (_) {
     return false;

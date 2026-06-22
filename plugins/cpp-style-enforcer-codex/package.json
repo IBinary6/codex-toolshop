@@ -1,12 +1,12 @@
 {
   "name": "cpp-style-enforcer-codex",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Codex plugin for C++ code style enforcement with clang-format, cpplint, copyright headers, BOM handling, and commit-time checks.",
   "license": "MIT",
   "private": true,
   "scripts": {
     "check": "node scripts/check-plugin.cjs",
-    "check:syntax": "node --check scripts/run-hook.cjs && node --check scripts/check-plugin.cjs && node --check scripts/run-tests.cjs && node --check scripts/test-hooks.cjs && node --check hooks/js/session_start.js && node --check hooks/js/post_edit.js && node --check hooks/js/pre_commit.js",
+    "check:syntax": "node scripts/check-syntax.cjs",
     "test:unit": "node scripts/run-tests.cjs",
     "test": "npm run check:syntax && npm run check && npm run test:unit && node scripts/test-hooks.cjs"
   },

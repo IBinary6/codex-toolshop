@@ -3,9 +3,11 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync, spawn } = require('child_process');
+const { spawnSync } = require('child_process');
 
 const isWindows = process.platform === 'win32';
+const ICONV_LITE_SPEC = 'iconv-lite@0.6.3';
+const CLANG_FORMAT_SPEC = 'clang-format==18.1.8';
 // 插件根：hooks/js/lib → hooks/js → hooks → 插件根。
 // 优先用 Codex hook 注入的 PLUGIN_ROOT；缺失（如直接 node 跑测试）回退到相对 __dirname。
 const PLUGIN_ROOT = process.env.PLUGIN_ROOT || path.join(__dirname, '..', '..', '..');
@@ -38,7 +40,27 @@ function markerExists(p) {
 
 /** 安全写标记，失败静默 */
 function writeMarker(p) {
-  try { if (p) fs.writeFileSync(p, '1'); } catch (_) {}
+  try {
+    if (!p) return;
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, '1');
+  } catch (_) {}
+}
+
+function splitArgs(value) {
+  return String(value || '').trim().split(/\s+/).filter(Boolean);
+}
+
+function pythonCandidates() {
+  if (process.env.CPP_STYLE_PYTHON) {
+    return [{ cmd: process.env.CPP_STYLE_PYTHON, args: splitArgs(process.env.CPP_STYLE_PYTHON_ARGS) }];
+  }
+  const candidates = [
+    { cmd: 'python', args: [] },
+    { cmd: 'python3', args: [] },
+  ];
+  if (isWindows) candidates.push({ cmd: 'py', args: ['-3.11'] });
+  return candidates;
 }
 
 /**
@@ -56,7 +78,7 @@ function npmInstall() {
   try {
     const r = spawnSync(
       isWindows ? 'npm.cmd' : 'npm',
-      ['install', 'iconv-lite@^0.6.3', '--no-audit', '--no-fund', '--no-save', '--prefix', dataDir],
+      ['install', ICONV_LITE_SPEC, '--no-audit', '--no-fund', '--no-save', '--prefix', dataDir],
       { cwd: dataDir, stdio: 'ignore', timeout: 60000, windowsHide: isWindows }
     );
     return !r.error && r.status === 0;
@@ -67,11 +89,11 @@ function npmInstall() {
 
 /** 默认：pip 安装 clang-format（靠 python，跨平台最稳） */
 function pipInstallClangFormat() {
-  for (const py of ['python', 'python3']) {
+  for (const py of pythonCandidates()) {
     try {
       const r = spawnSync(
-        py,
-        ['-m', 'pip', 'install', '--disable-pip-version-check', 'clang-format'],
+        py.cmd,
+        [...py.args, '-m', 'pip', 'install', '--disable-pip-version-check', CLANG_FORMAT_SPEC],
         { stdio: 'ignore', timeout: 120000, windowsHide: isWindows }
       );
       if (!r.error && r.status === 0) return true;
@@ -101,10 +123,10 @@ function probeClangFormat(desc) {
  */
 function scriptsDirCandidates() {
   const out = [];
-  for (const py of ['python', 'python3']) {
+  for (const py of pythonCandidates()) {
     let dir = null;
     try {
-      const r = spawnSync(py, ['-c', "import sysconfig; print(sysconfig.get_path('scripts'))"],
+      const r = spawnSync(py.cmd, [...py.args, '-c', "import sysconfig; print(sysconfig.get_path('scripts'))"],
         { stdio: ['ignore', 'pipe', 'ignore'], timeout: 10000, windowsHide: isWindows });
       if (!r.error && r.status === 0 && r.stdout) dir = String(r.stdout).trim();
     } catch (_) {}
@@ -134,8 +156,7 @@ function detectClangFormat(opts) {
 
   const candidates = [
     { cmd: 'clang-format', args: [] },
-    { cmd: 'python', args: ['-m', 'clang_format'] },
-    { cmd: 'python3', args: ['-m', 'clang_format'] },
+    ...pythonCandidates().map((py) => ({ cmd: py.cmd, args: [...py.args, '-m', 'clang_format'] })),
   ];
   for (const desc of candidates) {
     try { if (probe(desc)) return desc; } catch (_) {}
@@ -187,7 +208,7 @@ function requireIconv() {
 }
 
 /**
- * 按需自举 iconv-lite。已装直接返回模块；缺失且未尝试过 → 安装一次（装到 PLUGIN_DATA）；
+ * 解析 iconv-lite。运行态默认只检测不安装；显式 allowInstall 时安装一次到 PLUGIN_DATA。
  * 仍失败 → 写失败标记并返回 null（降级：GBK 跳过）。全程不抛。
  *
  * 解析采用双保险：缺省模块名走 requireIconv（ROOT→DATA）；注入 moduleName 时按该名解析（测试用）。
@@ -195,12 +216,14 @@ function requireIconv() {
  * @param {object} [opts]
  * @param {string} [opts.moduleName] 注入测试用；缺省走 requireIconv 双保险解析
  * @param {string} [opts.marker] 失败标记路径，缺省 PLUGIN_DATA(或插件根) .iconv-install-failed
+ * @param {boolean} [opts.allowInstall] 显式允许安装；普通 hook 路径不要开启
  * @param {function():boolean} [opts.install] 注入安装函数，缺省 npmInstall（装到 PLUGIN_DATA）
  * @returns {object|null}
  */
 function ensureIconvLite(opts) {
   const o = opts || {};
   const marker = o.marker || markerPath('.iconv-install-failed');
+  const allowInstall = o.allowInstall === true;
   const install = o.install || npmInstall;
 
   // 注入了 moduleName → 按该名解析（测试用，可模拟“缺失”）；否则走双保险路径解析。
@@ -211,6 +234,7 @@ function ensureIconvLite(opts) {
   const found = tryRequire();
   if (found) return found;                 // 已装 → 不触发安装
   if (markerExists(marker)) return null;    // 曾失败 → 不重试
+  if (!allowInstall) return null;           // 运行态只检测，不在 hook 内安装
 
   let ok = false;
   try { ok = !!install(); } catch (_) { ok = false; }
@@ -225,12 +249,13 @@ function ensureIconvLite(opts) {
 }
 
 /**
- * 按需自举 clang-format。检测到可用直接返回调用描述；缺失且未尝试过 → pip 安装一次；
+ * 解析 clang-format。运行态默认只检测不安装；显式 allowInstall 时 pip 安装一次。
  * 仍检测不到 → 写失败标记并返回 null（降级：clang-format 跳过）。全程不抛。
  *
  * @param {object} [opts]
  * @param {function():({cmd:string,args:string[]}|null)} [opts.detect] 注入检测函数，缺省 detectClangFormat
  * @param {string} [opts.marker] 失败标记路径，缺省插件根 .clang-format-install-failed
+ * @param {boolean} [opts.allowInstall] 显式允许安装；普通 hook 路径不要开启
  * @param {function():boolean} [opts.install] 注入安装函数，缺省 pipInstallClangFormat
  * @returns {{cmd:string, args:string[]}|null}
  */
@@ -238,12 +263,14 @@ function ensureClangFormat(opts) {
   const o = opts || {};
   const marker = o.marker || markerPath('.clang-format-install-failed');
   const detect = o.detect || detectClangFormat;
+  const allowInstall = o.allowInstall === true;
   const install = o.install || pipInstallClangFormat;
 
   let desc = null;
   try { desc = detect(); } catch (_) { desc = null; }
   if (desc) return desc;                      // 已可用 → 不触发安装
   if (markerExists(marker)) return null;      // 曾失败 → 不重试
+  if (!allowInstall) return null;             // 运行态只检测，不在 hook 内安装
 
   let ok = false;
   try { ok = !!install(); } catch (_) { ok = false; }
@@ -256,23 +283,11 @@ function ensureClangFormat(opts) {
 }
 
 /**
- * 后台 detached 预热子进程：跑本模块 CLI（prewarm 分支）执行两个 ensure。
- * 立即返回不阻塞调用方；子进程 unref 后独立存活；输出全部丢弃保持静默。
- * spawn 失败不抛，返回 null。
- * @returns {import('child_process').ChildProcess|null}
+ * 兼容旧测试/调用方的 no-op。被动 SessionStart 不再后台安装依赖。
+ * @returns {null}
  */
 function spawnPrewarm() {
-  try {
-    const child = spawn(process.execPath, [__filename, '--prewarm'], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: isWindows,
-    });
-    child.unref();
-    return child;
-  } catch (_) {
-    return null;
-  }
+  return null;
 }
 
 module.exports = {
@@ -282,11 +297,12 @@ module.exports = {
   spawnPrewarm,
   detectClangFormat,
   requireIconv,
+  pythonCandidates,
 };
 
-// CLI: 后台预热入口。仅做安装/检测，绝不输出。
+// CLI: 手动预热入口。仅做安装/检测，绝不输出。
 if (require.main === module && process.argv.includes('--prewarm')) {
-  try { ensureIconvLite(); } catch (_) {}
-  try { ensureClangFormat(); } catch (_) {}
+  try { ensureIconvLite({ allowInstall: true }); } catch (_) {}
+  try { ensureClangFormat({ allowInstall: true }); } catch (_) {}
   process.exit(0);
 }

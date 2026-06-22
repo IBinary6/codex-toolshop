@@ -32,7 +32,7 @@ const pluginRoot = path.join(__dirname, '..', '..', '..');
       console.log('ensure_deps: iconvLite present, no install PASS');
     } else {
       assert.strictEqual(mod, null, 'iconv-lite 缺失且安装失败 → 返回 null');
-      assert.strictEqual(installAttempted, true, 'iconv-lite 缺失 → 尝试一次安装');
+      assert.strictEqual(installAttempted, false, '默认只检测，不在 hook 路径安装');
       console.log('ensure_deps: iconvLite absent, degrade null PASS');
     }
   } finally {
@@ -70,6 +70,7 @@ const pluginRoot = path.join(__dirname, '..', '..', '..');
     const mod = ensureIconvLite({
       moduleName: '__definitely_missing_iconv__',
       marker,
+      allowInstall: true,
       install: () => { installAttempted = true; return false; }, // 模拟安装失败
     });
     assert.strictEqual(mod, null, '缺失 + 安装失败 → null');
@@ -139,7 +140,7 @@ const pluginRoot = path.join(__dirname, '..', '..', '..');
       console.log('ensure_deps: clangFormat present, no install PASS');
     } else {
       assert.strictEqual(desc, null, '缺失 + 安装失败 → null');
-      assert.strictEqual(installAttempted, true, '缺失 → 尝试一次安装');
+      assert.strictEqual(installAttempted, false, '默认只检测，不在 hook 路径安装');
       console.log('ensure_deps: clangFormat absent, degrade null PASS');
     }
   } finally {
@@ -156,6 +157,7 @@ const pluginRoot = path.join(__dirname, '..', '..', '..');
     const desc = ensureClangFormat({
       marker: path.join(tmp, '.clang-format-install-failed'),
       detect: () => { detectCalls += 1; return detectCalls === 1 ? null : pythonDesc; },
+      allowInstall: true,
       install: () => true, // 模拟 pip 安装成功
     });
     assert.deepStrictEqual(desc, pythonDesc, 'pip 装后检测到 python -m clang_format → 返回该调用描述');
@@ -194,6 +196,7 @@ const pluginRoot = path.join(__dirname, '..', '..', '..');
     const cmd = ensureClangFormat({
       detect: () => null,
       marker,
+      allowInstall: true,
       install: () => { throw new Error('boom'); },
     });
     assert.strictEqual(cmd, null, 'install 抛异常 → 捕获并返回 null（不冒泡）');

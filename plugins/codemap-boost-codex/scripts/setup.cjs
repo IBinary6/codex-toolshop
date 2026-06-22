@@ -11,6 +11,8 @@ const {
   ensureAgentsBlock,
   ensureGitignore,
   isCodeMapEnabled,
+  cleanLegacyCrgGitHook,
+  cleanLegacyCrgHooks,
   registerCrgMcp,
   startCrgBuild,
 } = require('../hooks/js/lib/codemap');
@@ -74,6 +76,8 @@ function main() {
   }
 
   enableCodeMap();
+  cleanLegacyCrgHooks();
+  cleanLegacyCrgGitHook(process.cwd());
   ensureAgentsBlock();
   ensureGitignore(process.cwd());
 

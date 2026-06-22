@@ -32,7 +32,8 @@ function mkGitRepo() {
   sh(['init'], t);
   return t;
 }
-function cfgPath(root) { return path.join(root, '.claude-cpp-style', 'cpp-style.json'); }
+function cfgPath(root) { return path.join(root, '.codex-cpp-style', 'cpp-style.json'); }
+function legacyCfgPath(root) { return path.join(root, '.claude-cpp-style', 'cpp-style.json'); }
 const BOM = Buffer.from([0xEF, 0xBB, 0xBF]);
 
 try {
@@ -56,7 +57,7 @@ try {
     assert.ok(before.equals(after), '已存在模板必须字节级不变（不覆盖用户 company）');
   }
 
-  // 3) cwd 为 C++ git 项目（有 .cpp）→ 提前生成 .claude-cpp-style/cpp-style.json，静默 exit 0
+  // 3) cwd 为 C++ git 项目（有 .cpp）→ 提前生成 .codex-cpp-style/cpp-style.json，静默 exit 0
   {
     const root = mkGitRepo();
     fs.writeFileSync(path.join(root, 'main.cpp'), 'int main(){return 0;}\n');
@@ -74,7 +75,7 @@ try {
   {
     const root = mkGitRepo();
     fs.writeFileSync(path.join(root, 'CMakeLists.txt'), 'project(x)\n');
-    const dir = path.join(root, '.claude-cpp-style');
+    const dir = path.join(root, '.codex-cpp-style');
     fs.mkdirSync(dir, { recursive: true });
     const custom = Buffer.from('{"enabled":false,"mode":"full"}\n', 'utf-8');
     fs.writeFileSync(path.join(dir, 'cpp-style.json'), custom);
@@ -83,7 +84,21 @@ try {
     assert.ok(fs.readFileSync(cfgPath(root)).equals(custom), '已存在配置必须字节不变（不覆盖）');
   }
 
-  // 5) 非 git 目录 → 不生成
+  // 5) 旧 Claude 路径存在 → 兼容且不额外生成新路径
+  {
+    const root = mkGitRepo();
+    fs.writeFileSync(path.join(root, 'CMakeLists.txt'), 'project(x)\n');
+    const dir = path.join(root, '.claude-cpp-style');
+    fs.mkdirSync(dir, { recursive: true });
+    const custom = Buffer.from('{"enabled":false}\n', 'utf-8');
+    fs.writeFileSync(legacyCfgPath(root), custom);
+    const r = runHook({ hook_event_name: 'SessionStart', cwd: root });
+    assert.strictEqual(r.status, 0, '旧路径配置 SessionStart 应 exit 0');
+    assert.ok(!fs.existsSync(cfgPath(root)), '旧路径存在时不生成新路径，避免双配置');
+    assert.ok(fs.readFileSync(legacyCfgPath(root)).equals(custom), '旧路径配置不覆盖');
+  }
+
+  // 6) 非 git 目录 → 不生成
   {
     const t = fs.mkdtempSync(path.join(os.tmpdir(), 'cse-nogit-'));
     tmps.push(t);
@@ -93,7 +108,7 @@ try {
     assert.ok(!fs.existsSync(cfgPath(t)), '非 git 不生成配置（无可靠项目根）');
   }
 
-  // 6) git 仓库但非 C++ 项目（纯 python/js）→ 不生成（保守判断）
+  // 7) git 仓库但非 C++ 项目（纯 python/js）→ 不生成（保守判断）
   {
     const root = mkGitRepo();
     fs.writeFileSync(path.join(root, 'app.py'), 'print(1)\n');
