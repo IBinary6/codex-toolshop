@@ -85,6 +85,17 @@ if (hasPython) {
     assert.ok(Array.isArray(viol), 'runCpplint 返回数组');
     assert.ok(fs.readFileSync(f).equals(before), 'cpplint 步骤原文件字节零改动（无 BOM 零写入）');
 
+    // 1b) CRLF 是项目/平台行尾策略，不应由 cpplint 误报或改写
+    const crlfCpp = path.join(src, 'crlf.cpp');
+    const crlfBytes = Buffer.from('int crlf() {\r\n  return 0;\r\n}\r\n', 'utf-8');
+    fs.writeFileSync(crlfCpp, crlfBytes);
+    const vCrlf = runCpplint(crlfCpp, { root: tmp, suppressCopyright: true });
+    assert.ok(
+      !vCrlf.some((v) => v.category === 'whitespace/newline' || v.category === 'whitespace/ending_newline'),
+      'CRLF 文件不应因行尾触发 cpplint 换行类误报',
+    );
+    assert.ok(fs.readFileSync(crlfCpp).equals(crlfBytes), 'CRLF 文件 lint 后原字节不变');
+
     // 2) 真实文件名下正确 header guard 应 PASS（不误报 header_guard）
     //    --root=tmp → RepositoryName=proj/src/foo.h → 期望宏 PROJ_SRC_FOO_H_
     const fooH = path.join(src, 'foo.h');
@@ -108,7 +119,7 @@ if (hasPython) {
     // 4) 带 BOM 的正确 guard 头文件 → 不应误报 header_guard，且原文件 BOM 恢复
     const bomH = path.join(src, 'baz.h');
     const BOM = Buffer.from([0xEF, 0xBB, 0xBF]);
-    const bazGuard = '#ifndef PROJ_SRC_BAZ_H_\n#define PROJ_SRC_BAZ_H_\n\nclass Baz {};\n\n#endif  // PROJ_SRC_BAZ_H_\n';
+    const bazGuard = '#ifndef PROJ_SRC_BAZ_H_\r\n#define PROJ_SRC_BAZ_H_\r\n\r\nclass Baz {};\r\n\r\n#endif  // PROJ_SRC_BAZ_H_\r\n';
     const bomBytes = Buffer.concat([BOM, Buffer.from(bazGuard, 'utf-8')]);
     fs.writeFileSync(bomH, bomBytes);
     const vBom = runCpplint(bomH, { root: tmp, suppressCopyright: true });
@@ -116,7 +127,7 @@ if (hasPython) {
       !vBom.some((v) => v.category === 'build/header_guard'),
       'BOM 头文件剥 BOM 后不误报 header_guard',
     );
-    assert.ok(fs.readFileSync(bomH).equals(bomBytes), 'BOM 文件 lint 后原字节（含 BOM）恢复');
+    assert.ok(fs.readFileSync(bomH).equals(bomBytes), 'BOM + CRLF 文件 lint 后原字节（含 BOM 与 CRLF）恢复');
 
     // 5) suppressCopyright 开关
     const fc = path.join(src, 'nocopy.cpp');

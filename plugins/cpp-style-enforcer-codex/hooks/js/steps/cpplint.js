@@ -85,6 +85,10 @@ function buildFilterArg(options = {}) {
  *   try/finally 保证恢复；剥 BOM 后的文件仍是合法 UTF-8（仅缺 BOM，下次编辑会再补），
  *   非「损坏」文件。真实路径全程不变，故 header_guard/include_order 仍按真实文件名判断。
  *
+ * 行尾处理：cpplint 不负责统一 LF/CRLF，本步骤也不做行尾转换。Windows / VS 项目常用
+ * CRLF，换行策略应由 git、clang-format 或 copyright 步骤处理；cpplint 只报告代码风格。
+ * 有 BOM 时恢复的是原始 body 字节，因此 CRLF/LF 也会按原样恢复。
+ *
  * filter 仅在 suppressCopyright 时含 -legal/copyright；无 filter 项时不传 --filter。
  * @param {string} filePath
  * @param {{root?:string, suppressCopyright?:boolean, extraFilters?:string[], timeoutMs?:number}} options

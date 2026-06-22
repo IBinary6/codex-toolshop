@@ -79,3 +79,9 @@ npm install iconv-lite@0.6.3
 ```
 
 hook 默认保持安静，只在需要阻止操作或提示关键问题时输出 Codex hook 决策。
+
+## 行尾策略
+
+`cpplint` 不负责统一 LF/CRLF，本插件也不会因为运行 cpplint 改写行尾。CRLF 文件会按原字节检查并保持 CRLF；带 UTF-8 BOM 的文件仅在 cpplint 执行期间临时剥 BOM，结束后恢复原始 BOM 与行尾。
+
+行尾统一应交给 Git 属性、项目规范、`clang-format` 或版权头步骤处理，不通过屏蔽 `whitespace/newline` 来规避；该类别仍用于真正的换行风格违规。
