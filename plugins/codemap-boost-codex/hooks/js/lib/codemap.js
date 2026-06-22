@@ -18,8 +18,10 @@ const {
 } = require('./runtime');
 
 const ENABLED_MARKER = '.codemap-boost-enabled';
+const BOOTSTRAP_FAILED_MARKER = '.codemap-bootstrap-failed';
 const LOCK_BOOT_MS = 5000;
 const LOCK_STALE_MS = 4 * 60 * 60 * 1000;
+const BOOTSTRAP_LOCK_STALE_MS = 30 * 60 * 1000;
 const UPDATE_THROTTLE_MS = 30 * 1000;
 const BLOCK_START = '<!-- codemap-boost-codex:start -->';
 const BLOCK_END = '<!-- codemap-boost-codex:end -->';
@@ -85,13 +87,38 @@ function ensureGitignore(cwd) {
   return true;
 }
 
+function ensureGitInfoExclude(cwd) {
+  const root = repoRoot(cwd);
+  if (!root) return false;
+  const target = path.join(root, '.git', 'info', 'exclude');
+  let content = '';
+  try {
+    content = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
+  } catch (_) {
+    return false;
+  }
+  const entries = ['.code-review-graph/', 'graphify-out/'];
+  const missing = entries.filter((entry) => !content.split(/\r?\n/).includes(entry));
+  if (missing.length === 0) return true;
+  let append = content && !content.endsWith('\n') ? '\n' : '';
+  append += '# CodeMap generated output\n';
+  append += missing.join('\n') + '\n';
+  try {
+    ensureDir(path.dirname(target));
+    fs.appendFileSync(target, append, 'utf8');
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 function canUseCrg() {
   return commandExists('code-review-graph');
 }
 
 function isCodeMapEnabled() {
   if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') return false;
-  return markerExists(ENABLED_MARKER) && canUseCrg();
+  return canUseCrg();
 }
 
 function enableCodeMap() {
@@ -114,13 +141,13 @@ function isPidAlive(pid) {
   }
 }
 
-function isLockActive(file) {
+function isLockActive(file, staleMs = LOCK_STALE_MS) {
   try {
     const pid = Number.parseInt(fs.readFileSync(file, 'utf8').trim(), 10) || 0;
     const stat = fs.statSync(file);
     const age = Date.now() - stat.mtimeMs;
     if (age <= LOCK_BOOT_MS) return true;
-    if (age <= LOCK_STALE_MS && isPidAlive(pid)) return true;
+    if (age <= staleMs && isPidAlive(pid)) return true;
     fs.unlinkSync(file);
   } catch (_) {}
   return false;
@@ -172,6 +199,55 @@ function startCrgBuild(cwd) {
         stdio: 'ignore',
         windowsHide: true
       });
+    } finally {
+      try { fs.unlinkSync(${JSON.stringify(lockFile)}); } catch (_) {}
+    }
+  `;
+  const child = spawnDetached(process.execPath, ['-e', code], { cwd: root });
+  if (!child) {
+    try { fs.unlinkSync(lockFile); } catch (_) {}
+    return false;
+  }
+  return true;
+}
+
+function bootstrapWithCrg(cwd) {
+  enableCodeMap();
+  registerCrgMcp();
+  ensureAgentsBlock();
+  ensureGitInfoExclude(cwd);
+  return startCrgBuild(cwd);
+}
+
+function startAutoBootstrap(cwd) {
+  if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') return false;
+  if (process.env.CODEMAP_BOOST_DISABLE_BOOTSTRAP === '1') return false;
+  const root = repoRoot(cwd);
+  if (!root) return false;
+  const hasCrg = canUseCrg();
+  if (hasCrg) enableCodeMap();
+  if (!hasCrg && markerExists(BOOTSTRAP_FAILED_MARKER)) return false;
+  const lockFile = path.join(os.tmpdir(), lockName('codemap-bootstrap', root));
+  if (isLockActive(lockFile, BOOTSTRAP_LOCK_STALE_MS)) return false;
+  if (!tryWriteLock(lockFile)) return false;
+  const code = `
+    const fs = require('fs');
+    const { markerPath } = require(${JSON.stringify(path.join(__dirname, 'runtime.js'))});
+    const { ensureCrg } = require(${JSON.stringify(path.join(__dirname, 'bootstrap.js'))});
+    const codemap = require(${JSON.stringify(__filename)});
+    try {
+      try { fs.writeFileSync(${JSON.stringify(lockFile)}, String(process.pid)); } catch (_) {}
+      if (ensureCrg()) {
+        codemap.enableCodeMap();
+        codemap.registerCrgMcp();
+        codemap.cleanLegacyCrgHooks();
+        codemap.cleanLegacyCrgGitHook(${JSON.stringify(root)});
+        codemap.ensureAgentsBlock();
+        codemap.ensureGitInfoExclude(${JSON.stringify(root)});
+        codemap.startCrgBuild(${JSON.stringify(root)});
+      } else {
+        try { fs.writeFileSync(markerPath(${JSON.stringify(BOOTSTRAP_FAILED_MARKER)}), '1'); } catch (_) {}
+      }
     } finally {
       try { fs.unlinkSync(${JSON.stringify(lockFile)}); } catch (_) {}
     }
@@ -352,12 +428,16 @@ module.exports = {
   AGENTS_BLOCK,
   CONTEXT,
   ENABLED_MARKER,
+  BOOTSTRAP_FAILED_MARKER,
   agentsPath,
   ensureAgentsBlock,
   ensureGitignore,
+  ensureGitInfoExclude,
   canUseCrg,
   isCodeMapEnabled,
   enableCodeMap,
+  bootstrapWithCrg,
+  startAutoBootstrap,
   startCrgBuild,
   startCrgUpdate,
   registerCrgMcp,

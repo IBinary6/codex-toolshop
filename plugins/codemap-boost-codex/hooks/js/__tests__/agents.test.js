@@ -61,10 +61,6 @@ try {
   assert.ok(untouched.includes('old block'), 'SessionStart without CLI should not rewrite AGENTS.md');
   assert.ok(!fs.existsSync(path.join(repo, '.gitignore')), 'SessionStart without CLI should not touch project gitignore');
 
-  const pluginData = path.join(home, 'plugin-data');
-  fs.mkdirSync(pluginData, { recursive: true });
-  fs.writeFileSync(path.join(pluginData, '.codemap-boost-enabled'), '1', 'utf8');
-
   const first = runSession(repo, home, { CODEMAP_BOOST_ASSUME_CRG: '1' });
   assert.strictEqual(first.status, 0, first.stderr);
   assert.strictEqual(first.stdout, '', 'SessionStart should be silent');
@@ -76,6 +72,7 @@ try {
   assert.ok(content.includes('codemap-boost-codex:start'), 'managed block is inserted');
   assert.ok(content.includes('mcp__code_review_graph__get_minimal_context_tool'), 'block names CRG MCP tools');
   assert.ok(!fs.existsSync(path.join(home, '.claude')), 'SessionStart must not create old host directories');
+  assert.ok(fs.readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8').includes('.code-review-graph/'), 'SessionStart ignores generated graph output locally');
 
   const second = runSession(repo, home, { CODEMAP_BOOST_ASSUME_CRG: '1' });
   assert.strictEqual(second.status, 0, second.stderr);

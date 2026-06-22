@@ -9,7 +9,7 @@ Use this skill when the user asks how to configure, verify, or troubleshoot `cod
 
 ## Rule
 
-Do not install or register dependencies from passive hooks. Setup is the explicit dependency/MCP opt-in path. After setup writes the enable marker and `code-review-graph` is available in PATH, hooks should work automatically on later Codex sessions without rerunning setup.
+CodeMap Boost is auto-enabled for Codex. SessionStart may bootstrap `code-review-graph` in the background, register MCP with plugin-owned flags, write AGENTS.md guidance, and build a missing project graph. The setup script remains the explicit troubleshooting/prewarm path.
 
 ## Quick Checks
 
@@ -33,9 +33,9 @@ The setup script is idempotent:
 - If `code-review-graph` already exists, it does not reinstall it.
 - If `code-review-graph` is missing, it installs `code-review-graph[all]`.
 - It registers MCP with `--no-hooks --no-instructions --no-skills`.
-- It writes a setup marker in plugin data.
-- It updates the target project's `.gitignore` for graph output directories; passive hooks do not edit `.gitignore`.
-- Hooks build/update graphs only when both the setup marker and `code-review-graph` are available.
+- It writes a diagnostic marker in plugin data.
+- It updates the target project's `.gitignore` for graph output directories when run explicitly.
+- Hooks build/update graphs when `code-review-graph` is available; SessionStart attempts to make it available automatically.
 
 Optional graphify support is enabled only when explicitly requested:
 
@@ -56,7 +56,8 @@ python -m pip install "graphifyy[all]"
 - Global guidance is managed in `$CODEX_HOME/AGENTS.md`.
 - Project graph output is `.code-review-graph/`.
 - Optional graphify output is `graphify-out/`.
-- Hooks stay silent when setup has not written the enable marker, `code-review-graph` is unavailable, or graph behavior is explicitly disabled.
+- SessionStart writes graph output paths to `.git/info/exclude` so passive hooks do not dirty tracked project files.
+- Hooks stay silent when graph behavior is explicitly disabled.
 - The plugin owns Codex hooks; do not let `code-review-graph install` add third-party hooks.
 - The plugin should not read or write old host directories.
 - Use code-review-graph MCP tools for symbols, callers, callees, references, impact analysis, and review context.

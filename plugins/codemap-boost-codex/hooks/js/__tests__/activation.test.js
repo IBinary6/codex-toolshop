@@ -25,7 +25,7 @@ try {
   assert.strictEqual(fs.existsSync(markerPath(ENABLED_MARKER)), false, 'setup marker starts absent');
 
   process.env.CODEMAP_BOOST_ASSUME_CRG = '1';
-  assert.strictEqual(isCodeMapEnabled(), false, 'available CLI alone does not enable CodeMap hooks');
+  assert.strictEqual(isCodeMapEnabled(), true, 'available CLI enables CodeMap hooks without setup');
 
   process.env.CODEMAP_BOOST_DISABLE_GRAPH = '1';
   assert.strictEqual(isCodeMapEnabled(), false, 'disable env override wins');
@@ -33,7 +33,7 @@ try {
   delete process.env.CODEMAP_BOOST_DISABLE_GRAPH;
   enableCodeMap();
   assert.strictEqual(fs.existsSync(markerPath(ENABLED_MARKER)), true, 'setup marker is written for diagnostics');
-  assert.strictEqual(isCodeMapEnabled(), true, 'setup marker plus available CLI enables hooks');
+  assert.strictEqual(isCodeMapEnabled(), true, 'setup marker keeps diagnostics but no longer gates hooks');
 
   console.log('activation.test.js PASS');
 } finally {

@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { ensureCli } = require('../lib/bootstrap');
+const { ensureCli, pythonCandidates } = require('../lib/bootstrap');
 
 {
   let installed = null;
@@ -29,6 +29,21 @@ const { ensureCli } = require('../lib/bootstrap');
     assert.strictEqual(installed, 'graphifyy[all]', 'graphify command is installed from graphifyy package');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+{
+  const oldPython = process.env.CODEMAP_BOOST_PYTHON;
+  const oldArgs = process.env.CODEMAP_BOOST_PYTHON_ARGS;
+  try {
+    process.env.CODEMAP_BOOST_PYTHON = 'custom-python';
+    process.env.CODEMAP_BOOST_PYTHON_ARGS = '-3.12 -Xutf8';
+    assert.deepStrictEqual(pythonCandidates()[0], ['custom-python', ['-3.12', '-Xutf8']]);
+  } finally {
+    if (oldPython === undefined) delete process.env.CODEMAP_BOOST_PYTHON;
+    else process.env.CODEMAP_BOOST_PYTHON = oldPython;
+    if (oldArgs === undefined) delete process.env.CODEMAP_BOOST_PYTHON_ARGS;
+    else process.env.CODEMAP_BOOST_PYTHON_ARGS = oldArgs;
   }
 }
 
