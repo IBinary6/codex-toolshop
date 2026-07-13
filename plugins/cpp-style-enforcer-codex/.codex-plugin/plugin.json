@@ -1,6 +1,6 @@
 {
   "name": "cpp-style-enforcer-codex",
-  "version": "0.1.4+codex.20260713074717",
+  "version": "0.1.5+codex.20260713085839",
   "description": "C++ code style enforcement for Codex using clang-format, cpplint, copyright headers, BOM handling, and commit-time checks.",
   "author": {
     "name": "IBinary6"
@@ -28,6 +28,9 @@
     "defaultPrompt": [
       "Configure C++ style enforcement for this project."
     ],
-    "brandColor": "#2563EB"
+    "brandColor": "#2563EB",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/logo.png",
+    "logoDark": "./assets/logo.png"
   }
 }
