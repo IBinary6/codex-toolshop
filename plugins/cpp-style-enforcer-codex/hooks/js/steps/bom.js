@@ -6,13 +6,11 @@ const { requireIconv } = require('../lib/ensure_deps.js');
 
 /**
  * 补 UTF-8 BOM / GBK 转码加 BOM。内容无变化不写。
- * CMake 项目（isCMake=true）整体跳过。
  * @param {string} filePath
- * @param {{isCMake?:boolean}} options
+ * @param {{isCMake?:boolean}} options 保留兼容旧调用；CMake 不再跳过 BOM
  * @returns {boolean} 是否改写了文件
  */
 function applyBom(filePath, options = {}) {
-  if (options.isCMake) return false;
   let buf;
   try { buf = fs.readFileSync(filePath); } catch (_) { return false; }
 

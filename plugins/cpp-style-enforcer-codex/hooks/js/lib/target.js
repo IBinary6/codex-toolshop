@@ -16,26 +16,43 @@ const EXCLUDED_DIRS = new Set([
 const SKIPPED_FILES = new Set(['resource.h', 'targetver.h', 'stdafx.h', 'pch.h']);
 
 /**
- * 从 hook stdin JSON 提取被编辑的文件路径（Write/Edit/MultiEdit/NotebookEdit/MCP）。
- * 不处理 Bash command（PostToolUse 已去掉 Bash matcher）。
+ * 从 hook stdin JSON 提取被编辑的文件路径；Codex apply_patch 的 command 可含多个文件。
  * 始终返回绝对路径：相对路径以 input.cwd（hook 协议提供；通常 file_path 已经是绝对路径）
  * 为基准解析，避免相对路径被原样漏过导致 repoRoot/配置查找/.clang-format 生成全错位。
  * @param {object} input
- * @returns {string|null}
+ * @returns {string[]}
  */
-function resolveFilePath(input) {
-  if (!input || typeof input !== 'object') return null;
+function resolveFilePaths(input) {
+  if (!input || typeof input !== 'object') return [];
   const cwd = input.cwd || process.cwd();
   const toAbs = (p) => (path.isAbsolute(p) ? p : path.resolve(cwd, p));
+  const paths = [];
+  const add = (value) => {
+    if (typeof value !== 'string' || !value.trim()) return;
+    const resolved = toAbs(value.trim());
+    if (!paths.includes(resolved)) paths.push(resolved);
+  };
+
   const t = input.tool_input;
   if (t && typeof t === 'object') {
-    const direct = t.file_path || t.path || null;
-    if (direct) return toAbs(direct);
-    if (t.relative_path) return path.resolve(cwd, t.relative_path);
+    add(t.file_path || t.path || null);
+    if (t.relative_path) add(t.relative_path);
+    if (typeof t.command === 'string') {
+      for (const line of t.command.split(/\r?\n/)) {
+        let match = line.match(/^\*\*\* (?:Add|Update) File:\s+(.+?)\s*$/);
+        if (!match) match = line.match(/^\*\*\* Move to:\s+(.+?)\s*$/);
+        if (match) add(match[1]);
+      }
+    }
+  } else if (typeof t === 'string') {
+    add(t);
   }
-  if (typeof t === 'string') return toAbs(t);
-  const fallback = input.file_path || input.path || null;
-  return fallback ? toAbs(fallback) : null;
+  add(input.file_path || input.path || null);
+  return paths;
+}
+
+function resolveFilePath(input) {
+  return resolveFilePaths(input)[0] || null;
 }
 
 /**
@@ -54,4 +71,4 @@ function shouldHandle(filePath) {
   return true;
 }
 
-module.exports = { resolveFilePath, shouldHandle, CPP_EXTENSIONS, EXCLUDED_DIRS, SKIPPED_FILES };
+module.exports = { resolveFilePath, resolveFilePaths, shouldHandle, CPP_EXTENSIONS, EXCLUDED_DIRS, SKIPPED_FILES };

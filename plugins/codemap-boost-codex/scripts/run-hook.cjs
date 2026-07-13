@@ -9,6 +9,7 @@ const HOOKS = {
   session_start: path.join('hooks', 'js', 'session_start.js'),
   post_tool_use: path.join('hooks', 'js', 'post_tool_use.js'),
   pre_bash: path.join('hooks', 'js', 'pre_bash.js'),
+  pre_graph_tool: path.join('hooks', 'js', 'pre_graph_tool.js'),
   user_prompt_submit: path.join('hooks', 'js', 'user_prompt_submit.js'),
   subagent_start: path.join('hooks', 'js', 'subagent_start.js'),
 };

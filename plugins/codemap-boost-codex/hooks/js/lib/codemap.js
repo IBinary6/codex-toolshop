@@ -22,17 +22,25 @@ const BOOTSTRAP_FAILED_MARKER = '.codemap-bootstrap-failed';
 const LOCK_BOOT_MS = 5000;
 const LOCK_STALE_MS = 4 * 60 * 60 * 1000;
 const BOOTSTRAP_LOCK_STALE_MS = 30 * 60 * 1000;
-const UPDATE_THROTTLE_MS = 30 * 1000;
+const REFRESH_WAIT_MS = 10 * 60 * 1000;
+const SOURCE_EXTENSIONS = new Set([
+  '.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx',
+  '.cs', '.go', '.java', '.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx',
+  '.kt', '.kts', '.php', '.py', '.rb', '.rs', '.scala', '.swift', '.vue', '.svelte',
+]);
 const BLOCK_START = '<!-- codemap-boost-codex:start -->';
 const BLOCK_END = '<!-- codemap-boost-codex:end -->';
 const AGENTS_BLOCK = `${BLOCK_START}
 ## CodeMap Boost
 
-本机已启用 CodeMap Boost。涉及代码结构、符号、调用关系、引用关系、影响面或代码审查上下文时，优先使用 code-review-graph MCP 工具：
+本机已启用 CodeMap Boost。涉及代码结构、符号、调用关系、引用关系、影响面或代码审查上下文时，必须先刷新代码图，再使用 code-review-graph MCP 工具：
 
-- 先调用 \`mcp__code_review_graph__get_minimal_context_tool\` 获取低 token 概览。
+- 每个需要代码图的任务开始时，先确认 CodeMap Boost 的同步 build/update 已完成；图谱 MCP 的 PreToolUse barrier 会阻止刷新期间的并发读写。
+- 仅当仓库没有未跟踪源文件时，才调用 \`mcp__code_review_graph__build_or_update_graph_tool\` 做显式增量刷新并等待完成。存在未跟踪源文件时不要调用该 MCP full rebuild；CodeMap Boost 会用不污染真实暂存区的临时 Git index 执行 full build，确保新文件进入图谱。
+- 刷新完成后调用 \`mcp__code_review_graph__get_minimal_context_tool\` 获取低 token 概览。
 - 符号、函数、类、调用链、引用关系优先用 \`semantic_search_nodes_tool\`、\`query_graph_tool\`、\`get_impact_radius_tool\`。
 - 支持 \`detail_level\` 的工具默认传 \`minimal\`，只有信息不足时再升级。
+- 修改代码后，如果还要继续查询代码图或进行代码审查，必须先等待同步刷新完成；仅在没有未跟踪源文件时再调用 \`build_or_update_graph_tool\`。
 - \`rg\`、\`grep\`、\`Select-String\` 只用于纯文本、注释或字符串搜索。
 
 ${BLOCK_END}
@@ -90,7 +98,19 @@ function ensureGitignore(cwd) {
 function ensureGitInfoExclude(cwd) {
   const root = repoRoot(cwd);
   if (!root) return false;
-  const target = path.join(root, '.git', 'info', 'exclude');
+  let target = '';
+  try {
+    const result = spawnSync('git', ['rev-parse', '--git-path', 'info/exclude'], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: process.platform === 'win32',
+      timeout: 5000,
+    });
+    if (!result.error && result.status === 0) target = result.stdout.trim();
+  } catch (_) {}
+  if (!target) return false;
+  if (!path.isAbsolute(target)) target = path.resolve(root, target);
   let content = '';
   try {
     content = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
@@ -162,21 +182,129 @@ function tryWriteLock(file) {
   }
 }
 
-function recentlyTouched(file, maxAgeMs) {
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function acquireRefreshLock(lockFile, waitMs = REFRESH_WAIT_MS) {
+  const deadline = Date.now() + waitMs;
+  while (Date.now() <= deadline) {
+    if (!isLockActive(lockFile) && tryWriteLock(lockFile)) return true;
+    sleepSync(50);
+  }
+  return false;
+}
+
+function gitResult(cwd, args, options = {}) {
+  const spawn = options.spawnSync || spawnSync;
   try {
-    return Date.now() - fs.statSync(file).mtimeMs < maxAgeMs;
-  } catch (_) {
-    return false;
+    return spawn('git', args, {
+      cwd,
+      env: options.env || process.env,
+      encoding: 'utf8',
+      stdio: options.stdio || ['ignore', 'pipe', 'ignore'],
+      windowsHide: process.platform === 'win32',
+      timeout: options.timeout || 30000,
+    });
+  } catch (error) {
+    return { status: null, error, stdout: '', stderr: '' };
   }
 }
 
-function touchFile(file) {
+function untrackedSourceFiles(root) {
+  const result = gitResult(root, ['ls-files', '--others', '--exclude-standard', '-z']);
+  if (result.error || result.status !== 0) return [];
+  return String(result.stdout || '')
+    .split('\0')
+    .filter(Boolean)
+    .filter((file) => SOURCE_EXTENSIONS.has(path.extname(file).toLowerCase()));
+}
+
+function withTemporaryGitIndex(root, callback) {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-git-index-'));
+  const indexFile = path.join(tempDir, 'index');
+  const env = { ...process.env, GIT_INDEX_FILE: indexFile };
   try {
-    fs.writeFileSync(file, String(Date.now()));
-    return true;
-  } catch (_) {
-    return false;
+    const head = gitResult(root, ['rev-parse', '--verify', 'HEAD']);
+    const readTreeArgs = !head.error && head.status === 0 ? ['read-tree', 'HEAD'] : ['read-tree', '--empty'];
+    const readTree = gitResult(root, readTreeArgs, { env });
+    if (readTree.error || readTree.status !== 0) return false;
+    const add = gitResult(root, ['add', '-A', '--', '.'], { env, timeout: 120000 });
+    if (add.error || add.status !== 0) return false;
+    return callback(env);
+  } finally {
+    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {}
   }
+}
+
+function quoteCmd(value) {
+  const text = String(value);
+  return /^[A-Za-z0-9_./:\\-]+$/.test(text) ? text : `"${text.replace(/"/g, '""')}"`;
+}
+
+function runCrgDefault(args, options = {}) {
+  const common = {
+    cwd: options.cwd,
+    env: options.env || process.env,
+    stdio: options.stdio || 'ignore',
+    windowsHide: process.platform === 'win32',
+    timeout: options.timeout || REFRESH_WAIT_MS,
+  };
+  if (process.platform !== 'win32') return spawnSync('code-review-graph', args, common);
+  const command = ['code-review-graph', ...args].map(quoteCmd).join(' ');
+  return spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', command], common);
+}
+
+function refreshCrgSync(cwd, options = {}) {
+  if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') return false;
+  const canUse = options.canUseCrg || canUseCrg;
+  if (!canUse()) return false;
+  const root = repoRoot(cwd);
+  if (!root) return false;
+  ensureGitInfoExclude(root);
+
+  const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-refresh', root));
+  if (!acquireRefreshLock(lockFile, options.waitMs || REFRESH_WAIT_MS)) return false;
+  try {
+    const hasGraph = fs.existsSync(path.join(root, '.code-review-graph'));
+    const hasUntrackedSource = untrackedSourceFiles(root).length > 0;
+    const args = [hasGraph && !hasUntrackedSource ? 'update' : 'build', '--repo', root];
+    const runCrg = options.runCrg || runCrgDefault;
+    const invoke = (env) => {
+      const result = runCrg(args, {
+        cwd: root,
+        env,
+        stdio: 'ignore',
+        timeout: options.timeout || REFRESH_WAIT_MS,
+      });
+      return !!result && !result.error && result.status === 0;
+    };
+    return hasUntrackedSource ? withTemporaryGitIndex(root, invoke) : invoke(process.env);
+  } finally {
+    try { fs.unlinkSync(lockFile); } catch (_) {}
+  }
+}
+
+function listLinkedWorktrees(cwd) {
+  const root = repoRoot(cwd);
+  if (!root) return [];
+  const result = gitResult(root, ['worktree', 'list', '--porcelain']);
+  if (result.error || result.status !== 0) return [root];
+  return String(result.stdout || '')
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('worktree '))
+    .map((line) => path.resolve(line.slice('worktree '.length).trim()))
+    .filter((worktree, index, all) => fs.existsSync(worktree) && all.indexOf(worktree) === index);
+}
+
+function refreshLinkedWorktreesSync(cwd, options = {}) {
+  const worktrees = listLinkedWorktrees(cwd);
+  if (worktrees.length === 0) return false;
+  let ok = true;
+  for (const worktree of worktrees) {
+    if (!refreshCrgSync(worktree, options)) ok = false;
+  }
+  return ok;
 }
 
 function startCrgBuild(cwd) {
@@ -186,7 +314,7 @@ function startCrgBuild(cwd) {
   if (!root) return false;
   const graphDir = path.join(root, '.code-review-graph');
   if (fs.existsSync(graphDir)) return false;
-  const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-build', root));
+  const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-refresh', root));
   if (isLockActive(lockFile)) return false;
   if (!tryWriteLock(lockFile)) return false;
   const code = `
@@ -266,12 +394,9 @@ function startCrgUpdate(cwd) {
   const root = repoRoot(cwd);
   if (!root) return false;
   if (!fs.existsSync(path.join(root, '.code-review-graph'))) return false;
-  const stampFile = path.join(os.tmpdir(), lockName('codemap-crg-update-stamp', root));
-  if (recentlyTouched(stampFile, UPDATE_THROTTLE_MS)) return false;
-  const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-update', root));
+  const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-refresh', root));
   if (isLockActive(lockFile)) return false;
   if (!tryWriteLock(lockFile)) return false;
-  touchFile(stampFile);
   const code = `
     const fs = require('fs');
     const { spawnSync } = require('child_process');
@@ -326,8 +451,8 @@ function registerCrgMcp(options = {}) {
 }
 
 const CONTEXT = [
-  'CodeMap Boost: for symbol, function, class, call graph, reference, impact, or review-context work, prefer code-review-graph MCP tools before text search.',
-  'Start with mcp__code_review_graph__get_minimal_context_tool, then use semantic_search_nodes_tool, query_graph_tool, or get_impact_radius_tool as needed.',
+  'CodeMap Boost: wait for the graph refresh to finish before symbol, function, class, call graph, reference, impact, or review-context work.',
+  'After the refresh barrier, start with mcp__code_review_graph__get_minimal_context_tool, then use semantic_search_nodes_tool, query_graph_tool, or get_impact_radius_tool as needed.',
   'Use detail_level="minimal" first. Use rg/grep only for literal text, comments, or strings.',
 ].join(' ');
 
@@ -440,6 +565,9 @@ module.exports = {
   startAutoBootstrap,
   startCrgBuild,
   startCrgUpdate,
+  refreshCrgSync,
+  listLinkedWorktrees,
+  refreshLinkedWorktreesSync,
   registerCrgMcp,
   cleanLegacyCrgHooks,
   cleanLegacyCrgGitHook,

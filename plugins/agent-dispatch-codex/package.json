@@ -1,0 +1,13 @@
+{
+  "name": "agent-dispatch-codex",
+  "version": "0.1.2+codex.20260713080321",
+  "description": "Codex-native agent dispatch lifecycle plugin.",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "check:syntax": "node --check scripts/run-hook.cjs && node --check scripts/check-plugin.cjs && node --check scripts/run-tests.cjs && node --check hooks/js/session_start.js && node --check hooks/js/user_prompt_submit.js && node --check hooks/js/pre_tool_use.js && node --check hooks/js/subagent_start.js && node --check hooks/js/lib/agent_profiles.js && node --check hooks/js/lib/config.js && node --check hooks/js/lib/guidance.js && node --check hooks/js/lib/protocol.js && node --check hooks/js/lib/shell.js",
+    "check": "node scripts/check-plugin.cjs",
+    "test:unit": "node scripts/run-tests.cjs",
+    "test": "npm run check:syntax && npm run check && npm run test:unit"
+  }
+}

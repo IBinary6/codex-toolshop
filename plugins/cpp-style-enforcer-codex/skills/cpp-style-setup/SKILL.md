@@ -35,7 +35,7 @@ Project settings override global defaults field by field.
 - `checks.clangFormat`: formats with Google style.
 - `checks.cpplint`: blocks hard Google C++ style violations.
 - `checks.copyright`: writes a copyright header only when `copyrightInfo.company` is non-empty.
-- `checks.bom`: normalizes UTF-8 BOM, except in CMake projects.
+- `checks.bom`: normalizes UTF-8 BOM for CMake, Visual Studio, and other C/C++ projects.
 
 ## Dependencies
 

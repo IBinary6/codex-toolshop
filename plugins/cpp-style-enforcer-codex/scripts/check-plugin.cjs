@@ -54,7 +54,7 @@ function main() {
     '.codex-plugin/plugin.json'
   );
   assert(plugin.name === 'cpp-style-enforcer-codex', 'plugin name is wrong');
-  assert(plugin.hooks === './hooks/hooks.json', 'plugin must declare default Codex hooks manifest');
+  assert(!Object.prototype.hasOwnProperty.call(plugin, 'hooks'), 'plugin.json must omit unsupported hooks field');
   assert(plugin.skills === './skills/', 'plugin must declare skills directory');
   assert(Array.isArray(plugin.interface.defaultPrompt), 'defaultPrompt must be an array');
 

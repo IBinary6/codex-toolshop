@@ -23,10 +23,10 @@ try {
   assert.ok(fs.readFileSync(f2).equals(before2), '已有 BOM 内容不变');
   assert.strictEqual(fs.statSync(f2).mtimeMs, m2, '已有 BOM 不写 mtime 不变');
 
-  // CMake 项目 → 跳过（无 BOM 仍无 BOM）
+  // CMake 项目也必须补 BOM
   const f3 = write('c.cpp', Buffer.from('int c;', 'utf-8'));
   applyBom(f3, { isCMake: true });
-  assert.ok(!fs.readFileSync(f3).slice(0, 3).equals(BOM), 'CMake 项目跳过 BOM');
+  assert.ok(fs.readFileSync(f3).slice(0, 3).equals(BOM), 'CMake 项目也补 BOM');
 
   // 空文件 → 只写 BOM
   const f4 = write('d.cpp', Buffer.alloc(0));

@@ -7,6 +7,7 @@ const {
   ensureAgentsBlock,
   ensureGitInfoExclude,
   isCodeMapEnabled,
+  refreshCrgSync,
   startAutoBootstrap,
   startCrgBuild,
 } = require('./lib/codemap');
@@ -20,7 +21,7 @@ async function main() {
     try { cleanLegacyCrgGitHook(cwd); } catch (_) {}
     try { ensureAgentsBlock(); } catch (_) {}
     try { ensureGitInfoExclude(cwd); } catch (_) {}
-    try { startCrgBuild(cwd); } catch (_) {}
+    try { refreshCrgSync(cwd); } catch (_) {}
   }
   passSilent();
 }

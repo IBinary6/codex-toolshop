@@ -9,7 +9,7 @@ Use this skill when the user asks how to configure, verify, or troubleshoot `cod
 
 ## Rule
 
-CodeMap Boost is auto-enabled for Codex. SessionStart may bootstrap `code-review-graph` in the background, register MCP with plugin-owned flags, write AGENTS.md guidance, and build a missing project graph. The setup script remains the explicit troubleshooting/prewarm path.
+CodeMap Boost is auto-enabled for Codex. SessionStart bootstraps `code-review-graph` when needed, registers MCP with plugin-owned flags, writes AGENTS.md guidance, and synchronously builds or updates the project graph before use. The setup script remains the explicit troubleshooting/prewarm path.
 
 ## Quick Checks
 
@@ -35,7 +35,7 @@ The setup script is idempotent:
 - It registers MCP with `--no-hooks --no-instructions --no-skills`.
 - It writes a diagnostic marker in plugin data.
 - It updates the target project's `.gitignore` for graph output directories when run explicitly.
-- Hooks build/update graphs when `code-review-graph` is available; SessionStart attempts to make it available automatically.
+- Hooks synchronously build/update graphs when `code-review-graph` is available; SessionStart attempts to make it available automatically. PostToolUse skips known read-only Bash commands.
 
 Optional graphify support is enabled only when explicitly requested:
 

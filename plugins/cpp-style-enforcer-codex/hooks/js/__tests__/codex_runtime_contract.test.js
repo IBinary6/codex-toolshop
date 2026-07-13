@@ -55,5 +55,9 @@ const hooksText = JSON.stringify(hooks);
 assert.ok(hooksText.includes('${PLUGIN_ROOT}'), 'hook commands must use ${PLUGIN_ROOT}');
 assert.ok(!hooksText.includes('${' + [oldHost, 'PLUGIN', 'ROOT'].join('_') + '}'), 'hook commands must not use old host placeholders');
 assert.ok(!hooksText.includes('"async"'), 'manifest must not use async hooks');
+assert.ok(
+  hooks.hooks.PostToolUse.some((group) => String(group.matcher || '').includes('apply_patch')),
+  'PostToolUse must explicitly match apply_patch edits'
+);
 
 console.log('codex_runtime_contract.test.js PASS');

@@ -20,7 +20,7 @@ const pj = JSON.parse(fs.readFileSync(path.join(pluginRoot, '.codex-plugin', 'pl
 const pkg = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'package.json'), 'utf-8'));
 assert.strictEqual(pj.name, 'cpp-style-enforcer-codex', 'Codex 插件名应正确');
 assert.strictEqual(pj.version, pkg.version, 'Codex 插件版本应与 package.json 同步');
-assert.strictEqual(pj.hooks, './hooks/hooks.json', 'Codex 插件应声明默认 hook manifest');
+assert.strictEqual(Object.hasOwn(pj, 'hooks'), false, 'Codex 插件 manifest 不应包含不受支持的 hooks 字段');
 assert.strictEqual(pj.skills, './skills/', 'Codex 插件应声明 skills 目录');
 
 // 目录骨架存在

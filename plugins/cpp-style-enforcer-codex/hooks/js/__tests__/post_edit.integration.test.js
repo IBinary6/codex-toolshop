@@ -65,4 +65,34 @@ function mkTmpDir() {
   assert.notStrictEqual(r.status, 1, '永不 exit 1');
 }
 
+// 6) Codex apply_patch command 可包含多个文件；CMake 项目也必须补 UTF-8 BOM
+{
+  const dir = mkTmpDir();
+  fs.writeFileSync(path.join(dir, 'CMakeLists.txt'), 'project(test)\n');
+  fs.mkdirSync(path.join(dir, '.codex-cpp-style'));
+  fs.writeFileSync(path.join(dir, '.codex-cpp-style', 'cpp-style.json'), JSON.stringify({
+    checks: { clangFormat: false, copyright: false, cpplint: false, bom: true },
+  }));
+  const a = path.join(dir, 'a.cpp');
+  const b = path.join(dir, 'b.hpp');
+  fs.writeFileSync(a, 'int a;\n');
+  fs.writeFileSync(b, '#pragma once\n');
+  const r = runHook({
+    cwd: dir,
+    tool_name: 'apply_patch',
+    tool_input: {
+      command: [
+        '*** Begin Patch',
+        '*** Update File: a.cpp',
+        '*** Update File: b.hpp',
+        '*** End Patch',
+      ].join('\n'),
+    },
+  });
+  assert.strictEqual(r.status, 0, 'apply_patch 后处理应 exit 0');
+  const bom = Buffer.from([0xEF, 0xBB, 0xBF]);
+  assert.ok(fs.readFileSync(a).subarray(0, 3).equals(bom), 'CMake a.cpp 补 BOM');
+  assert.ok(fs.readFileSync(b).subarray(0, 3).equals(bom), 'apply_patch 多文件 b.hpp 补 BOM');
+}
+
 console.log('post_edit.integration.test.js PASS');

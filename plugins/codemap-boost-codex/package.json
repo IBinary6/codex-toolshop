@@ -1,12 +1,12 @@
 {
   "name": "codemap-boost-codex",
-  "version": "0.1.7",
+  "version": "0.1.8+codex.20260713074717",
   "description": "Codex-native CodeMap workflow powered by code-review-graph and optional graphify.",
   "license": "MIT",
   "private": true,
   "scripts": {
     "check": "node scripts/check-plugin.cjs",
-    "check:syntax": "node --check scripts/run-hook.cjs && node --check scripts/setup.cjs && node --check scripts/check-plugin.cjs && node --check scripts/run-tests.cjs && node --check hooks/js/session_start.js && node --check hooks/js/post_tool_use.js && node --check hooks/js/pre_bash.js && node --check hooks/js/user_prompt_submit.js && node --check hooks/js/subagent_start.js && node --check hooks/js/lib/bootstrap.js && node --check hooks/js/lib/codemap.js && node --check hooks/js/lib/runtime.js",
+    "check:syntax": "node --check scripts/run-hook.cjs && node --check scripts/setup.cjs && node --check scripts/check-plugin.cjs && node --check scripts/run-tests.cjs && node --check hooks/js/session_start.js && node --check hooks/js/post_tool_use.js && node --check hooks/js/pre_bash.js && node --check hooks/js/pre_graph_tool.js && node --check hooks/js/user_prompt_submit.js && node --check hooks/js/subagent_start.js && node --check hooks/js/lib/bootstrap.js && node --check hooks/js/lib/codemap.js && node --check hooks/js/lib/runtime.js",
     "test:unit": "node scripts/run-tests.cjs",
     "test": "npm run check:syntax && npm run check && npm run test:unit"
   }

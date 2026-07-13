@@ -1,0 +1,36 @@
+{
+  "name": "agent-dispatch-codex",
+  "version": "0.1.2+codex.20260713080321",
+  "description": "Codex-native main-agent dispatch guidance with per-role model profiles, subagent execution rules, and cross-shell tool nudges.",
+  "author": {
+    "name": "IBinary6"
+  },
+  "homepage": "https://github.com/IBinary6/codex-toolshop/tree/main/plugins/agent-dispatch-codex",
+  "repository": "https://github.com/IBinary6/codex-toolshop",
+  "license": "MIT",
+  "keywords": [
+    "agent",
+    "dispatch",
+    "subagent",
+    "delegation",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Agent Dispatch",
+    "shortDescription": "Keep the main Codex agent focused by dispatching bounded work.",
+    "longDescription": "Adds Codex-native lifecycle guidance for deciding when the primary agent must delegate bounded, parallel work, while telling spawned subagents to execute directly and report changed files and validation. Generates project-local custom agent profiles with independent model, reasoning, and sandbox settings, plus layered configuration and cross-shell tool nudges for Windows PowerShell and Git Bash workflows.",
+    "developerName": "IBinary6",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Show the effective Agent Dispatch policy for this project.",
+      "Configure which commands Agent Dispatch treats as lightweight.",
+      "Configure models for Agent Dispatch worker and reviewer roles."
+    ],
+    "brandColor": "#7C3AED"
+  }
+}

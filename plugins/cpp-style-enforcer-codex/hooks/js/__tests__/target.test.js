@@ -1,6 +1,6 @@
 const assert = require('node:assert');
 const path = require('path');
-const { resolveFilePath, shouldHandle, CPP_EXTENSIONS, EXCLUDED_DIRS, SKIPPED_FILES } = require('../lib/target.js');
+const { resolveFilePath, resolveFilePaths, shouldHandle, CPP_EXTENSIONS, EXCLUDED_DIRS, SKIPPED_FILES } = require('../lib/target.js');
 
 // resolveFilePath: tool_input.file_path 直取
 assert.strictEqual(
@@ -12,6 +12,23 @@ assert.strictEqual(
 // 无路径
 assert.strictEqual(resolveFilePath({}), null, '无路径返回 null');
 assert.strictEqual(resolveFilePath(null), null, 'null 输入返回 null');
+assert.deepStrictEqual(
+  resolveFilePaths({
+    cwd: '/proj',
+    tool_name: 'apply_patch',
+    tool_input: {
+      command: [
+        '*** Begin Patch',
+        '*** Add File: src/new.cpp',
+        '*** Update File: include/existing.hpp',
+        '*** Delete File: src/removed.cpp',
+        '*** End Patch',
+      ].join('\n'),
+    },
+  }),
+  [path.resolve('/proj', 'src/new.cpp'), path.resolve('/proj', 'include/existing.hpp')],
+  'apply_patch 提取所有新增/更新文件并忽略删除文件'
+);
 
 // shouldHandle: 扩展名
 assert.strictEqual(shouldHandle('/p/a.cpp'), true, '.cpp 处理');

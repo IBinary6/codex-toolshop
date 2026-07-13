@@ -22,7 +22,7 @@ codex plugin add codemap-boost-codex@codex-toolshop
 
 ## 自动启用
 
-安装插件后，重新打开 Codex 会话即可自动工作。`SessionStart` 会在后台检查 `code-review-graph`，缺失时尝试安装 `code-review-graph[all]`，然后注册 Codex MCP、写入 `$CODEX_HOME/AGENTS.md` 托管块，并在当前 Git 仓库缺少图谱时启动一次后台构建。
+安装插件后，重新打开 Codex 会话即可自动工作。`SessionStart` 会检查 `code-review-graph`，缺失时尝试安装 `code-review-graph[all]`，然后注册 Codex MCP、写入 `$CODEX_HOME/AGENTS.md` 托管块，并在当前 Git 仓库同步完成 build/update 后再继续使用。
 
 `codemap-boost-setup` 仍保留为手动诊断/预热入口。需要立即验证或手动预热时，可以在 Codex 中输入：
 
@@ -61,8 +61,8 @@ python -m pip install "graphifyy[all]"
 
 | Hook | CLI 可用后的作用 |
 | --- | --- |
-| `SessionStart` | 后台安装/注册 `code-review-graph`，维护 `$CODEX_HOME/AGENTS.md` 的 CodeMap 托管块，在图谱缺失时启动一次后台 build；不会修改项目 `.gitignore`。 |
-| `PostToolUse` | Codex 写文件或运行 Bash 后，按锁和节流规则后台触发 `code-review-graph update`。 |
+| `SessionStart` | 安装/注册 `code-review-graph`，维护 `$CODEX_HOME/AGENTS.md` 的 CodeMap 托管块，并同步完成 build/update；不会修改项目 `.gitignore`。 |
+| `PostToolUse` | Codex 写文件或执行可能修改源码的 Bash 后同步刷新；只读 Bash 命令不会触发重复刷新。 |
 | `PreToolUse:Bash` | 当 Bash 命令像是在做代码结构搜索时，向 Codex 注入图谱优先提示，不阻止命令。 |
 | `UserPromptSubmit` | 当用户问题涉及符号、调用、引用、影响面等结构问题时，提醒 Codex 优先使用图谱 MCP 工具。 |
 | `SubagentStart` | 子代理启动时注入同样的 CodeMap 使用规则。 |

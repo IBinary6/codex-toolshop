@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "modules": {
+    "session_guidance": true,
+    "prompt_guidance": true,
+    "pre_tool_nudge": true,
+    "subagent_guidance": true
+  },
+  "policy": {
+    "max_parallel_subagents": 3,
+    "require_changed_file_report": true,
+    "require_validation_report": true
+  },
+  "agent_profiles": {
+    "enabled": true,
+    "profiles": {
+      "dispatch_explorer": {
+        "enabled": true,
+        "description": "Fast read-only explorer for codebase mapping and evidence gathering.",
+        "model": "gpt-5.6-luna",
+        "model_reasoning_effort": "medium",
+        "sandbox_mode": "read-only",
+        "developer_instructions": "Map the requested code paths and gather concrete evidence. Do not edit files. Return a concise summary with relevant files, symbols, and validation evidence."
+      },
+      "dispatch_worker": {
+        "enabled": true,
+        "description": "Execution-focused worker for bounded implementation and bug-fix tasks.",
+        "model": "gpt-5.6-luna",
+        "model_reasoning_effort": "medium",
+        "sandbox_mode": "workspace-write",
+        "developer_instructions": "Implement the assigned bounded task directly. Make the smallest defensible change, preserve unrelated work, and report every changed file plus validation results."
+      },
+      "dispatch_reviewer": {
+        "enabled": true,
+        "description": "High-reasoning read-only reviewer for correctness, security, and test gaps.",
+        "model": "gpt-5.6-sol",
+        "model_reasoning_effort": "high",
+        "sandbox_mode": "read-only",
+        "developer_instructions": "Review the assigned scope like an owner. Prioritize correctness, security, regressions, and missing tests. Lead with concrete findings and do not modify files."
+      }
+    }
+  },
+  "whitelist": {
+    "mcp_prefixes": [
+      "mcp__code_review_graph__",
+      "mcp__code-review-graph__",
+      "mcp__codegraph__",
+      "mcp__graphify__"
+    ],
+    "shell_heads": [
+      "ls", "pwd", "cd", "cat", "head", "tail", "wc", "sort", "uniq",
+      "rg", "grep", "fd", "jq", "delta", "gh", "which", "where",
+      "node", "npm", "yarn", "pnpm", "bun",
+      "python", "python3", "py", "pip", "pipenv", "poetry", "pytest",
+      "codegraph", "code-review-graph", "graphify",
+      "rustc", "cargo", "go", "java", "javac", "mvn", "gradle",
+      "dotnet", "ruby", "gem", "bundle",
+      "gcc", "g++", "clang", "clang++", "cmake", "make", "ninja", "meson",
+      "msbuild", "cl",
+      "get-childitem", "get-content", "get-location", "set-location",
+      "select-string", "where-object", "foreach-object", "test-path",
+      "resolve-path", "write-output", "measure-object", "format-table"
+    ],
+    "git_readonly": [
+      "status", "diff", "log", "show", "blame", "rev-parse",
+      "rev-list", "ls-files", "ls-tree", "describe", "reflog"
+    ],
+    "git_safe_write": [
+      "add", "commit", "fetch", "push"
+    ],
+    "prompt_keywords": [
+      "审查", "review", "audit", "排查", "debug", "调试", "分析", "analy",
+      "实现", "implement", "迁移", "migrate", "重构", "refactor", "构建", "build",
+      "跨模块", "多文件", "并行", "parallel", "调查", "investigat", "research"
+    ]
+  },
+  "overrides": {
+    "mcp_prefixes_add": [],
+    "mcp_prefixes_remove": [],
+    "shell_heads_add": [],
+    "shell_heads_remove": [],
+    "git_readonly_add": [],
+    "git_readonly_remove": [],
+    "git_safe_write_add": [],
+    "git_safe_write_remove": [],
+    "prompt_keywords_add": [],
+    "prompt_keywords_remove": []
+  }
+}

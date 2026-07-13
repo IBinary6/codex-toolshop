@@ -40,7 +40,7 @@ function main() {
 
   const plugin = readJson(path.join(pluginRoot, '.codex-plugin', 'plugin.json'), 'plugin.json');
   assert(plugin.name === 'codemap-boost-codex', 'plugin name is wrong');
-  assert(plugin.hooks === './hooks/hooks.json', 'plugin must declare default Codex hooks manifest');
+  assert(!Object.prototype.hasOwnProperty.call(plugin, 'hooks'), 'plugin.json must omit unsupported hooks field');
   assert(plugin.skills === './skills/', 'plugin must declare skills directory');
 
   const hooks = readJson(path.join(pluginRoot, 'hooks', 'hooks.json'), 'hooks manifest');
