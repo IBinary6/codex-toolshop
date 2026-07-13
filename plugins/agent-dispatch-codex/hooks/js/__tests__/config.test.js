@@ -38,6 +38,8 @@ try {
 
   const projectFile = projectConfigPath(repo);
   const project = JSON.parse(fs.readFileSync(projectFile, 'utf8'));
+  assert.equal(Object.hasOwn(project.overrides, 'git_readonly_add'), false);
+  assert.equal(Object.hasOwn(project.overrides, 'git_safe_write_add'), false);
   project.modules.prompt_guidance = false;
   project.policy.max_parallel_subagents = 2;
   project.agent_profiles.profiles.dispatch_worker = { model: 'gpt-5.6' };
@@ -51,6 +53,8 @@ try {
   assert.equal(effective.agent_profiles.profiles.dispatch_worker.model, 'gpt-5.6');
   assert.equal(effective.agent_profiles.profiles.dispatch_worker.sandbox_mode, 'workspace-write');
   assert.ok(effective.whitelist.shell_heads.includes('my-tool'));
+  assert.equal(Object.hasOwn(effective.whitelist, 'git_readonly'), false);
+  assert.equal(Object.hasOwn(effective.whitelist, 'git_safe_write'), false);
 
   const merged = mergeConfig(effective, { overrides: { shell_heads_add: ['my-tool'] } });
   assert.equal(merged.whitelist.shell_heads.filter((item) => item === 'my-tool').length, 1);

@@ -1,6 +1,6 @@
 {
   "name": "agent-dispatch-codex",
-  "version": "0.1.3+codex.20260713085839",
+  "version": "0.1.4+codex.20260713121153",
   "description": "Codex-native agent dispatch lifecycle plugin.",
   "license": "MIT",
   "private": true,

@@ -9,14 +9,19 @@ const TWO_CHAR_OPERATORS = new Set([
 const ONE_CHAR_OPERATORS = new Set([';', '|', '&', '>', '<']);
 const OUTPUT_REDIRECTS = new Set(['>', '>>', '<<', '&>', '>|', '<>', '>&']);
 
+const ENV_OPTIONS_WITH_VALUE = new Set([
+  '-a', '--argv0', '-u', '--unset', '-C', '--chdir',
+]);
+const ENV_SPLIT_OPTIONS = new Set(['-S', '--split-string']);
+const SUDO_OPTIONS_WITH_VALUE = new Set([
+  '-C', '--close-from', '-D', '--chdir', '-g', '--group', '-h', '--host',
+  '-p', '--prompt', '-R', '--chroot', '-r', '--role', '-T',
+  '--command-timeout', '-t', '--type', '-u', '--user',
+]);
+
 const DANGEROUS_PATTERNS = [
   /(?:^|[;&|]\s*)rm\s+[^\r\n]*(?:-[^\s]*r[^\s]*f|-[^\s]*f[^\s]*r)/i,
   /(?:^|[;&|]\s*)remove-item\b[^\r\n]*-(?:recurse|force)\b/i,
-  /\bgit\b[^\r\n;&|]*\bpush\b[^\r\n;&|]*(?:--force(?:-with-lease)?|-f\b)/i,
-  /\bgit\b[^\r\n;&|]*\breset\b[^\r\n;&|]*--hard\b/i,
-  /\bgit\b[^\r\n;&|]*\bclean\b[^\r\n;&|]*(?:\s-f\b|\s-[a-z]*f[a-z]*\b)/i,
-  /\bgit\b[^\r\n;&|]*\bbranch\b[^\r\n;&|]*\s-D\b/i,
-  /\bgit\b[^\r\n;&|]*\b(?:checkout|restore)\b[^\r\n;&|]*--\s+\.\b/i,
 ];
 
 function hasOutputRedirect(command) {
@@ -25,6 +30,46 @@ function hasOutputRedirect(command) {
 
 function hasAmbiguousCrossShellEscape(command) {
   return /\\(?=["'$`;&|><()])|\\\r?\n/.test(String(command || ''));
+}
+
+function hasNestedShellEvaluation(command) {
+  const value = String(command || '');
+  let quote = null;
+  for (let i = 0; i < value.length; i += 1) {
+    const ch = value[i];
+    if (quote) {
+      if (ch === quote && !isQuoteEscaped(value, i, quote)) {
+        quote = null;
+        continue;
+      }
+      if (quote === '"'
+          && (ch === '`'
+            || (ch === '$' && ['(', '{', '['].includes(value[i + 1])))) {
+        return true;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === '`' || ch === '(' || ch === '{' || ch === '}') return true;
+    if (ch === '$' && ['(', '{', '['].includes(value[i + 1])) return true;
+    if ((ch === '<' || ch === '>') && /^\s*\(/.test(value.slice(i + 1))) return true;
+    if (ch === '<' && value[i + 1] === '#') return true;
+    if (ch === '#' && value[i + 1] === '>') return true;
+    if (ch === '@' && ['(', '"', "'"].includes(value[i + 1])) return true;
+  }
+  return false;
+}
+
+function isQuoteEscaped(text, index, quote) {
+  if (quote !== '"' || index < 1) return false;
+  const escape = text[index - 1];
+  if (escape !== '\\' && escape !== '`') return false;
+  let count = 0;
+  for (let i = index - 1; i >= 0 && text[i] === escape; i -= 1) count += 1;
+  return count % 2 === 1;
 }
 
 function lexCommand(command) {
@@ -43,7 +88,7 @@ function lexCommand(command) {
 
     if (quote) {
       current += ch;
-      if (ch === quote) quote = null;
+      if (ch === quote && !isQuoteEscaped(command, i, quote)) quote = null;
       continue;
     }
 
@@ -80,6 +125,321 @@ function lexCommand(command) {
   return tokens;
 }
 
+function boundaryIsEscaped(text, boundaryIndex) {
+  if (boundaryIndex < 1) return false;
+  const escape = text[boundaryIndex - 1];
+  if (escape !== '\\' && escape !== '`') return false;
+  let count = 0;
+  for (let i = boundaryIndex - 1; i >= 0 && text[i] === escape; i -= 1) count += 1;
+  return count % 2 === 1;
+}
+
+function isCommentStart(text, index) {
+  if (text[index] !== '#') return false;
+  if (index === 0) return true;
+  const boundaryIndex = index - 1;
+  return /\s|[;&|]/.test(text[boundaryIndex])
+    && !boundaryIsEscaped(text, boundaryIndex);
+}
+
+function maskBalancedRegion(source, chars, start, cursor, open, close, depth) {
+  for (let i = start; i < cursor; i += 1) chars[i] = ' ';
+  let index = cursor - 1;
+  while (index + 1 < source.length && depth > 0) {
+    index += 1;
+    if (source[index] === open) depth += 1;
+    else if (source[index] === close) depth -= 1;
+    chars[index] = ' ';
+  }
+  return index;
+}
+
+function operatorIsEscaped(source, index) {
+  if (index < 1) return false;
+  const escape = source[index - 1];
+  if (escape !== '\\' && escape !== '`') return false;
+  let count = 0;
+  for (let i = index - 1; i >= 0 && source[i] === escape; i -= 1) count += 1;
+  return count % 2 === 1;
+}
+
+function maskNonHeredocContexts(line) {
+  const source = String(line || '');
+  const chars = [...source];
+  let quote = null;
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i];
+    if (quote) {
+      if (ch === quote && !isQuoteEscaped(source, i, quote)) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === '$' && source[i + 1] === '(' && source[i + 2] === '(') {
+      i = maskBalancedRegion(source, chars, i, i + 3, '(', ')', 2);
+      continue;
+    }
+    if (ch === '$' && source[i + 1] === '[') {
+      i = maskBalancedRegion(source, chars, i, i + 2, '[', ']', 1);
+      continue;
+    }
+    if (ch === '$' && source[i + 1] === '{') {
+      i = maskBalancedRegion(source, chars, i, i + 2, '{', '}', 1);
+      continue;
+    }
+    const atTokenBoundary = i === 0 || /\s|[;&|]/.test(source[i - 1]);
+    if (atTokenBoundary && ch === '(' && source[i + 1] === '(') {
+      i = maskBalancedRegion(source, chars, i, i + 2, '(', ')', 2);
+      continue;
+    }
+    if (atTokenBoundary && ch === '[' && source[i + 1] === '[') {
+      i = maskBalancedRegion(source, chars, i, i + 2, '[', ']', 2);
+      continue;
+    }
+    if (ch === '<' && source[i + 1] === '<' && operatorIsEscaped(source, i)) {
+      chars[i] = ' ';
+      chars[i + 1] = ' ';
+      i += 1;
+    }
+  }
+  return chars.join('');
+}
+
+function normalizeHeredocDelimiter(raw) {
+  const value = String(raw || '');
+  let result = '';
+  let quote = null;
+  for (let i = 0; i < value.length; i += 1) {
+    const ch = value[i];
+    if (quote) {
+      if (ch === quote && !isQuoteEscaped(value, i, quote)) {
+        quote = null;
+        continue;
+      }
+      if (quote === '"' && ch === '\\' && i + 1 < value.length) {
+        result += value[i + 1];
+        i += 1;
+        continue;
+      }
+      result += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === '$' && (value[i + 1] === '"' || value[i + 1] === "'")) {
+      quote = value[i + 1];
+      i += 1;
+      continue;
+    }
+    if (ch === '\\' && i + 1 < value.length) {
+      result += value[i + 1];
+      i += 1;
+      continue;
+    }
+    result += ch;
+  }
+  return result;
+}
+
+function readHeredocWord(commandLine, start) {
+  let raw = '';
+  let quote = null;
+  let index = start;
+  while (index < commandLine.length) {
+    const ch = commandLine[index];
+    if (quote) {
+      raw += ch;
+      if (ch === quote && !isQuoteEscaped(commandLine, index, quote)) quote = null;
+      index += 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      raw += ch;
+      index += 1;
+      continue;
+    }
+    if (ch === '\\' && index + 1 < commandLine.length) {
+      raw += ch + commandLine[index + 1];
+      index += 2;
+      continue;
+    }
+    if (/\s|[;&|<>]/.test(ch)) break;
+    raw += ch;
+    index += 1;
+  }
+  return { complete: quote === null, end: index, raw };
+}
+
+function heredocDescriptors(line) {
+  const commandLine = stripShellComments(maskNonHeredocContexts(line));
+  const descriptors = [];
+  let quote = null;
+  for (let i = 0; i < commandLine.length - 1; i += 1) {
+    const ch = commandLine[i];
+    if (quote) {
+      if (ch === quote && !isQuoteEscaped(commandLine, i, quote)) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch !== '<' || commandLine[i + 1] !== '<') continue;
+    if (commandLine[i + 2] === '<') {
+      i += 2;
+      continue;
+    }
+
+    let cursor = i + 2;
+    let stripTabs = false;
+    if (commandLine[cursor] === '-') {
+      stripTabs = true;
+      cursor += 1;
+    }
+    while (commandLine[cursor] === ' ' || commandLine[cursor] === '\t') cursor += 1;
+    const word = readHeredocWord(commandLine, cursor);
+    const delimiter = normalizeHeredocDelimiter(word.raw);
+    if (word.complete && /^[A-Za-z0-9_.:+@%/-]+$/.test(delimiter)) {
+      descriptors.push({ delimiter, stripTabs });
+    }
+    i = Math.max(i, word.end - 1);
+  }
+  return descriptors;
+}
+
+function maskInheritedQuotePrefix(line, inheritedQuote) {
+  if (!inheritedQuote) return line;
+  const chars = [...line];
+  for (let i = 0; i < line.length; i += 1) {
+    chars[i] = ' ';
+    if (line[i] === inheritedQuote && !isQuoteEscaped(line, i, inheritedQuote)) break;
+  }
+  return chars.join('');
+}
+
+function quoteStateAfterLine(line, initialQuote) {
+  let quote = initialQuote;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === quote && !isQuoteEscaped(line, i, quote)) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (isCommentStart(line, i)) break;
+  }
+  return quote;
+}
+
+function stripHeredocBodies(command) {
+  const lines = String(command || '').split(/\r?\n/);
+  const output = [];
+  const pending = [];
+  const bodyBuffer = [];
+  let inheritedQuote = null;
+  for (const line of lines) {
+    if (pending.length) {
+      bodyBuffer.push(line);
+      const current = pending[0];
+      const candidate = current.stripTabs ? line.replace(/^\t+/, '') : line;
+      if (candidate === current.delimiter) pending.shift();
+      if (!pending.length) bodyBuffer.length = 0;
+      continue;
+    }
+    output.push(line);
+    pending.push(...heredocDescriptors(maskInheritedQuotePrefix(line, inheritedQuote)));
+    inheritedQuote = quoteStateAfterLine(line, inheritedQuote);
+  }
+  if (pending.length) output.push(...bodyBuffer);
+  return output.join('\n');
+}
+
+function collapseLineContinuations(command) {
+  const source = String(command || '');
+  let output = '';
+  let quote = null;
+  let inComment = false;
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i];
+    if (inComment) {
+      output += ch;
+      if (ch === '\r' || ch === '\n') inComment = false;
+      continue;
+    }
+
+    if (quote !== "'" && (ch === '\\' || ch === '`')) {
+      let cursor = i;
+      while (source[cursor] === ch) cursor += 1;
+      const count = cursor - i;
+      const hasNewline = source[cursor] === '\n'
+        || (source[cursor] === '\r' && source[cursor + 1] === '\n');
+      if (hasNewline && count % 2 === 1) {
+        output += ch.repeat(count - 1);
+        i = source[cursor] === '\r' ? cursor + 1 : cursor;
+        continue;
+      }
+    }
+
+    if (quote) {
+      output += ch;
+      if (ch === quote && !isQuoteEscaped(source, i, quote)) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      output += ch;
+      continue;
+    }
+    const logicalBoundary = output.length === 0
+      || (/\s|[;&|]/.test(output[output.length - 1])
+        && !boundaryIsEscaped(output, output.length - 1));
+    if (ch === '#' && logicalBoundary) inComment = true;
+    output += ch;
+  }
+  return output;
+}
+
+function stripShellComments(command) {
+  const source = String(command || '');
+  let output = '';
+  let quote = null;
+  let inComment = false;
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i];
+    if (inComment) {
+      if (ch === '\r' || ch === '\n') {
+        inComment = false;
+        output += ch;
+      }
+      continue;
+    }
+    if (quote) {
+      output += ch;
+      if (ch === quote && !isQuoteEscaped(source, i, quote)) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      output += ch;
+      continue;
+    }
+    if (isCommentStart(source, i)) {
+      inComment = true;
+      continue;
+    }
+    output += ch;
+  }
+  return output;
+}
+
 function tokenSegments(command) {
   const segments = [[]];
   for (const token of lexCommand(command)) {
@@ -106,126 +466,118 @@ function normalizeHead(raw) {
   return value.replace(/\.(?:exe|cmd|bat|ps1)$/i, '');
 }
 
-function segmentHead(segment) {
-  const tokens = Array.isArray(segment) ? [...segment] : tokenizeSegment(segment);
-  while (tokens.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0]) || /^\$env:[^=]+=/i.test(tokens[0]))) {
-    tokens.shift();
+function unquoteToken(raw) {
+  const value = String(raw || '');
+  if ((value.startsWith('"') && value.endsWith('"'))
+      || (value.startsWith("'") && value.endsWith("'"))) {
+    return value.slice(1, -1);
   }
-  if (tokens[0] === '&' || tokens[0] === 'command' || tokens[0] === 'sudo') tokens.shift();
-  return { head: normalizeHead(tokens[0]), tokens };
+  return value;
 }
 
-function stripQuotes(value) {
-  return String(value || '').replace(/^['"]|['"]$/g, '');
+function optionParts(raw) {
+  const option = unquoteToken(raw);
+  const separator = option.indexOf('=');
+  if (separator < 0) return { name: option, value: null };
+  return {
+    name: option.slice(0, separator),
+    value: option.slice(separator + 1),
+  };
 }
 
-function stripGitGlobalOptions(args) {
-  const out = [...args];
-  const withValue = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--super-prefix']);
-  const flags = new Set(['--no-pager', '--paginate', '--literal-pathspecs', '--no-literal-pathspecs']);
-  while (out.length) {
-    const head = stripQuotes(out[0]);
-    if (withValue.has(head)) {
-      if (out.length < 2) return [];
-      out.splice(0, 2);
+function splitEnvString(raw) {
+  return lexCommand(unquoteToken(raw));
+}
+
+function consumeCommandOptions(tokens) {
+  while (tokens.length && String(tokens[0]).startsWith('-')) {
+    const option = unquoteToken(tokens.shift());
+    if (option === '--') break;
+  }
+}
+
+function consumeSudoOptions(tokens) {
+  while (tokens.length && String(tokens[0]).startsWith('-')) {
+    const { name, value } = optionParts(tokens.shift());
+    if (name === '--') break;
+    if (SUDO_OPTIONS_WITH_VALUE.has(name) && value === null && tokens.length) {
+      tokens.shift();
+    }
+  }
+}
+
+function consumeEnvOptions(tokens) {
+  while (tokens.length && String(tokens[0]).startsWith('-')) {
+    const raw = tokens.shift();
+    const { name, value } = optionParts(raw);
+    if (name === '--') break;
+
+    let splitValue = value;
+    if (name.startsWith('-S') && name !== '-S') {
+      splitValue = unquoteToken(raw).slice(2);
+    }
+    if (ENV_SPLIT_OPTIONS.has(name) || (name.startsWith('-S') && name !== '-S')) {
+      if (splitValue === null && tokens.length) splitValue = tokens.shift();
+      if (splitValue) tokens.unshift(...splitEnvString(splitValue));
       continue;
     }
-    if (/^--(?:git-dir|work-tree|namespace|super-prefix)=/.test(head) || flags.has(head)) {
-      out.shift();
+
+    const hasAttachedShortValue = (name.startsWith('-u') && name !== '-u')
+      || (name.startsWith('-C') && name !== '-C');
+    if (!hasAttachedShortValue
+        && ENV_OPTIONS_WITH_VALUE.has(name)
+        && value === null
+        && tokens.length) {
+      tokens.shift();
+    }
+  }
+}
+
+function segmentHead(segment) {
+  const tokens = Array.isArray(segment) ? [...segment] : tokenizeSegment(segment);
+  while (tokens.length) {
+    while (tokens.length
+        && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0]) || /^\$env:[^=]+=/i.test(tokens[0]))) {
+      tokens.shift();
+    }
+    const wrapper = normalizeHead(tokens[0]);
+    if (wrapper === 'command') {
+      tokens.shift();
+      consumeCommandOptions(tokens);
+      continue;
+    }
+    if (wrapper === 'sudo') {
+      tokens.shift();
+      consumeSudoOptions(tokens);
+      continue;
+    }
+    if (tokens[0] === '&') {
+      tokens.shift();
+      continue;
+    }
+    if (wrapper === 'env') {
+      tokens.shift();
+      consumeEnvOptions(tokens);
       continue;
     }
     break;
   }
-  return out;
-}
-
-function isDangerousPush(args) {
-  const values = args.map(stripQuotes);
-  return values.some((arg) =>
-    arg === '--force'
-    || arg.startsWith('--force=')
-    || arg.startsWith('--force-with-lease')
-    || arg === '--force-if-includes'
-    || arg === '-f'
-    || arg === '--mirror'
-    || arg === '--prune'
-    || arg === '--delete'
-    || arg === '-d'
-    || arg.startsWith('+')
-    || /^:[^/]/.test(arg)
-  );
-}
-
-function isReadonlyGitCompound(subcommand, args) {
-  const values = args.map(stripQuotes);
-  if (subcommand === 'remote') {
-    return values[0] === '-v'
-      || values[0] === '--verbose'
-      || values[0] === 'show'
-      || values[0] === 'get-url';
-  }
-  if (subcommand === 'config') {
-    const mutating = new Set([
-      '--add', '--replace-all', '--unset', '--unset-all', '--rename-section',
-      '--remove-section', '--edit', '-e',
-    ]);
-    if (values.some((arg) => mutating.has(arg))) return false;
-    return values.some((arg) =>
-      arg === '--get'
-      || arg === '--get-all'
-      || arg === '--get-regexp'
-      || arg === '--get-urlmatch'
-      || arg === '--list'
-      || arg === '-l'
-    );
-  }
-  if (subcommand === 'stash') return values[0] === 'list' || values[0] === 'show';
-  if (subcommand === 'tag') return values.length === 0 || values[0] === '-l' || values[0] === '--list';
-  if (subcommand === 'branch') {
-    const safeFlags = new Set(['-a', '--all', '-r', '--remotes', '-v', '-vv', '--verbose', '--show-current']);
-    return values.length === 0 || values.every((arg) => safeFlags.has(arg));
-  }
-  return null;
-}
-
-function analyzeGit(tokens, config) {
-  const args = stripGitGlobalOptions(tokens.slice(1));
-  const subcommand = stripQuotes(args[0]).toLowerCase();
-  if (!subcommand) return { safe: false, reason: 'git command has no subcommand' };
-  const subArgs = args.slice(1);
-  if (subcommand === 'push' && isDangerousPush(subArgs)) {
-    return { safe: false, reason: 'git push option can rewrite or delete remote refs' };
-  }
-  const compound = isReadonlyGitCompound(subcommand, subArgs);
-  if (compound !== null) {
-    return compound
-      ? { safe: true }
-      : { safe: false, reason: `git ${subcommand} form is not read-only` };
-  }
-  const readonly = new Set(config.whitelist.git_readonly || []);
-  const safeWrite = new Set(config.whitelist.git_safe_write || []);
-  if (readonly.has(subcommand) || safeWrite.has(subcommand)) return { safe: true };
-  return { safe: false, reason: `git subcommand is not lightweight: ${subcommand}` };
+  return { head: normalizeHead(tokens[0]), tokens };
 }
 
 function analyzeShellCommand(command, config) {
   if (typeof command !== 'string' || !command.trim()) {
     return { safe: false, reason: 'empty shell command', heads: [] };
   }
-  if (/\$\(|`|<\(|>\(/.test(command)) {
-    return { safe: false, reason: 'command substitution requires delegated review', heads: [] };
-  }
   if (hasAmbiguousCrossShellEscape(command)) {
     return { safe: false, reason: 'cross-shell escape is ambiguous', heads: [] };
   }
-  if (hasOutputRedirect(command)) {
-    return { safe: false, reason: 'shell redirection can write files', heads: [] };
+  if (hasNestedShellEvaluation(command)) {
+    return { safe: false, reason: 'nested shell evaluation requires delegated review', heads: [] };
   }
-  if (DANGEROUS_PATTERNS.some((pattern) => pattern.test(command))) {
-    return { safe: false, reason: 'destructive shell pattern', heads: [] };
-  }
-
-  const segments = tokenSegments(command);
+  const withoutHeredocBodies = stripHeredocBodies(command);
+  const logicalCommand = collapseLineContinuations(withoutHeredocBodies);
+  const segments = tokenSegments(stripShellComments(logicalCommand));
   if (!segments.length) return { safe: false, reason: 'no command segments', heads: [] };
   const allowedHeads = new Set((config.whitelist.shell_heads || []).map((item) => String(item).toLowerCase()));
   const heads = [];
@@ -234,10 +586,23 @@ function analyzeShellCommand(command, config) {
     const parsed = segmentHead(segment);
     heads.push(parsed.head);
     if (!parsed.head) return { safe: false, reason: 'unknown command head', heads };
-    if (parsed.head === 'git') {
-      const git = analyzeGit(parsed.tokens, config);
-      if (!git.safe) return { ...git, heads };
-      continue;
+    // Git is an orchestration invariant, not a dispatch heuristic: the primary
+    // agent executes every Git command serially, so no Git subcommand belongs
+    // in the lightweight/dangerous classification below. Keep inspecting later
+    // segments because a compound command may still contain non-Git work.
+    if (parsed.head === 'git') continue;
+    const segmentCommand = segment.join(' ');
+    if (/\$\(|`|[<>]\s*\(/.test(segmentCommand)) {
+      return { safe: false, reason: 'command substitution requires delegated review', heads };
+    }
+    if (hasAmbiguousCrossShellEscape(segmentCommand)) {
+      return { safe: false, reason: 'cross-shell escape is ambiguous', heads };
+    }
+    if (DANGEROUS_PATTERNS.some((pattern) => pattern.test(segmentCommand))) {
+      return { safe: false, reason: 'destructive shell pattern', heads };
+    }
+    if (segment.some((token) => OUTPUT_REDIRECTS.has(token))) {
+      return { safe: false, reason: 'shell redirection can write files', heads };
     }
     if (!allowedHeads.has(parsed.head)) {
       return { safe: false, reason: `command is not lightweight: ${parsed.head}`, heads };

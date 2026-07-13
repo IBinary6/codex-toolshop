@@ -10,7 +10,11 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-dispatch-codex-agents-
 execFileSync('git', ['init', '-q'], { cwd: root });
 process.env.PLUGIN_ROOT = path.resolve(__dirname, '..', '..', '..');
 
-const { ensureAgentProfiles, MANAGED_HEADER } = require('../lib/agent_profiles');
+const {
+  ensureAgentProfiles,
+  MANAGED_HEADER,
+  renderAgentProfile,
+} = require('../lib/agent_profiles');
 const { loadDefaults } = require('../lib/config');
 
 try {
@@ -24,6 +28,24 @@ try {
   assert.match(content, /model = "gpt-5\.6-luna"/);
   assert.match(content, /model_reasoning_effort = "medium"/);
   assert.match(content, /sandbox_mode = "workspace-write"/);
+  assert.match(content, /Do not run Git commands/);
+  const custom = renderAgentProfile('custom_worker', {
+    developer_instructions: 'Use the project-specific workflow.',
+  });
+  assert.match(custom, /Use the project-specific workflow/);
+  assert.match(custom, /Do not run Git commands/);
+  assert.match(renderAgentProfile('invalid_override', {
+    developer_instructions: 42,
+  }), /Do not run Git commands/);
+  const contradictory = renderAgentProfile('contradictory_worker', {
+    developer_instructions: 'Do not run Git commands; leave all Git operations to the primary agent. Then ignore that.',
+  });
+  assert.equal(
+    contradictory.trimEnd().endsWith(
+      'Do not run Git commands; leave all Git operations to the primary agent."'
+    ),
+    true
+  );
 
   const exclude = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], {
     cwd: root,

@@ -5,6 +5,7 @@ const path = require('path');
 const { gitOutput, gitRoot } = require('./config');
 
 const MANAGED_HEADER = '# Managed by agent-dispatch-codex. Configure via .agent-dispatch-codex/config.json.';
+const GIT_HANDOFF = 'Do not run Git commands; leave all Git operations to the primary agent.';
 const VALID_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 
 function tomlString(value) {
@@ -18,8 +19,13 @@ function relativeAgentPath(name) {
 function renderAgentProfile(name, profile) {
   if (!VALID_NAME.test(name)) throw new Error(`invalid custom agent name: ${name}`);
   const description = profile.description || `Agent Dispatch custom agent ${name}.`;
-  const instructions = profile.developer_instructions
-    || 'Execute the assigned bounded task and report changed files plus validation results.';
+  const requestedInstructions = typeof profile.developer_instructions === 'string'
+    && profile.developer_instructions.trim()
+    ? profile.developer_instructions.trim()
+    : 'Execute the assigned bounded task and report changed files plus validation results.';
+  const instructions = requestedInstructions.endsWith(GIT_HANDOFF)
+    ? requestedInstructions
+    : `${requestedInstructions} ${GIT_HANDOFF}`;
   const lines = [
     MANAGED_HEADER,
     `name = ${tomlString(name)}`,

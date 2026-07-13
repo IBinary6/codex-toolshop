@@ -20,7 +20,7 @@
         "model": "gpt-5.6-luna",
         "model_reasoning_effort": "medium",
         "sandbox_mode": "read-only",
-        "developer_instructions": "Map the requested code paths and gather concrete evidence. Do not edit files. Return a concise summary with relevant files, symbols, and validation evidence."
+        "developer_instructions": "Map the requested code paths and gather concrete evidence. Do not edit files. Do not run Git commands; leave all Git operations to the primary agent. Return a concise summary with relevant files, symbols, and validation evidence."
       },
       "dispatch_worker": {
         "enabled": true,
@@ -28,7 +28,7 @@
         "model": "gpt-5.6-luna",
         "model_reasoning_effort": "medium",
         "sandbox_mode": "workspace-write",
-        "developer_instructions": "Implement the assigned bounded task directly. Make the smallest defensible change, preserve unrelated work, and report every changed file plus validation results."
+        "developer_instructions": "Implement the assigned bounded task directly. Make the smallest defensible change, preserve unrelated work, and report every changed file plus validation results. Do not run Git commands; leave all Git operations to the primary agent."
       },
       "dispatch_reviewer": {
         "enabled": true,
@@ -36,7 +36,7 @@
         "model": "gpt-5.6-sol",
         "model_reasoning_effort": "high",
         "sandbox_mode": "read-only",
-        "developer_instructions": "Review the assigned scope like an owner. Prioritize correctness, security, regressions, and missing tests. Lead with concrete findings and do not modify files."
+        "developer_instructions": "Review the assigned scope like an owner. Prioritize correctness, security, regressions, and missing tests. Lead with concrete findings and do not modify files. Do not run Git commands; leave all Git operations to the primary agent."
       }
     }
   },
@@ -45,7 +45,11 @@
       "mcp__code_review_graph__",
       "mcp__code-review-graph__",
       "mcp__codegraph__",
-      "mcp__graphify__"
+      "mcp__graphify__",
+      "mcp__context-mode__",
+      "mcp__plugin_context-mode_context-mode__",
+      "mcp__serena__",
+      "mcp__serena-cross-platform__"
     ],
     "shell_heads": [
       "ls", "pwd", "cd", "cat", "head", "tail", "wc", "sort", "uniq",
@@ -61,13 +65,6 @@
       "select-string", "where-object", "foreach-object", "test-path",
       "resolve-path", "write-output", "measure-object", "format-table"
     ],
-    "git_readonly": [
-      "status", "diff", "log", "show", "blame", "rev-parse",
-      "rev-list", "ls-files", "ls-tree", "describe", "reflog"
-    ],
-    "git_safe_write": [
-      "add", "commit", "fetch", "push"
-    ],
     "prompt_keywords": [
       "审查", "review", "audit", "排查", "debug", "调试", "分析", "analy",
       "实现", "implement", "迁移", "migrate", "重构", "refactor", "构建", "build",
@@ -79,10 +76,6 @@
     "mcp_prefixes_remove": [],
     "shell_heads_add": [],
     "shell_heads_remove": [],
-    "git_readonly_add": [],
-    "git_readonly_remove": [],
-    "git_safe_write_add": [],
-    "git_safe_write_remove": [],
     "prompt_keywords_add": [],
     "prompt_keywords_remove": []
   }

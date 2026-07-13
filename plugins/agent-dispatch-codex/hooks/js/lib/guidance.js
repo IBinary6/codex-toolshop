@@ -9,7 +9,8 @@ function mainAgentGuidance(config, compact = false) {
   if (compact) {
     const lines = [
       'Agent Dispatch：你是主代理。遇到可独立、可并行且边界明确的子任务时必须使用协作子代理；',
-      '简单读取、小改或强串行步骤直接完成。主代理负责整合结果，子代理须报告修改文件与验证。',
+      '简单读取、小改或强串行步骤直接完成。所有 Git 命令均由主代理串行执行，不委派、不并行拆分。',
+      '主代理负责整合结果，子代理须报告修改文件与验证。',
     ];
     if (profiles.length) lines.push(`可用角色：${profiles.join('；')}。`);
     return lines.join('');
@@ -19,6 +20,7 @@ function mainAgentGuidance(config, compact = false) {
     '- Delegate concrete, bounded subtasks when they can run independently alongside useful local work.',
     `- Use no more than ${maxParallel} subagents concurrently unless the user explicitly requests more.`,
     '- Keep trivial reads, small edits, tightly sequential steps, and final integration in the primary agent.',
+    '- Execute all Git commands in the primary agent, one at a time; never delegate or parallelize Git operations.',
     '- Delegation does not broaden filesystem, network, approval, or external-action authority.',
     '- Ask subagents to report every changed file, validation performed, and any blocker; reread their outputs before integration.',
     '- Do not delegate merely to avoid doing the work; delegate only when the split has a concrete independent deliverable.',
@@ -35,6 +37,7 @@ function subagentGuidance(config) {
     'Agent Dispatch: you are a spawned subagent, not the primary coordinator.',
     '- Execute the assigned bounded task directly and stay within its scope.',
     '- Do not spawn or delegate to more agents unless the user or primary agent explicitly asked you to do so.',
+    '- Do not run Git commands; leave all Git operations to the primary agent.',
   ];
   if (config.policy.require_changed_file_report) {
     lines.push('- Report every file you changed, or state explicitly that you made no changes.');

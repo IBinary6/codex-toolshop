@@ -17,6 +17,8 @@ Read and merge these sources in order:
 
 The project layer wins. Overrides use add/remove arrays instead of copying the complete defaults.
 
+All Git commands are an invariant rather than a configurable whitelist: the primary agent runs them one at a time, never delegates them, and never parallelizes Git operations.
+
 ## Workflow
 
 1. Resolve the current Git root with `git rev-parse --show-toplevel`.
@@ -54,13 +56,15 @@ Supported list overrides:
 
 - `mcp_prefixes_add` / `mcp_prefixes_remove`
 - `shell_heads_add` / `shell_heads_remove`
-- `git_readonly_add` / `git_readonly_remove`
-- `git_safe_write_add` / `git_safe_write_remove`
 - `prompt_keywords_add` / `prompt_keywords_remove`
 
 ## Important boundaries
 
 - Codex `PreToolUse` cannot reliably identify whether a Bash, `apply_patch`, or MCP call came from the primary agent or a subagent. Do not convert the soft nudge into a blanket deny rule.
+- Git commands bypass Agent Dispatch classification, including destructive Git subcommands. This is an orchestration rule only; it does not replace the Codex sandbox, user authorization, Hook trust, or Git safety checks.
+- Continue classifying non-Git segments in a compound shell command even when another segment is Git.
+- Nested shell evaluation, process substitution, script blocks, block comments, and cross-shell ambiguous escapes are not Git CLI operations and continue to require dispatch review even when the outer segment starts with `git`.
+- Default lightweight MCP prefixes include CodeMap Boost, Context Mode (canonical and plugin-namespaced forms), and Serena (`serena` and `serena-cross-platform`). These integrations remain separately installed and enabled.
 - The integrated terminal can be Git Bash while the Windows Codex agent uses PowerShell. Keep configuration entries as executable heads, not shell-specific command strings.
 - Project configuration is excluded through `.git/info/exclude`; do not edit the project's tracked `.gitignore` unless the user explicitly asks.
 - Generated custom-agent files are excluded individually through `.git/info/exclude`. Do not exclude the whole `.codex/` directory.

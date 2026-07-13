@@ -32,7 +32,7 @@
     },
     {
       "name": "agent-dispatch-codex",
-      "description": "Codex-native main-agent delegation policy with subagent guidance and cross-shell nudges.",
+      "description": "Codex-native delegation with serial primary-agent Git and CodeMap, Context Mode, and Serena-aware MCP routing.",
       "source": {
         "source": "local",
         "path": "./plugins/agent-dispatch-codex"

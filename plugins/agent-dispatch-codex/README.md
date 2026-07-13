@@ -25,6 +25,22 @@ Codex 当前的 `PreToolUse` 只可靠覆盖部分 Bash、`apply_patch` 和 MCP 
 
 Git Bash 只影响新开的集成终端标签页，不会把 Hook 与 Codex agent 的 Windows 命令宿主混在一起。
 
+## Git 串行边界
+
+所有纯 Git CLI 命令都固定留在主代理中逐条串行执行，不委派给子代理，也不并行拆分。`git`、`git.exe`、带全局选项的 Git 命令，以及 force push、删除分支、reset、clean 等子命令，都不会触发 Agent Dispatch 的轻量/危险命令分类提示。
+
+复合命令仍逐段分析：Git 段跳过调度分类，后续非 Git 段继续应用原有规则。例如 `git status && rg TODO` 可由主代理直接执行，而 `git status && unknown-heavy-tool scan` 仍会提示主代理判断是否委派。
+
+Shell 嵌套求值不属于 Git 权限。例如 `git status $(other-command)`、PowerShell 脚本块、进程替换、块注释，以及无法同时确定 Git Bash/PowerShell 语义的转义写法，仍会触发调度判断；外层命令名是 `git` 不会掩盖其中实际执行的非 Git 代码。
+
+这里调整的是 Agent Dispatch 的编排策略，不会绕过 Codex sandbox、用户授权、Hook 信任机制或 Git 自身的安全保护。主代理仍应根据用户意图审慎执行破坏性 Git 操作。
+
+## Context Mode 与 Serena 协作
+
+默认轻量 MCP 前缀已覆盖 CodeMap Boost、Context Mode 和 Serena。Context Mode 的 Codex 原生前缀与插件命名空间前缀均受支持；Serena 同时兼容官方 `serena` 名称和常见的 `serena-cross-platform` 名称。调用这些工具时不会产生“必须委派”的误提示，主代理可直接完成上下文压缩、代码图和符号查询。
+
+Agent Dispatch 不捆绑安装这些 MCP。Context Mode 应作为独立 Codex 插件安装，Serena 应按其 Codex setup 流程注册；未安装的工具不会因为加入前缀而被加载。若使用其他服务器名称，可通过 `mcp_prefixes_add` 增加项目或全局覆盖。
+
 ## 子 Agent 模型分工
 
 Codex 支持项目级 `.codex/agents/*.toml` 自定义 Agent，并允许每个 Agent 独立设置 `model`、`model_reasoning_effort` 和 `sandbox_mode`。插件会在 `SessionStart` 为当前 Git 项目生成以下本地配置：

@@ -1,7 +1,7 @@
 {
   "name": "agent-dispatch-codex",
-  "version": "0.1.3+codex.20260713085839",
-  "description": "Codex-native main-agent dispatch guidance with per-role model profiles, subagent execution rules, and cross-shell tool nudges.",
+  "version": "0.1.4+codex.20260713121153",
+  "description": "Codex-native main-agent dispatch guidance with per-role model profiles, serial primary-agent Git, and cross-shell tool nudges.",
   "author": {
     "name": "IBinary6"
   },
@@ -18,8 +18,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Agent Dispatch",
-    "shortDescription": "Keep the main Codex agent focused by dispatching bounded work.",
-    "longDescription": "Adds Codex-native lifecycle guidance for deciding when the primary agent must delegate bounded, parallel work, while telling spawned subagents to execute directly and report changed files and validation. Generates project-local custom agent profiles with independent model, reasoning, and sandbox settings, plus layered configuration and cross-shell tool nudges for Windows PowerShell and Git Bash workflows.",
+    "shortDescription": "Dispatch bounded work while keeping Git serial in the primary agent.",
+    "longDescription": "Adds Codex-native lifecycle guidance for deciding when the primary agent must delegate bounded, parallel work, while telling spawned subagents to execute directly and report changed files and validation. Keeps pure Git CLI operations in the primary agent and runs them serially without Git subcommand classification, while still reviewing nested shell evaluation. Generates project-local custom agent profiles with independent model, reasoning, and sandbox settings, plus built-in lightweight MCP compatibility for CodeMap Boost, Context Mode, and Serena.",
     "developerName": "IBinary6",
     "category": "Productivity",
     "capabilities": [
@@ -29,7 +29,8 @@
     "defaultPrompt": [
       "Show the effective Agent Dispatch policy for this project.",
       "Configure which commands Agent Dispatch treats as lightweight.",
-      "Configure models for Agent Dispatch worker and reviewer roles."
+      "Configure models for Agent Dispatch worker and reviewer roles.",
+      "Explain the primary-agent-only serial Git policy."
     ],
     "brandColor": "#7C3AED",
     "composerIcon": "./assets/icon.png",

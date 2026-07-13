@@ -10,8 +10,6 @@ const CONFIG_FILE = 'config.json';
 const OVERRIDE_KEYS = [
   'mcp_prefixes',
   'shell_heads',
-  'git_readonly',
-  'git_safe_write',
   'prompt_keywords',
 ];
 

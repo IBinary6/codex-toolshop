@@ -35,6 +35,7 @@ try {
   const session = parse(run('session_start', { hook_event_name: 'SessionStart', source: 'startup' }));
   assert.equal(session.hookSpecificOutput.hookEventName, 'SessionStart');
   assert.match(session.hookSpecificOutput.additionalContext, /primary Codex agent/);
+  assert.match(session.hookSpecificOutput.additionalContext, /Execute all Git commands in the primary agent, one at a time/);
   assert.ok(fs.existsSync(path.join(data, 'config.json')));
   assert.ok(fs.existsSync(path.join(repo, '.agent-dispatch-codex', 'config.json')));
   const workerProfile = path.join(repo, '.codex', 'agents', 'dispatch_worker.toml');
@@ -57,11 +58,22 @@ try {
     agent_type: 'worker',
   }));
   assert.match(subagent.hookSpecificOutput.additionalContext, /spawned subagent/);
+  assert.match(subagent.hookSpecificOutput.additionalContext, /Do not run Git commands/);
 
   assert.equal(run('pre_tool_use', {
     hook_event_name: 'PreToolUse',
     tool_name: 'Bash',
     tool_input: { command: 'git status' },
+  }), '');
+  assert.equal(run('pre_tool_use', {
+    hook_event_name: 'PreToolUse',
+    tool_name: 'Bash',
+    tool_input: { command: 'git -C . branch -D temp' },
+  }), '');
+  assert.equal(run('pre_tool_use', {
+    hook_event_name: 'PreToolUse',
+    tool_name: 'Bash',
+    tool_input: { command: 'git push origin --delete temp' },
   }), '');
   const nudge = parse(run('pre_tool_use', {
     hook_event_name: 'PreToolUse',
