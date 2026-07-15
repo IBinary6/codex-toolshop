@@ -71,6 +71,9 @@ try {
   const content = fs.readFileSync(agents, 'utf8');
   assert.ok(content.includes('codemap-boost-codex:start'), 'managed block is inserted');
   assert.ok(content.includes('mcp__code_review_graph__get_minimal_context_tool'), 'block names CRG MCP tools');
+  assert.ok(content.includes('不要反复调用 minimal'), 'block prevents repeated low-information calls');
+  assert.ok(content.includes('信息不足'), 'block requires escalation when context is insufficient');
+  assert.ok(content.includes('任务已经明确'), 'block allows direct specialized retrieval');
   assert.ok(!fs.existsSync(path.join(home, '.claude')), 'SessionStart must not create old host directories');
   assert.ok(fs.readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8').includes('.code-review-graph/'), 'SessionStart ignores generated graph output locally');
 

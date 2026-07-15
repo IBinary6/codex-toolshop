@@ -67,7 +67,9 @@ function parseOutput(result) {
   const payload = parseOutput(result);
   assert.strictEqual(payload.hookSpecificOutput.hookEventName, 'PreToolUse');
   assert.ok(!payload.hookSpecificOutput.permissionDecision, 'Bash nudge must not deny');
-  assert.ok(payload.hookSpecificOutput.additionalContext.includes('get_minimal_context_tool'));
+  assert.ok(payload.hookSpecificOutput.additionalContext.includes('do not repeat minimal'));
+  assert.ok(payload.hookSpecificOutput.additionalContext.includes('when the task is clear'));
+  assert.ok(payload.hookSpecificOutput.additionalContext.includes('detail_level="standard"'));
 }
 
 {
@@ -81,6 +83,7 @@ function parseOutput(result) {
   const payload = parseOutput(result);
   assert.strictEqual(payload.hookSpecificOutput.hookEventName, 'SubagentStart');
   assert.ok(payload.hookSpecificOutput.additionalContext.includes('semantic_search_nodes_tool'));
+  assert.ok(payload.hookSpecificOutput.additionalContext.includes('do not repeat minimal'));
 }
 
 console.log('nudge.test.js PASS');

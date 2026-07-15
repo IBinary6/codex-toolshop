@@ -37,9 +37,11 @@ const AGENTS_BLOCK = `${BLOCK_START}
 
 - 每个需要代码图的任务开始时，先确认 CodeMap Boost 的同步 build/update 已完成；图谱 MCP 的 PreToolUse barrier 会阻止刷新期间的并发读写。
 - 仅当仓库没有未跟踪源文件时，才调用 \`mcp__code_review_graph__build_or_update_graph_tool\` 做显式增量刷新并等待完成。存在未跟踪源文件时不要调用该 MCP full rebuild；CodeMap Boost 会用不污染真实暂存区的临时 Git index 执行 full build，确保新文件进入图谱。
-- 刷新完成后调用 \`mcp__code_review_graph__get_minimal_context_tool\` 获取低 token 概览。
+- 任务已经明确涉及影响面、代码审查、调用链、引用关系或跨模块定位时，直接调用对应的 \`semantic_search_nodes_tool\`、\`query_graph_tool\`、\`get_impact_radius_tool\` 或 review-context 工具。
+- 任务不明确或需要快速路由时，最多调用一次 \`mcp__code_review_graph__get_minimal_context_tool\` 获取概览；不要反复调用 minimal 试探。
+- 如果概览信息不足（缺少有效实体、文件、调用关系或下一步工具），立即升级到更完整的工具或使用 \`detail_level="standard"\`，不要再次调用 minimal。
 - 符号、函数、类、调用链、引用关系优先用 \`semantic_search_nodes_tool\`、\`query_graph_tool\`、\`get_impact_radius_tool\`。
-- 支持 \`detail_level\` 的工具默认传 \`minimal\`，只有信息不足时再升级。
+- 支持 \`detail_level\` 的工具默认使用低成本级别；若结果不足立即升级到 \`standard\`，不要重复低信息调用。
 - 修改代码后，如果还要继续查询代码图或进行代码审查，必须先等待同步刷新完成；仅在没有未跟踪源文件时再调用 \`build_or_update_graph_tool\`。
 - \`rg\`、\`grep\`、\`Select-String\` 只用于纯文本、注释或字符串搜索。
 
@@ -460,8 +462,9 @@ function registerCrgMcp(options = {}) {
 
 const CONTEXT = [
   'CodeMap Boost: wait for the graph refresh to finish before symbol, function, class, call graph, reference, impact, or review-context work.',
-  'After the refresh barrier, start with mcp__code_review_graph__get_minimal_context_tool, then use semantic_search_nodes_tool, query_graph_tool, or get_impact_radius_tool as needed.',
-  'Use detail_level="minimal" first. Use rg/grep only for literal text, comments, or strings.',
+  'Use adaptive retrieval: when the task is clear, call the specialized tool directly (semantic_search_nodes_tool, query_graph_tool, get_impact_radius_tool, or the relevant review-context tool).',
+  'When the task is unclear, get_minimal_context_tool may be called once as a routing overview; do not repeat minimal. If the result lacks a useful entity, file, relationship, or next tool, immediately upgrade to a fuller tool or detail_level="standard".',
+  'Use the lowest-cost detail level that can answer the question, then upgrade immediately when needed. Use rg/grep only for literal text, comments, or strings.',
 ].join(' ');
 
 function promptLooksStructural(text) {
