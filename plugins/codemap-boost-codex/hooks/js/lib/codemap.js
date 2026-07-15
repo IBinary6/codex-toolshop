@@ -293,7 +293,15 @@ function listLinkedWorktrees(cwd) {
   return String(result.stdout || '')
     .split(/\r?\n/)
     .filter((line) => line.startsWith('worktree '))
-    .map((line) => path.resolve(line.slice('worktree '.length).trim()))
+    .map((line) => {
+      const worktree = path.resolve(line.slice('worktree '.length).trim());
+      try {
+        const realpath = fs.realpathSync.native || fs.realpathSync;
+        return realpath(worktree);
+      } catch (_) {
+        return worktree;
+      }
+    })
     .filter((worktree, index, all) => fs.existsSync(worktree) && all.indexOf(worktree) === index);
 }
 

@@ -24,6 +24,11 @@ function git(cwd, args, env = process.env) {
   return (result.stdout || '').trim();
 }
 
+function canonicalPath(filePath) {
+  const realpath = fs.realpathSync.native || fs.realpathSync;
+  return realpath(filePath);
+}
+
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-refresh-'));
 const oldDisable = process.env.CODEMAP_BOOST_DISABLE_GRAPH;
 try {
@@ -72,8 +77,8 @@ try {
   git(repo, ['worktree', 'add', '-b', 'codemap-test-worktree', worktree]);
   fs.mkdirSync(path.join(worktree, '.code-review-graph'));
   const roots = listLinkedWorktrees(repo);
-  assert.ok(roots.includes(path.resolve(repo)), 'main worktree is listed');
-  assert.ok(roots.includes(path.resolve(worktree)), 'new worktree is listed');
+  assert.ok(roots.includes(canonicalPath(repo)), 'main worktree is listed');
+  assert.ok(roots.includes(canonicalPath(worktree)), 'new worktree is listed');
 
   const linkedCalls = [];
   assert.strictEqual(refreshLinkedWorktreesSync(repo, {
@@ -83,8 +88,8 @@ try {
       return { status: 0 };
     },
   }), true);
-  assert.ok(linkedCalls.some((call) => path.resolve(call.cwd) === path.resolve(repo)), 'main graph refreshed');
-  assert.ok(linkedCalls.some((call) => path.resolve(call.cwd) === path.resolve(worktree)), 'new worktree graph refreshed');
+  assert.ok(linkedCalls.some((call) => canonicalPath(call.cwd) === canonicalPath(repo)), 'main graph refreshed');
+  assert.ok(linkedCalls.some((call) => canonicalPath(call.cwd) === canonicalPath(worktree)), 'new worktree graph refreshed');
 
   console.log('refresh.test.js PASS');
 } finally {
