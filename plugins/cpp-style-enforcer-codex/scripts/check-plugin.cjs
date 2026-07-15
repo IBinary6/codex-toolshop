@@ -37,6 +37,14 @@ function assertNoAbsoluteCommandPaths(hooks) {
 }
 
 function main() {
+  const plugin = readJson(
+    path.join(pluginRoot, '.codex-plugin', 'plugin.json'),
+    '.codex-plugin/plugin.json'
+  );
+  const packageJson = readJson(path.join(pluginRoot, 'package.json'), 'package.json');
+  assert(plugin.version === packageJson.version, 'package.json version must match plugin.json');
+  assert(/^\d+\.\d+\.\d+$/.test(plugin.version), 'plugin version must be plain patch semver');
+
   if (repoRoot) {
     const marketplace = readJson(
       path.join(repoRoot, '.agents', 'plugins', 'marketplace.json'),
@@ -46,13 +54,10 @@ function main() {
     assert(Array.isArray(marketplace.plugins), 'marketplace plugins must be an array');
     const entry = marketplace.plugins.find((p) => p.name === 'cpp-style-enforcer-codex');
     assert(entry, 'marketplace must include cpp-style-enforcer-codex');
+    assert(entry.version === plugin.version, 'marketplace version must match plugin.json');
     assert(entry.source && entry.source.path === './plugins/cpp-style-enforcer-codex', 'marketplace source path is wrong');
   }
 
-  const plugin = readJson(
-    path.join(pluginRoot, '.codex-plugin', 'plugin.json'),
-    '.codex-plugin/plugin.json'
-  );
   assert(plugin.name === 'cpp-style-enforcer-codex', 'plugin name is wrong');
   assert(!Object.prototype.hasOwnProperty.call(plugin, 'hooks'), 'plugin.json must omit unsupported hooks field');
   assert(plugin.skills === './skills/', 'plugin must declare skills directory');

@@ -4,6 +4,20 @@
 
 插件本身不会读取或修改旧宿主目录。Codex 持久提示写入 `$CODEX_HOME/AGENTS.md`，运行数据写入 Codex 插件数据目录。
 
+## 与 Claude Code 版的语义对应
+
+两边追求同一条用户语义：**安装后主动维护代码图，结构类问题优先用图谱，读取图谱前保证刷新完成**。
+
+| 语义能力 | Codex 版 | Claude Code 版 |
+| --- | --- | --- |
+| 会话启动维护图谱 | `SessionStart` 自动 bootstrap 并同步 build/update | `SessionStart` 后台 build/update，缺 CLI 时提示 setup |
+| 修改后更新图谱 | `PostToolUse` 同步刷新 | `PostToolUse` / `CwdChanged` 后台刷新 |
+| 读取前屏障 | 图谱 MCP `PreToolUse` 同步刷新，失败则 deny | 图谱 MCP `PreToolUse` 同步刷新，失败则 deny |
+| grep/agent 引导 | `Bash` / prompt / subagent 软提示优先用图谱 | `Grep` / `Agent` 强提示优先用图谱 |
+| 依赖安装 | Codex 插件可在 SessionStart 自动 bootstrap | 通过 `/codemap-boost-setup` 显式确认安装 |
+
+Codex 版会把 grep 注入这类 Claude 专属能力改写到 `AGENTS.md`、`UserPromptSubmit`、`SubagentStart` 和 Bash 提示里；这是平台机制不同，不是能力缺口。
+
 ## 安装
 
 1. 添加插件市场：
@@ -64,6 +78,7 @@ python -m pip install "graphifyy[all]"
 | `SessionStart` | 安装/注册 `code-review-graph`，维护 `$CODEX_HOME/AGENTS.md` 的 CodeMap 托管块，并同步完成 build/update；不会修改项目 `.gitignore`。 |
 | `PostToolUse` | Codex 写文件或执行可能修改源码的 Bash 后同步刷新；只读 Bash 命令不会触发重复刷新。 |
 | `PreToolUse:Bash` | 当 Bash 命令像是在做代码结构搜索时，向 Codex 注入图谱优先提示，不阻止命令。 |
+| `PreToolUse:MCP` | 调用 code-review-graph / codegraph / graphify MCP 前同步刷新图谱；CLI 不可用或刷新失败时阻止本次图谱读取。 |
 | `UserPromptSubmit` | 当用户问题涉及符号、调用、引用、影响面等结构问题时，提醒 Codex 优先使用图谱 MCP 工具。 |
 | `SubagentStart` | 子代理启动时注入同样的 CodeMap 使用规则。 |
 

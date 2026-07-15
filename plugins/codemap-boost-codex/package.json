@@ -1,7 +1,7 @@
 {
   "name": "codemap-boost-codex",
-  "version": "0.1.10+codex.20260715041402",
-  "description": "Codex-native CodeMap workflow powered by code-review-graph and optional graphify.",
+  "version": "0.1.11",
+  "description": "Codex-native CodeMap workflow powered by code-review-graph, graph refresh barriers, and optional graphify.",
   "license": "MIT",
   "private": true,
   "scripts": {

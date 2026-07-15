@@ -6,7 +6,8 @@
   "plugins": [
     {
       "name": "cpp-style-enforcer-codex",
-      "description": "C++ style enforcement workflow for Codex.",
+      "version": "0.1.8",
+      "description": "C++ style enforcement workflow for Codex with Claude-parity cpplint and LF/CRLF semantics.",
       "source": {
         "source": "local",
         "path": "./plugins/cpp-style-enforcer-codex"
@@ -19,7 +20,8 @@
     },
     {
       "name": "codemap-boost-codex",
-      "description": "CodeMap workflow for Codex with code-review-graph guidance.",
+      "version": "0.1.11",
+      "description": "CodeMap workflow for Codex with code-review-graph guidance and synchronized graph-read barriers.",
       "source": {
         "source": "local",
         "path": "./plugins/codemap-boost-codex"
@@ -32,7 +34,8 @@
     },
     {
       "name": "agent-dispatch-codex",
-      "description": "Codex-native delegation with serial primary-agent Git and CodeMap, Context Mode, and Serena-aware MCP routing.",
+      "version": "0.1.5",
+      "description": "Codex-native delegation with serial primary-agent Git, Claude-parity dispatch semantics, and CodeMap, Context Mode, and Serena-aware MCP routing.",
       "source": {
         "source": "local",
         "path": "./plugins/agent-dispatch-codex"

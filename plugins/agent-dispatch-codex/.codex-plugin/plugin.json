@@ -1,7 +1,7 @@
 {
   "name": "agent-dispatch-codex",
-  "version": "0.1.4+codex.20260713121153",
-  "description": "Codex-native main-agent dispatch guidance with per-role model profiles, serial primary-agent Git, and cross-shell tool nudges.",
+  "version": "0.1.5",
+  "description": "Codex-native main-agent dispatch guidance with per-role model profiles, serial primary-agent Git, cross-shell tool nudges, and Claude-parity dispatch semantics.",
   "author": {
     "name": "IBinary6"
   },

@@ -2,6 +2,20 @@
 
 将 Claude Code `agent-dispatch` 的主代理调度语义移植到 Codex：主代理负责拆分和整合，可独立并行的有界工作交给子代理；子代理直接执行，不递归分派，并报告修改文件和验证结果。
 
+## 与 Claude Code 版的语义对应
+
+两边追求同一条调度语义：**主代理保留规划、整合和 Git 串行操作；可并行、边界清晰的探索/实现/审查交给子代理；子代理完成后报告改动和验证**。
+
+| 语义能力 | Codex 版 | Claude Code 版 |
+| --- | --- | --- |
+| 主代理工具约束 | `PreToolUse` 软提示，避免误拦截主代理派出的子代理 | `PreToolUse` 白名单硬拦截，非轻量工具要求用 `Agent` |
+| 子代理识别 | Codex hook 不能稳定区分调用来源，改用 `SubagentStart` 规则 | Claude hook 输入包含 `agent_id`，子代理可豁免 |
+| 调度提示 | `SessionStart` / `UserPromptSubmit` 注入紧凑调度策略 | 被 block 后下一条 prompt 注入 dispatcher 指令 |
+| Git 边界 | 纯 Git CLI 固定主代理串行执行，不进入委派分类 | 安全 Git 可直跑，危险 Git 拦截 |
+| 配置 | `PLUGIN_DATA` + 项目 `.agent-dispatch-codex`，支持 Codex agent profile | `~/.agent-dispatch` + 项目 `.agent-dispatch` |
+
+因此 Codex 版不照搬“非白名单直接 deny”。这是平台事件模型差异下的等价策略，不是降级。
+
 ## 为什么不是原样复制 Claude Hook
 
 Codex 当前的 `PreToolUse` 只可靠覆盖部分 Bash、`apply_patch` 和 MCP 调用，而且该事件没有 Claude 版用于识别子代理的 `agent_id`。若照搬“非白名单直接 block”，主代理派出的子代理也会被同一 Hook 拦截。

@@ -1,7 +1,7 @@
 {
   "name": "cpp-style-enforcer-codex",
-  "version": "0.1.7+codex.20260715035623",
-  "description": "C++ code style enforcement for Codex using clang-format, cpplint, copyright headers, BOM handling, and commit-time checks.",
+  "version": "0.1.8",
+  "description": "C++ code style enforcement for Codex using clang-format, cpplint, copyright headers, BOM handling, commit-time checks, and LF/CRLF-preserving lint semantics.",
   "author": {
     "name": "IBinary6"
   },

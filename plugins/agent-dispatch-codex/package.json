@@ -1,7 +1,7 @@
 {
   "name": "agent-dispatch-codex",
-  "version": "0.1.4+codex.20260713121153",
-  "description": "Codex-native agent dispatch lifecycle plugin.",
+  "version": "0.1.5",
+  "description": "Codex-native agent dispatch lifecycle plugin with Claude-parity dispatch semantics.",
   "license": "MIT",
   "private": true,
   "scripts": {

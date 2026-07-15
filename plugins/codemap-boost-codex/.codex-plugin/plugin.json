@@ -1,7 +1,7 @@
 {
   "name": "codemap-boost-codex",
-  "version": "0.1.10+codex.20260715041402",
-  "description": "CodeMap workflow for Codex using code-review-graph MCP guidance, synchronized graph refreshes, and AGENTS.md instructions.",
+  "version": "0.1.11",
+  "description": "CodeMap workflow for Codex using code-review-graph MCP guidance, synchronized graph refresh barriers, and AGENTS.md instructions.",
   "author": {
     "name": "IBinary6"
   },

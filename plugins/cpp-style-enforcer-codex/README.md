@@ -4,6 +4,20 @@
 
 安装后，Codex 会通过插件 hooks 自动执行 C++ 风格检查和修复，不需要用户手动配置旧式 hook。
 
+## 与 Claude Code 版的语义对应
+
+两边执行同一套 C++ 规范语义：**新文件/新项目走全套，老项目老文件默认只补 BOM；提交前 cpplint 只检查不改写；CRLF/LF 不通过过滤器规避**。
+
+| 语义能力 | Codex 版 | Claude Code 版 |
+| --- | --- | --- |
+| 编辑后处理 | `PostToolUse` 记录触碰文件，`Stop` 批量处理 | `PostToolUse` 串行处理本次编辑文件 |
+| 提交前检查 | 识别真正的 `git commit`，只检查暂存区 C++ 文件 | 同样识别 `git commit` 并检查暂存区 |
+| 新老文件策略 | `.codex-cpp-style/cpp-style.json`，兼容 `.claude-cpp-style` | `.claude-cpp-style/cpp-style.json` + 全局模板 |
+| cpplint 行尾 | 保持原始 LF/CRLF；不屏蔽 `whitespace/newline` | 同样保持原始 LF/CRLF；不屏蔽 `whitespace/newline` |
+| 依赖安装 | 运行期只检测，不自动 `pip/npm install` | 运行期只检测，不自动 `pip/npm install` |
+
+因此两边在触发时机上不同，但对用户代码的最终约束一致。
+
 ## 安装
 
 1. 添加插件市场：

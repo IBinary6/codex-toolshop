@@ -29,17 +29,22 @@ function assert(condition, message) {
 }
 
 function main() {
+  const plugin = readJson(path.join(pluginRoot, '.codex-plugin', 'plugin.json'), 'plugin.json');
+  const packageJson = readJson(path.join(pluginRoot, 'package.json'), 'package.json');
+  assert(plugin.name === 'codemap-boost-codex', 'plugin name is wrong');
+  assert(plugin.version === packageJson.version, 'package.json version must match plugin.json');
+  assert(/^\d+\.\d+\.\d+$/.test(plugin.version), 'plugin version must be plain patch semver');
+
   const repoRoot = findRepoRoot(pluginRoot);
   if (repoRoot) {
     const marketplace = readJson(path.join(repoRoot, '.agents', 'plugins', 'marketplace.json'), 'marketplace');
     assert(marketplace.name === 'codex-toolshop', 'marketplace name must be codex-toolshop');
     const entry = marketplace.plugins.find((item) => item.name === 'codemap-boost-codex');
     assert(entry, 'marketplace must include codemap-boost-codex');
+    assert(entry.version === plugin.version, 'marketplace version must match plugin.json');
     assert(entry.source && entry.source.path === './plugins/codemap-boost-codex', 'marketplace source path is wrong');
   }
 
-  const plugin = readJson(path.join(pluginRoot, '.codex-plugin', 'plugin.json'), 'plugin.json');
-  assert(plugin.name === 'codemap-boost-codex', 'plugin name is wrong');
   assert(!Object.prototype.hasOwnProperty.call(plugin, 'hooks'), 'plugin.json must omit unsupported hooks field');
   assert(plugin.skills === './skills/', 'plugin must declare skills directory');
 
