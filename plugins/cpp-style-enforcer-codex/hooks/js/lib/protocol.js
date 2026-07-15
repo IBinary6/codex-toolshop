@@ -11,7 +11,7 @@ function passSilent() {
 }
 
 /**
- * PostToolUse 强制修复：exit 0 + stdout {decision:"block",reason}
+ * Codex continuation feedback：exit 0 + stdout {decision:"block",reason}
  * @param {string} reason 喂给 Codex 的修复指令
  */
 function blockCodex(reason) {

@@ -6,12 +6,40 @@ const path = require('path');
 
 const pluginRoot = path.join(__dirname, '..', '..', '..');
 const entry = path.join(pluginRoot, 'hooks', 'js', 'post_edit.js');
+const stopEntry = path.join(pluginRoot, 'hooks', 'js', 'stop_check.js');
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cse-pe-data-'));
+let hookCounter = 0;
 
 function runHook(input) {
+  hookCounter += 1;
+  const payload = {
+    session_id: 'post-edit-test',
+    turn_id: `turn-${hookCounter}`,
+    tool_use_id: `tool-${hookCounter}`,
+    ...input,
+  };
   const r = spawnSync('node', [entry], {
-    input: JSON.stringify(input),
+    input: JSON.stringify(payload),
     encoding: 'utf-8',
     timeout: 30000,
+    env: { ...process.env, PLUGIN_DATA: dataDir },
+  });
+  return { status: r.status, stdout: (r.stdout || '').trim(), stderr: r.stderr || '', payload };
+}
+
+function runStop(payload) {
+  const r = spawnSync('node', [stopEntry], {
+    cwd: payload.cwd || process.cwd(),
+    input: JSON.stringify({
+      session_id: payload.session_id,
+      turn_id: payload.turn_id,
+      cwd: payload.cwd || process.cwd(),
+      hook_event_name: 'Stop',
+      stop_hook_active: false,
+    }),
+    encoding: 'utf-8',
+    timeout: 30000,
+    env: { ...process.env, PLUGIN_DATA: dataDir },
   });
   return { status: r.status, stdout: (r.stdout || '').trim(), stderr: r.stderr || '' };
 }
@@ -91,6 +119,9 @@ function mkTmpDir() {
   });
   assert.strictEqual(r.status, 0, 'apply_patch 后处理应 exit 0');
   const bom = Buffer.from([0xEF, 0xBB, 0xBF]);
+  assert.ok(!fs.readFileSync(a).subarray(0, 3).equals(bom), 'PostToolUse 不立即补 BOM');
+  const stop = runStop(r.payload);
+  assert.strictEqual(stop.status, 0, 'Stop 统一处理应 exit 0');
   assert.ok(fs.readFileSync(a).subarray(0, 3).equals(bom), 'CMake a.cpp 补 BOM');
   assert.ok(fs.readFileSync(b).subarray(0, 3).equals(bom), 'apply_patch 多文件 b.hpp 补 BOM');
 }

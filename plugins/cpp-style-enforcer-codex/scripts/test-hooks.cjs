@@ -75,11 +75,29 @@ function main() {
   const badCpp = path.join(repo, 'bad.cpp');
   fs.writeFileSync(badCpp, 'int main() { int x = (int)3; return x; }\n', 'utf8');
 
-  const post = runHook('post_edit', { tool_input: { file_path: badCpp } }, repo, dataDir);
+  const editPayload = {
+    session_id: 'test-hooks-session',
+    turn_id: 'test-hooks-turn',
+    tool_use_id: 'test-hooks-tool',
+    cwd: repo,
+    tool_name: 'apply_patch',
+    tool_input: { file_path: badCpp },
+  };
+  const post = runHook('post_edit', editPayload, repo, dataDir);
   assert.strictEqual(post.status, 0, post.stderr);
-  const postPayload = JSON.parse(post.stdout);
-  assert.strictEqual(postPayload.decision, 'block');
-  assert.match(postPayload.reason, /cpplint|C\+\+|违规/);
+  assert.strictEqual(post.stdout, '', 'PostToolUse should only record the edited file');
+
+  const stop = runHook('stop_check', {
+    session_id: editPayload.session_id,
+    turn_id: editPayload.turn_id,
+    cwd: repo,
+    hook_event_name: 'Stop',
+    stop_hook_active: false,
+  }, repo, dataDir);
+  assert.strictEqual(stop.status, 0, stop.stderr);
+  const stopPayload = JSON.parse(stop.stdout);
+  assert.strictEqual(stopPayload.decision, 'block');
+  assert.match(stopPayload.reason, /cpplint|C\+\+|违规/);
 
   sh('git', ['add', 'bad.cpp'], { cwd: repo });
   const pre = runHook('pre_commit', { tool_input: { command: 'git commit -m test' } }, repo, dataDir);

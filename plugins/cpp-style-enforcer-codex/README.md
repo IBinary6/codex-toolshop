@@ -22,13 +22,14 @@ codex plugin add cpp-style-enforcer-codex@codex-toolshop
 
 ## 它会做什么
 
-插件会自动注册 3 类 hook：
+插件会自动注册 4 类 hook：
 
 | Hook | 触发时机 | 作用 |
 | --- | --- | --- |
 | `SessionStart` | Codex 会话启动、恢复或清理上下文后 | 准备 C++ 风格配置；不做网络安装。 |
-| `PostToolUse` | Codex 写入或编辑文件后 | 对 C/C++ 文件执行格式化、BOM 处理、版权头处理和 cpplint 检查。 |
-| `PreToolUse` | Codex 执行 Bash 命令前 | 识别提交相关命令，对暂存区 C/C++ 文件做提交前检查，违规时阻止提交。 |
+| `PostToolUse` | Codex 写入或编辑文件后 | 只把本轮编辑的 C/C++ 文件记录到插件数据目录，不读取或改写源文件。 |
+| `Stop` | Codex 准备结束当前轮次时 | 对本轮编辑文件统一执行格式化、BOM、版权头和 cpplint；发生改写或仍有违规时让 Codex 继续完成最终验证。 |
+| `PreToolUse` | Codex 执行 Bash 命令前 | 识别真正的 `git commit`，只检查暂存区 C/C++ 文件，违规时阻止提交，不在提交前改写文件。 |
 
 核心流程继承团队新版 `cpp-style-enforcer` 规范，重点覆盖：
 
@@ -79,6 +80,10 @@ npm install iconv-lite@0.6.3
 ```
 
 hook 默认保持安静，只在需要阻止操作或提示关键问题时输出 Codex hook 决策。
+
+## 延迟检查策略
+
+编辑阶段不会立即运行 `clang-format` 或改写 BOM，因此不会在 Codex 连续修改代码时制造中间 diff。每轮编辑完成后，`Stop` 才统一处理本轮触碰的 C/C++ 文件；如果自动规范化改变了文件或 cpplint 仍有违规，Hook 会要求 Codex 检查最终 diff、修复问题并重新验证。为避免无限续跑，已经由 Stop 自动续跑过的轮次只显示剩余问题，不再次强制续跑。提交前 Hook 始终采用只检查、不修改的策略。
 
 ## 行尾策略
 

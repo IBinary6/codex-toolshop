@@ -73,8 +73,9 @@ codex plugin list
 
 安装 `cpp-style-enforcer-codex` 后，新会话会准备 C++ 风格配置。之后正常让 Codex 编辑 C/C++ 文件即可：
 
-- `PostToolUse` 会在写入/编辑后处理格式化、BOM、版权头和 cpplint。
-- `PreToolUse` 会识别真正的 `git commit`，对暂存区 C/C++ 文件做提交前检查。
+- `PostToolUse` 只记录本轮编辑的 C/C++ 文件，不立即改写源文件。
+- `Stop` 在本轮结束时统一处理格式化、BOM、版权头和 cpplint，并触发最终验证闭环。
+- `PreToolUse` 会识别真正的 `git commit`，只检查暂存区 C/C++ 文件，不在提交前改写。
 - 全局模板在 `~/.codex/cpp-style-template.json`。
 - 项目级配置在 `.codex-cpp-style/cpp-style.json`。
 - 兼容已有 `.claude-cpp-style`，旧项目不需要迁移。

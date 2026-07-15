@@ -5,7 +5,10 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { repoRoot, isNew, changedLineRanges } = require('../lib/git.js');
 
-function sh(args, cwd) { spawnSync('git', args, { cwd, stdio: 'pipe' }); }
+function sh(args, cwd) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', stdio: 'pipe' });
+  assert.strictEqual(result.status, 0, result.stderr || `git ${args.join(' ')} failed`);
+}
 
 // 建临时 git 仓库
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gittest-'));
@@ -15,7 +18,7 @@ sh(['config', 'user.name', 't'], tmp);
 const tracked = path.join(tmp, 'tracked.cpp');
 fs.writeFileSync(tracked, 'int a;');
 sh(['add', 'tracked.cpp'], tmp);
-sh(['commit', '-m', 'init'], tmp);
+sh(['commit', '--no-gpg-sign', '-m', 'init'], tmp);
 const untracked = path.join(tmp, 'untracked.cpp');
 fs.writeFileSync(untracked, 'int b;');
 
@@ -53,7 +56,7 @@ try {
   const multi = path.join(tmp, 'multi.cpp');
   fs.writeFileSync(multi, 'int a;\nint b;\nint c;\nint d;\n');
   sh(['add', 'multi.cpp'], tmp);
-  sh(['commit', '-m', 'multi'], tmp);
+  sh(['commit', '--no-gpg-sign', '-m', 'multi'], tmp);
   fs.writeFileSync(multi, 'int a;\nint b;\nint cc;\nint d;\n'); // 改第 3 行
   const ranges = changedLineRanges(multi, root);
   assert.ok(Array.isArray(ranges), 'changedLineRanges 返回数组');

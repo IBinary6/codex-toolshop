@@ -2,7 +2,7 @@
 
 // Hook 协议健壮性测试（官方协议缺口）：
 //   缺口A 畸形 stdin 不崩 —— post_edit.js / pre_commit.js 喂各类畸形输入都 exit 0、不崩。
-//   缺口B stdout 纯净性 —— block 场景 stdout trim 后是单个合法 JSON，无诊断文本混入。
+//   缺口B stdout 纯净性 —— Stop block 场景 stdout trim 后是单个合法 JSON，无诊断文本混入。
 //   缺口C block 路径不依赖 if(hasPython) 旁路 —— 本机有 python 则强制断言 block 必触发。
 //
 // 注：本测试的缺口B/C 需要 python（仓库自带 hooks/js/cpplint/cpplint.py，无需 pip 安装 cpplint）。
@@ -15,13 +15,19 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const postEdit = path.join(__dirname, '..', 'post_edit.js');
+const stopCheck = path.join(__dirname, '..', 'stop_check.js');
 const preCommit = path.join(__dirname, '..', 'pre_commit.js');
 
 function sh(args, cwd) { spawnSync('git', args, { cwd, stdio: 'pipe' }); }
 
 // 隔离 HOME，避免读到真实全局模板
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cse-rbhome-'));
-const env = { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome };
+const env = {
+  ...process.env,
+  HOME: fakeHome,
+  USERPROFILE: fakeHome,
+  PLUGIN_DATA: path.join(fakeHome, 'plugin-data'),
+};
 
 const repos = [];
 function newRepo(prefix) {
@@ -96,18 +102,34 @@ try {
   assert.ok(hasPython,
     '缺口C: 本测试需要 python + 自带 cpplint.py；当前环境无 python，无法验证 block 路径');
 
-  // post_edit block：新文件 + cpplint 违规 → exit0 + stdout 纯净 decision:block JSON
+  // PostToolUse 只记录；Stop 对新文件跑 cpplint 并输出纯净 decision:block JSON。
   {
     const repo = newRepo('cse-rb-block-');
     const f = path.join(repo, 'new.cpp');
     fs.writeFileSync(f, VIOLATION_CPP);  // 未跟踪新文件 → 走全套流水线
-    const r = runRaw(postEdit,
-      JSON.stringify({ cwd: repo, tool_name: 'Write', tool_input: { file_path: f } }), repo);
-    assert.strictEqual(r.status, 0, 'block: post_edit 违规仍 exit 0（绝不 exit 2）');
+    const hookInput = {
+      session_id: 'robust-session',
+      turn_id: 'robust-turn',
+      tool_use_id: 'robust-tool',
+      cwd: repo,
+      tool_name: 'Write',
+      tool_input: { file_path: f },
+    };
+    const post = runRaw(postEdit, JSON.stringify(hookInput), repo);
+    assert.strictEqual(post.status, 0, 'block: post_edit 记录仍 exit 0');
+    assert.strictEqual(post.stdout.trim(), '', 'block: post_edit 不提前检查');
+    const r = runRaw(stopCheck, JSON.stringify({
+      session_id: hookInput.session_id,
+      turn_id: hookInput.turn_id,
+      cwd: repo,
+      hook_event_name: 'Stop',
+      stop_hook_active: false,
+    }), repo);
+    assert.strictEqual(r.status, 0, 'block: Stop 违规仍 exit 0（绝不 exit 2）');
     const t = r.stdout.trim();
     assert.ok(t.length > 0, 'block: 违规必产出 stdout');
     // 缺口B：stdout trim 后是单个合法 JSON，且不含诊断文本
-    assertCleanStdout(r.stdout, 'block post_edit');
+    assertCleanStdout(r.stdout, 'block stop_check');
     const parsed = JSON.parse(t);
     assert.strictEqual(parsed.decision, 'block', 'block: decision:block');
     assert.ok(typeof parsed.reason === 'string' && parsed.reason.length > 0, 'block: reason 非空');

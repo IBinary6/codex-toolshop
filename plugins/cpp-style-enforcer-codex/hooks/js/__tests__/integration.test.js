@@ -2,7 +2,7 @@
 
 // 集成回归测试（spec §10）：在临时 git 仓库 spawnSync 子进程跑入口脚本，
 // 喂 stdin，断言 (exit/stdout/stderr) 固化崩溃修复后的行为契约。
-// post_edit.js 场景 a-e + pre_commit.js denyTool/passSilent。
+// PostToolUse 延迟记录 + Stop 统一处理场景 a-e + pre_commit denyTool/passSilent。
 
 const assert = require('node:assert');
 const fs = require('fs');
@@ -11,6 +11,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const postEdit = path.join(__dirname, '..', 'post_edit.js');
+const stopCheck = path.join(__dirname, '..', 'stop_check.js');
 const preCommit = path.join(__dirname, '..', 'pre_commit.js');
 const BOM = Buffer.from([0xEF, 0xBB, 0xBF]);
 
@@ -18,7 +19,12 @@ function sh(args, cwd) { spawnSync('git', args, { cwd, stdio: 'pipe' }); }
 
 // 隔离 HOME，避免读到真实全局模板（用硬编码默认 incremental 配置）
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cse-inthome-'));
-const env = { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome };
+const env = {
+  ...process.env,
+  HOME: fakeHome,
+  USERPROFILE: fakeHome,
+  PLUGIN_DATA: path.join(fakeHome, 'plugin-data'),
+};
 
 const repos = [];
 function newRepo(prefix) {
@@ -29,6 +35,32 @@ function newRepo(prefix) {
   sh(['config', 'user.name', 't'], tmp);
   sh(['config', 'commit.gpgsign', 'false'], tmp);
   return tmp;
+}
+
+let turnCounter = 0;
+function runDeferred(input) {
+  turnCounter += 1;
+  const hookInput = {
+    session_id: 'integration-session',
+    turn_id: `turn-${turnCounter}`,
+    tool_use_id: `tool-${turnCounter}`,
+    ...input,
+  };
+  const cwd = input.cwd || process.cwd();
+  const post = spawnSync('node', [postEdit], {
+    input: JSON.stringify(hookInput), encoding: 'utf-8', timeout: 30000, env, cwd,
+  });
+  const stop = spawnSync('node', [stopCheck], {
+    input: JSON.stringify({
+      session_id: hookInput.session_id,
+      turn_id: hookInput.turn_id,
+      cwd,
+      hook_event_name: 'Stop',
+      stop_hook_active: false,
+    }),
+    encoding: 'utf-8', timeout: 30000, env, cwd,
+  });
+  return { post, stop };
 }
 
 function runPost(input) {
@@ -57,9 +89,11 @@ try {
     sh(['add', 'old.cpp'], repo);
     sh(['commit', '-m', 'init'], repo);
 
-    const r = runPost({ cwd: repo, tool_name: 'Edit', tool_input: { file_path: f } });
-    assert.strictEqual(r.status, 0, '场景a: 老文件编辑 exit 0（不崩溃）');
-    assert.strictEqual((r.stdout || '').trim(), '', '场景a: 老文件无 block（绝不 decision:block）');
+    const { post, stop } = runDeferred({ cwd: repo, tool_name: 'Edit', tool_input: { file_path: f } });
+    assert.strictEqual(post.status, 0, '场景a: 老文件编辑 exit 0（不崩溃）');
+    assert.strictEqual((post.stdout || '').trim(), '', '场景a: 编辑阶段只记录、不 block');
+    assert.strictEqual(stop.status, 0, '场景a: Stop 统一处理 exit 0');
+    assert.strictEqual(JSON.parse(stop.stdout).decision, 'block', '场景a: 规范化后要求最终验证');
 
     const out = fs.readFileSync(f);
     assert.ok(out.slice(0, 3).equals(BOM), '场景a: 老文件只补 BOM');
@@ -82,9 +116,10 @@ try {
     fs.writeFileSync(f, 'int  main( ){int x=1;return x;}\n');
     const before = fs.readFileSync(f);
 
-    const r = runPost({ cwd: repo, tool_name: 'Write', tool_input: { file_path: f } });
-    assert.strictEqual(r.status, 0, '场景d: enabled:false exit 0');
-    assert.strictEqual((r.stdout || '').trim(), '', '场景d: enabled:false stdout 空（no-op）');
+    const { post, stop } = runDeferred({ cwd: repo, tool_name: 'Write', tool_input: { file_path: f } });
+    assert.strictEqual(post.status, 0, '场景d: enabled:false exit 0');
+    assert.strictEqual((post.stdout || '').trim(), '', '场景d: 编辑阶段 stdout 空');
+    assert.deepStrictEqual(JSON.parse(stop.stdout), {}, '场景d: Stop no-op');
     assert.ok(fs.readFileSync(f).equals(before), '场景d: enabled:false 文件字节零改动');
   }
 
@@ -118,10 +153,12 @@ try {
     // 未跟踪新文件 → incremental 走全套
     fs.writeFileSync(f, VIOLATION_CPP);
 
-    const r = runPost({ cwd: repo, tool_name: 'Write', tool_input: { file_path: f } });
-    assert.strictEqual(r.status, 0, '场景b: 新文件违规 exit 0（绝不 exit 2）');
-    const stdout = (r.stdout || '').trim();
-    assert.ok(stdout.length > 0, '场景b: 新文件违规必产出 stdout（block）');
+    const { post, stop } = runDeferred({ cwd: repo, tool_name: 'Write', tool_input: { file_path: f } });
+    assert.strictEqual(post.status, 0, '场景b: 编辑阶段 exit 0');
+    assert.strictEqual((post.stdout || '').trim(), '', '场景b: 编辑阶段不检查、不 block');
+    assert.strictEqual(stop.status, 0, '场景b: Stop 检查 exit 0（绝不 exit 2）');
+    const stdout = (stop.stdout || '').trim();
+    assert.ok(stdout.length > 0, '场景b: Stop 发现违规必产出 stdout（block）');
     const parsed = JSON.parse(stdout);
     assert.strictEqual(parsed.decision, 'block', '场景b: 新文件违规 → decision:block JSON');
     assert.ok(typeof parsed.reason === 'string' && parsed.reason.length > 0, '场景b: reason 非空');

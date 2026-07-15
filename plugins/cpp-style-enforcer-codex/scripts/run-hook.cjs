@@ -8,6 +8,7 @@ const { spawnSync } = require('child_process');
 const HOOKS = {
   session_start: path.join('hooks', 'js', 'session_start.js'),
   post_edit: path.join('hooks', 'js', 'post_edit.js'),
+  stop_check: path.join('hooks', 'js', 'stop_check.js'),
   pre_commit: path.join('hooks', 'js', 'pre_commit.js'),
 };
 

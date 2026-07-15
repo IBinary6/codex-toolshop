@@ -20,8 +20,20 @@
           {
             "type": "command",
             "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" post_edit",
+            "timeout": 10,
+            "statusMessage": "Recording edited C++ files"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" stop_check",
             "timeout": 30,
-            "statusMessage": "Checking C++ style"
+            "statusMessage": "Finalizing C++ style"
           }
         ]
       }

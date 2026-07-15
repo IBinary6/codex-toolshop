@@ -1,6 +1,6 @@
 {
   "name": "cpp-style-enforcer-codex",
-  "version": "0.1.5+codex.20260713085839",
+  "version": "0.1.6+codex.20260715034344",
   "description": "Codex plugin for C++ code style enforcement with clang-format, cpplint, copyright headers, BOM handling, and commit-time checks.",
   "license": "MIT",
   "private": true,
