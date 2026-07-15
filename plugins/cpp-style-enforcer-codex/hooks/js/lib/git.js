@@ -6,6 +6,15 @@ const { spawnSync } = require('child_process');
 
 const isWindows = process.platform === 'win32';
 
+function canonicalPath(filePath) {
+  try {
+    const realpath = fs.realpathSync.native || fs.realpathSync;
+    return realpath(filePath);
+  } catch (_) {
+    return path.resolve(filePath);
+  }
+}
+
 function gitDir(filePath) {
   try {
     return fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()
@@ -38,7 +47,10 @@ function repoRoot(filePath) {
  */
 function isNew(filePath, root) {
   if (!root) return true;
-  const rel = path.relative(root, filePath).split(path.sep).join('/');
+  // Windows runner 的 TEMP 可能以 RUNNER~1 等 8.3 短路径传入，而 git rev-parse
+  // 返回长路径。先解析真实路径，避免 path.relative 误生成 ../../RUNNER~1/...。
+  const rel = path.relative(canonicalPath(root), canonicalPath(filePath))
+    .split(path.sep).join('/');
   const r = spawnSync('git', ['cat-file', '-e', `HEAD:${rel}`], {
     cwd: root, stdio: 'pipe', timeout: 3000, windowsHide: isWindows,
   });

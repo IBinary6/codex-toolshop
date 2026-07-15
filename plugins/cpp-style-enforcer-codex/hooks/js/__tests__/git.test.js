@@ -23,12 +23,23 @@ const untracked = path.join(tmp, 'untracked.cpp');
 fs.writeFileSync(untracked, 'int b;');
 
 let empty;
+let aliasParent;
 
 try {
   const root = repoRoot(tracked);
   assert.ok(root && fs.existsSync(root), 'repoRoot 应返回有效目录');
   assert.strictEqual(isNew(tracked, root), false, '已跟踪 = 老文件 isNew=false');
   assert.strictEqual(isNew(untracked, root), true, '未跟踪 = 新文件 isNew=true');
+
+  // Windows CI 的 TEMP 可能使用 RUNNER~1 这类 8.3 别名，而 git rev-parse 返回长路径。
+  // 用目录联接/符号链接稳定复现“同一仓库、不同路径表示”边界。
+  aliasParent = fs.mkdtempSync(path.join(os.tmpdir(), 'gitalias-'));
+  const aliasRoot = path.join(aliasParent, 'repo-alias');
+  fs.symlinkSync(tmp, aliasRoot, process.platform === 'win32' ? 'junction' : 'dir');
+  const aliasTracked = path.join(aliasRoot, 'tracked.cpp');
+  const canonicalRoot = repoRoot(aliasTracked);
+  assert.strictEqual(isNew(aliasTracked, canonicalRoot), false,
+    '路径别名指向的已跟踪文件仍应识别为老文件');
 
   // 核心回归：已 git add 但未 commit 的首次提交新文件 → 不在 HEAD → 新文件
   const staged = path.join(tmp, 'staged.cpp');
@@ -74,10 +85,12 @@ try {
 
   console.log('git.test.js PASS');
   fs.rmSync(tmp, { recursive: true, force: true });
+  fs.rmSync(aliasParent, { recursive: true, force: true });
   fs.rmSync(nonGit, { recursive: true, force: true });
   fs.rmSync(empty, { recursive: true, force: true });
 } catch (e) {
   fs.rmSync(tmp, { recursive: true, force: true });
+  if (aliasParent) fs.rmSync(aliasParent, { recursive: true, force: true });
   if (empty) fs.rmSync(empty, { recursive: true, force: true });
   throw e;
 }
