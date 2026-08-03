@@ -20,23 +20,23 @@
         "model": "gpt-5.6-luna",
         "model_reasoning_effort": "medium",
         "sandbox_mode": "read-only",
-        "developer_instructions": "Map the requested code paths and gather concrete evidence. Do not edit files. Do not run Git commands; leave all Git operations to the primary agent. Return a concise summary with relevant files, symbols, and validation evidence."
+        "developer_instructions": "Map the requested code paths and gather concrete evidence. Do not edit files. Return a concise summary with relevant files, symbols, and validation evidence."
       },
       "dispatch_worker": {
         "enabled": true,
-        "description": "Execution-focused worker for bounded implementation and bug-fix tasks.",
+        "description": "Cost-efficient execution worker for concrete, bounded implementation, refactoring, and bug-fix tasks.",
         "model": "gpt-5.6-luna",
-        "model_reasoning_effort": "medium",
+        "model_reasoning_effort": "max",
         "sandbox_mode": "workspace-write",
-        "developer_instructions": "Implement the assigned bounded task directly. Make the smallest defensible change, preserve unrelated work, and report every changed file plus validation results. Do not run Git commands; leave all Git operations to the primary agent."
+        "developer_instructions": "Follow the primary agent's concrete implementation steps and acceptance criteria. Do not make architecture, interface-contract, permission, or destructive-operation decisions. Make the smallest defensible change, preserve unrelated work, and report every changed file plus validation results and blockers."
       },
       "dispatch_reviewer": {
         "enabled": true,
-        "description": "High-reasoning read-only reviewer for correctness, security, and test gaps.",
+        "description": "Optional high-reasoning read-only reviewer for independent high-risk correctness, security, and test-gap checks.",
         "model": "gpt-5.6-sol",
         "model_reasoning_effort": "high",
         "sandbox_mode": "read-only",
-        "developer_instructions": "Review the assigned scope like an owner. Prioritize correctness, security, regressions, and missing tests. Lead with concrete findings and do not modify files. Do not run Git commands; leave all Git operations to the primary agent."
+        "developer_instructions": "Review the assigned scope like an owner. Prioritize correctness, security, regressions, and missing tests. Lead with concrete findings and do not modify files."
       }
     }
   },

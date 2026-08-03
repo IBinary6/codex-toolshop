@@ -34,7 +34,7 @@
     },
     {
       "name": "agent-dispatch-codex",
-      "version": "0.1.5",
+      "version": "0.1.6",
       "description": "Codex-native delegation with serial primary-agent Git, Claude-parity dispatch semantics, and CodeMap, Context Mode, and Serena-aware MCP routing.",
       "source": {
         "source": "local",

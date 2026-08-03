@@ -1,10 +1,10 @@
 # agent-dispatch-codex
 
-将 Claude Code `agent-dispatch` 的主代理调度语义移植到 Codex：主代理负责拆分和整合，可独立并行的有界工作交给子代理；子代理直接执行，不递归分派，并报告修改文件和验证结果。
+将 Claude Code `agent-dispatch` 的主代理调度语义移植到 Codex：主代理负责需求与架构决策、拆分、审查和整合；明确、有界的实现工作交给低成本执行子代理；子代理直接执行，不递归分派，并报告修改文件和验证结果。
 
 ## 与 Claude Code 版的语义对应
 
-两边追求同一条调度语义：**主代理保留规划、整合和 Git 串行操作；可并行、边界清晰的探索/实现/审查交给子代理；子代理完成后报告改动和验证**。
+两边追求同一条调度语义：**主代理保留决策、拆分、审查、整合和 Git 串行操作；边界清晰的探索与实现交给匹配的子代理；子代理完成后报告改动和验证，并在结果整合后及时释放**。
 
 | 语义能力 | Codex 版 | Claude Code 版 |
 | --- | --- | --- |
@@ -62,10 +62,16 @@ Codex 支持项目级 `.codex/agents/*.toml` 自定义 Agent，并允许每个 A
 | Agent | 默认模型 | 推理强度 | 用途 |
 | --- | --- | --- | --- |
 | `dispatch_explorer` | `gpt-5.6-luna` | `medium` | 快速、只读的代码探索与证据收集。 |
-| `dispatch_worker` | `gpt-5.6-luna` | `medium` | 有明确边界的编码和修复任务。 |
+| `dispatch_worker` | `gpt-5.6-luna` | `max` | 按明确步骤执行编码、重构和修复；不自行决定架构或接口契约。 |
 | `dispatch_reviewer` | `gpt-5.6-sol` | `high` | 正确性、安全性和测试缺口审查。 |
 
 主对话模型不受插件修改，仍由 Codex 桌面版模型选择器或顶层配置决定。生成文件会逐项加入 `.git/info/exclude`；若同名文件不是插件生成的，插件会保留用户文件，不覆盖。首次生成或修改模型配置后，新建 Codex 任务即可加载新的 Agent 配置。
+
+这套默认值对应“强模型做决策、便宜模型做执行”的分工：当主对话使用 Sol 时，主代理澄清需求、决定架构和接口、拆出验收标准，并审查 Luna 的结果；`dispatch_worker` 使用 `gpt-5.6-luna`，即使给到 `max` 推理强度，仍避免让 Sol 消耗在逐行实现上。这里不承诺固定的额度倍率，实际消耗取决于任务、上下文和账号计费策略。
+
+委派不再只限于并行任务：只要实现边界和验收标准已经明确，串行的编码或修复也可以交给 `dispatch_worker`。简单读取、很小的修改、强耦合步骤和最终整合仍由主代理完成。子代理结果已整合、遇到阻塞或不再需要时，主代理应立即停止它，避免空闲智能体持续占用有限名额。
+
+文章中直接创建 `~/.codex/agents/luna-worker.toml` 的做法不适用于本插件的托管契约。插件在当前 Git 项目的 `.codex/agents/` 下生成 profile，使用顶层 `name`、`description`、`model`、`model_reasoning_effort`、`sandbox_mode` 和 `developer_instructions` 字段；应通过三层 JSON 配置覆盖，不要手改带插件托管头的 TOML。
 
 ## 配置
 

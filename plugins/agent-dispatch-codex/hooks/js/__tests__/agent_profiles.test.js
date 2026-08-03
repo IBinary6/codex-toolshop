@@ -26,9 +26,13 @@ try {
   const content = fs.readFileSync(worker, 'utf8');
   assert.ok(content.startsWith(MANAGED_HEADER));
   assert.match(content, /model = "gpt-5\.6-luna"/);
-  assert.match(content, /model_reasoning_effort = "medium"/);
+  assert.match(content, /model_reasoning_effort = "max"/);
   assert.match(content, /sandbox_mode = "workspace-write"/);
   assert.match(content, /Do not run Git commands/);
+  assert.equal((content.match(/Do not run Git commands/g) || []).length, 1);
+  const explorer = path.join(root, '.codex', 'agents', 'dispatch_explorer.toml');
+  const explorerContent = fs.readFileSync(explorer, 'utf8');
+  assert.equal((explorerContent.match(/Do not run Git commands/g) || []).length, 1);
   const custom = renderAgentProfile('custom_worker', {
     developer_instructions: 'Use the project-specific workflow.',
   });

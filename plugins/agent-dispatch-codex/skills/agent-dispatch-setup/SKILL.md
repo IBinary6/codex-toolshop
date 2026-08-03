@@ -19,6 +19,8 @@ The project layer wins. Overrides use add/remove arrays instead of copying the c
 
 All Git commands are an invariant rather than a configurable whitelist: the primary agent runs them one at a time, never delegates them, and never parallelizes Git operations.
 
+Agent lifecycle is also an invariant: after the primary agent integrates a subagent result, or the subagent is blocked or no longer needed, stop it promptly so idle agents do not occupy limited runtime slots.
+
 ## Workflow
 
 1. Resolve the current Git root with `git rev-parse --show-toplevel`.
@@ -69,4 +71,5 @@ Supported list overrides:
 - Project configuration is excluded through `.git/info/exclude`; do not edit the project's tracked `.gitignore` unless the user explicitly asks.
 - Generated custom-agent files are excluded individually through `.git/info/exclude`. Do not exclude the whole `.codex/` directory.
 - An empty `model` omits the field so the child inherits the parent choice. Model availability is still controlled by the user's account and workspace policy.
+- The plugin does not change the primary conversation model. Its default split keeps decisions and final review in the primary agent, sends concrete execution to `dispatch_worker` (`gpt-5.6-luna`, `max`), and reserves `dispatch_reviewer` (`gpt-5.6-sol`, `high`) for an explicitly independent high-risk review.
 - After Hook definitions change, the user must open a new task and trust the new Hook hash in `/hooks`.

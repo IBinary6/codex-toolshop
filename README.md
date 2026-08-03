@@ -26,15 +26,18 @@ codex plugin add agent-dispatch-codex@codex-toolshop
 | --- | --- | --- |
 | `codemap-boost-codex` | 自动接入 `code-review-graph` 代码结构图，提供符号、调用、引用和影响面检索能力。 | 新会话自动 bootstrap、自动 build/update。涉及代码结构时优先用 `mcp__code_review_graph__*` 工具。 |
 | `cpp-style-enforcer-codex` | 自动执行团队 C++ 风格流程，包括 clang-format、版权头、BOM、cpplint 和提交前检查。 | 正常编辑即可；写入 C/C++ 文件后 hook 自动处理，`git commit` 前会检查暂存区 C++ 文件。 |
-| `agent-dispatch-codex` | 保护主代理上下文，把可独立并行的有界任务分派给子代理。 | 新会话自动注入调度策略；子代理直接执行并报告修改文件和验证结果。 |
+| `agent-dispatch-codex` | 让主代理负责决策和审查，把明确、有界的执行工作交给低成本子代理。 | 新会话自动注入调度策略；子代理直接执行、报告结果，并在整合后及时释放。 |
 
 ## Agent Dispatch 怎么用
 
 安装 `agent-dispatch-codex` 后，新会话会自动加载调度策略：
 
-- 主代理必须委派可独立、可并行且有明确边界的子任务。
-- 简单读取、小范围修改或强串行步骤继续由主代理完成，避免为了委派而委派。
+- 主代理保留需求澄清、架构/接口决策、任务拆分、结果审查和最终整合。
+- 明确、有界的编码、重构和修复优先交给 `gpt-5.6-luna` 执行子代理，即使该步骤需要串行完成。
+- 可独立、可并行且有明确边界的子任务必须并行委派。
+- 简单读取、小范围修改或强耦合步骤继续由主代理完成，避免为了委派而委派。
 - 子代理收到独立指令后直接执行，不递归分派，并在结果中列出修改文件和验证命令。
+- 子代理结果已整合、阻塞或不再需要时立即停止，避免空闲智能体占用有限名额。
 - PowerShell 和 Git Bash 都受支持；集成终端 Shell 的选择不会改变 Hook 的 Node.js 运行逻辑。
 - 全局配置保存在插件 `PLUGIN_DATA/config.json`，项目配置保存在 `.agent-dispatch-codex/config.json`。
 

@@ -11,11 +11,16 @@ const {
 
 const config = loadDefaults();
 
-assert.match(mainAgentGuidance(config), /Delegate concrete, bounded subtasks/);
+assert.match(mainAgentGuidance(config), /Keep requirements clarification, architecture and interface decisions/);
+assert.match(mainAgentGuidance(config), /even when that work is sequential/);
 assert.match(mainAgentGuidance(config), /no more than 3 subagents/);
-assert.match(mainAgentGuidance(config), /dispatch_worker \(gpt-5\.6-luna, medium\)/);
+assert.match(mainAgentGuidance(config), /dispatch_worker \(gpt-5\.6-luna, max\)/);
+assert.match(mainAgentGuidance(config), /use a high-reasoning reviewer only when an independent review is justified by risk/);
+assert.match(mainAgentGuidance(config), /do not leave idle agents occupying limited slots/);
 assert.match(mainAgentGuidance(config), /Execute all Git commands in the primary agent, one at a time/);
 assert.match(mainAgentGuidance(config, true), /所有 Git 命令均由主代理串行执行/);
+assert.match(mainAgentGuidance(config, true), /立即停止子代理/);
+assert.match(mainAgentGuidance(config, true), /只有高风险范围确实需要独立复核时/);
 assert.match(subagentGuidance(config), /do not spawn or delegate/i);
 assert.match(subagentGuidance(config), /every file you changed/i);
 assert.match(subagentGuidance(config), /Do not run Git commands/);

@@ -41,6 +41,8 @@ try {
   const workerProfile = path.join(repo, '.codex', 'agents', 'dispatch_worker.toml');
   assert.ok(fs.existsSync(workerProfile));
   assert.match(fs.readFileSync(workerProfile, 'utf8'), /model = "gpt-5\.6-luna"/);
+  assert.match(fs.readFileSync(workerProfile, 'utf8'), /model_reasoning_effort = "max"/);
+  assert.match(session.hookSpecificOutput.additionalContext, /do not leave idle agents occupying limited slots/);
 
   assert.equal(run('user_prompt_submit', {
     hook_event_name: 'UserPromptSubmit',

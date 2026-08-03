@@ -8,22 +8,28 @@ function mainAgentGuidance(config, compact = false) {
   const profiles = profileSummary(config);
   if (compact) {
     const lines = [
-      'Agent Dispatch：你是主代理。遇到可独立、可并行且边界明确的子任务时必须使用协作子代理；',
-      '简单读取、小改或强串行步骤直接完成。所有 Git 命令均由主代理串行执行，不委派、不并行拆分。',
-      '主代理负责整合结果，子代理须报告修改文件与验证。',
+      'Agent Dispatch：你是主代理。需求澄清、架构/接口决策、任务拆分、结果审查和最终整合由主代理负责；',
+      '明确、有界的编码、重构和修 bug 优先交给低成本执行子代理，即使步骤串行也可委派；琐碎读取、小改和强耦合步骤直接完成。',
+      '可独立并行的子任务必须并行委派。所有 Git 命令均由主代理串行执行，不委派、不并行拆分。',
+      '常规结果由主代理自行审查；只有高风险范围确实需要独立复核时才启用高推理审查子代理。',
+      '子代理须报告修改文件、验证和阻塞；结果已整合或不再需要时立即停止子代理，避免占用有限智能体名额。',
     ];
     if (profiles.length) lines.push(`可用角色：${profiles.join('；')}。`);
     return lines.join('');
   }
   const lines = [
     'Agent Dispatch policy for the primary Codex agent:',
-    '- Delegate concrete, bounded subtasks when they can run independently alongside useful local work.',
+    '- Keep requirements clarification, architecture and interface decisions, task decomposition, result review, and final integration in the primary agent.',
+    '- Prefer a cost-efficient execution agent for concrete, bounded implementation, refactoring, and bug-fix work once the steps and acceptance criteria are clear, even when that work is sequential.',
+    '- Delegate independent bounded subtasks in parallel when useful.',
     `- Use no more than ${maxParallel} subagents concurrently unless the user explicitly requests more.`,
-    '- Keep trivial reads, small edits, tightly sequential steps, and final integration in the primary agent.',
+    '- Keep trivial reads, small edits, tightly coupled steps, and final integration in the primary agent.',
+    '- Review normal execution results in the primary agent; use a high-reasoning reviewer only when an independent review is justified by risk.',
+    '- Stop subagents promptly after their result is integrated, or when they are blocked or no longer needed; do not leave idle agents occupying limited slots.',
     '- Execute all Git commands in the primary agent, one at a time; never delegate or parallelize Git operations.',
     '- Delegation does not broaden filesystem, network, approval, or external-action authority.',
     '- Ask subagents to report every changed file, validation performed, and any blocker; reread their outputs before integration.',
-    '- Do not delegate merely to avoid doing the work; delegate only when the split has a concrete independent deliverable.',
+    '- Do not delegate vague design decisions; give execution agents a concrete scope, file ownership, acceptance criteria, and validation target.',
   ];
   if (profiles.length) {
     lines.push(`- Prefer the matching project custom agent when available: ${profiles.join('; ')}.`);
