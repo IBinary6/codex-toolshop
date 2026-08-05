@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { crgRuntimePaths, probeCrgRuntime } = require('./bootstrap');
 
 const {
   codexHome,
@@ -136,8 +137,15 @@ function ensureGitInfoExclude(cwd) {
   }
 }
 
-function canUseCrg() {
-  return commandExists('code-review-graph');
+function crgCommand(options = {}) {
+  if (typeof options.crgCommand === 'function') return options.crgCommand();
+  if (typeof options.crgCommand === 'string' && options.crgCommand) return options.crgCommand;
+  return crgRuntimePaths(options).command;
+}
+
+function canUseCrg(options = {}) {
+  if (process.env.CODEMAP_BOOST_ASSUME_CRG === '1') return true;
+  return probeCrgRuntime(options);
 }
 
 function isCodeMapEnabled() {
@@ -247,6 +255,7 @@ function quoteCmd(value) {
 }
 
 function runCrgDefault(args, options = {}) {
+  const command = crgCommand(options);
   const common = {
     cwd: options.cwd,
     env: options.env || process.env,
@@ -254,9 +263,7 @@ function runCrgDefault(args, options = {}) {
     windowsHide: process.platform === 'win32',
     timeout: options.timeout || REFRESH_WAIT_MS,
   };
-  if (process.platform !== 'win32') return spawnSync('code-review-graph', args, common);
-  const command = ['code-review-graph', ...args].map(quoteCmd).join(' ');
-  return spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', command], common);
+  return spawnSync(command, args, common);
 }
 
 function refreshCrgSync(cwd, options = {}) {
@@ -319,9 +326,10 @@ function refreshLinkedWorktreesSync(cwd, options = {}) {
   return ok;
 }
 
-function startCrgBuild(cwd) {
+function startCrgBuild(cwd, options = {}) {
   if (process.env.CODEMAP_BOOST_DISABLE_BACKGROUND === '1') return false;
-  if (!isCodeMapEnabled() || !isGitRepo(cwd) || !canUseCrg()) return false;
+  const enabled = options.isCodeMapEnabled || isCodeMapEnabled;
+  if (!enabled() || !isGitRepo(cwd)) return false;
   const root = repoRoot(cwd);
   if (!root) return false;
   const graphDir = path.join(root, '.code-review-graph');
@@ -329,12 +337,13 @@ function startCrgBuild(cwd) {
   const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-refresh', root));
   if (isLockActive(lockFile)) return false;
   if (!tryWriteLock(lockFile)) return false;
+  const command = crgCommand(options);
   const code = `
     const fs = require('fs');
     const { spawnSync } = require('child_process');
     try {
       try { fs.writeFileSync(${JSON.stringify(lockFile)}, String(process.pid)); } catch (_) {}
-      spawnSync('code-review-graph', ['build', '--repo', ${JSON.stringify(root)}], {
+      spawnSync(${JSON.stringify(command)}, ['build', '--repo', ${JSON.stringify(root)}], {
         cwd: ${JSON.stringify(root)},
         stdio: 'ignore',
         windowsHide: true
@@ -343,7 +352,8 @@ function startCrgBuild(cwd) {
       try { fs.unlinkSync(${JSON.stringify(lockFile)}); } catch (_) {}
     }
   `;
-  const child = spawnDetached(process.execPath, ['-e', code], { cwd: root });
+  const launch = options.spawnDetached || spawnDetached;
+  const child = launch(process.execPath, ['-e', code], { cwd: root });
   if (!child) {
     try { fs.unlinkSync(lockFile); } catch (_) {}
     return false;
@@ -359,19 +369,37 @@ function bootstrapWithCrg(cwd) {
   return startCrgBuild(cwd);
 }
 
-function startAutoBootstrap(cwd) {
+function writeBootstrapDiagnostic(diagnostic) {
+  try {
+    const target = markerPath(BOOTSTRAP_FAILED_MARKER);
+    ensureDir(path.dirname(target));
+    fs.writeFileSync(target, `${diagnostic}\n`, 'utf8');
+  } catch (_) {}
+}
+
+/**
+ * 在 SessionStart 中启动一次后台环境自愈，并用锁避免重复安装。
+ * @example startAutoBootstrap(process.cwd())
+ */
+function startAutoBootstrap(cwd, options = {}) {
   if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') return false;
   if (process.env.CODEMAP_BOOST_DISABLE_BOOTSTRAP === '1') return false;
   const root = repoRoot(cwd);
   if (!root) return false;
-  const hasCrg = canUseCrg();
+  const probe = options.canUseCrg || canUseCrg;
+  const hasCrg = probe();
   if (hasCrg) {
     enableCodeMap();
     return false;
   }
   const lockFile = path.join(os.tmpdir(), lockName('codemap-bootstrap', root));
-  if (isLockActive(lockFile, BOOTSTRAP_LOCK_STALE_MS)) return false;
-  if (!tryWriteLock(lockFile)) return false;
+  // 已有进程持锁或刚刚抢到锁时，都向当前任务报告“正在 bootstrap”，避免静默跳过。
+  if (isLockActive(lockFile, BOOTSTRAP_LOCK_STALE_MS)) return true;
+  if (!tryWriteLock(lockFile)) {
+    if (isLockActive(lockFile, BOOTSTRAP_LOCK_STALE_MS)) return true;
+    writeBootstrapDiagnostic('CodeMap Boost 无法创建后台安装锁。请检查插件数据目录权限，运行 setup 后新开任务。');
+    return false;
+  }
   const code = `
     const fs = require('fs');
     const { markerPath } = require(${JSON.stringify(path.join(__dirname, 'runtime.js'))});
@@ -400,29 +428,33 @@ function startAutoBootstrap(cwd) {
       try { fs.unlinkSync(${JSON.stringify(lockFile)}); } catch (_) {}
     }
   `;
-  const child = spawnDetached(process.execPath, ['-e', code], { cwd: root });
+  const launch = options.spawnDetached || spawnDetached;
+  const child = launch(process.execPath, ['-e', code], { cwd: root });
   if (!child) {
     try { fs.unlinkSync(lockFile); } catch (_) {}
+    writeBootstrapDiagnostic('CodeMap Boost 无法启动后台隔离运行环境安装。请在目标仓库运行 setup 后新开任务。');
     return false;
   }
   return true;
 }
 
-function startCrgUpdate(cwd) {
+function startCrgUpdate(cwd, options = {}) {
   if (process.env.CODEMAP_BOOST_DISABLE_BACKGROUND === '1') return false;
-  if (!isCodeMapEnabled() || !isGitRepo(cwd) || !canUseCrg()) return false;
+  const enabled = options.isCodeMapEnabled || isCodeMapEnabled;
+  if (!enabled() || !isGitRepo(cwd)) return false;
   const root = repoRoot(cwd);
   if (!root) return false;
   if (!fs.existsSync(path.join(root, '.code-review-graph'))) return false;
   const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-refresh', root));
   if (isLockActive(lockFile)) return false;
   if (!tryWriteLock(lockFile)) return false;
+  const command = crgCommand(options);
   const code = `
     const fs = require('fs');
     const { spawnSync } = require('child_process');
     try {
       try { fs.writeFileSync(${JSON.stringify(lockFile)}, String(process.pid)); } catch (_) {}
-      spawnSync('code-review-graph', ['update', '--repo', ${JSON.stringify(root)}], {
+      spawnSync(${JSON.stringify(command)}, ['update', '--repo', ${JSON.stringify(root)}], {
         cwd: ${JSON.stringify(root)},
         stdio: 'ignore',
         windowsHide: true
@@ -431,7 +463,8 @@ function startCrgUpdate(cwd) {
       try { fs.unlinkSync(${JSON.stringify(lockFile)}); } catch (_) {}
     }
   `;
-  const child = spawnDetached(process.execPath, ['-e', code], { cwd: root });
+  const launch = options.spawnDetached || spawnDetached;
+  const child = launch(process.execPath, ['-e', code], { cwd: root });
   if (!child) {
     try { fs.unlinkSync(lockFile); } catch (_) {}
     return false;
@@ -549,25 +582,20 @@ function runCodexMcp(args, options = {}) {
 }
 
 function expectedCrgMcp(options = {}) {
-  const uvxProbe = options.uvxProbe || commandExists;
-  let uvx = false;
-  if (process.env.CODEMAP_BOOST_DISABLE_UVX !== '1') {
-    try { uvx = !!uvxProbe('uvx'); } catch (_) {}
-  }
-  if (uvx) return { command: 'uvx', args: ['code-review-graph', 'serve'] };
-  return { command: 'code-review-graph', args: ['serve'] };
+  return { command: crgCommand(options), args: ['serve'] };
 }
 
 function ensureCrgMcp(options = {}) {
   const canUse = options.canUseCrg || canUseCrg;
   try {
     if (!canUse()) {
-      const diagnostic = 'code-review-graph 不可用，无法配置 Codex MCP。请先安装 code-review-graph[all]，然后重新运行 setup。';
+      const diagnostic = '插件私有 code-review-graph 运行环境不可用或 parser 健康检查失败，无法配置 Codex MCP。'
+        + '请重新运行 setup 重建隔离环境，不要使用 pip --user 修补。';
       writeCrgMcpFailure(options, diagnostic);
       return { ok: false, changed: false, diagnostic };
     }
   } catch (_) {
-    const diagnostic = '无法确认 code-review-graph 是否可用。请检查 CLI 安装后重新运行 setup。';
+    const diagnostic = '无法确认插件私有 code-review-graph 运行环境是否健康。请重新运行 setup 重建隔离环境。';
     writeCrgMcpFailure(options, diagnostic);
     return { ok: false, changed: false, diagnostic };
   }
@@ -723,6 +751,7 @@ module.exports = {
   ensureAgentsBlock,
   ensureGitignore,
   ensureGitInfoExclude,
+  crgCommand,
   canUseCrg,
   isCodeMapEnabled,
   enableCodeMap,

@@ -22,12 +22,12 @@ Codex 版会把 grep 注入这类 Claude 专属能力改写到 `AGENTS.md`、`Us
 
 前置环境只要求：可用的 `codex` CLI、Git，以及以下依赖安装器之一：
 
-- 推荐 `uv`（同时提供 `uvx`）。
-- 无 `uv` 时使用 Python + `pip`。
+- 推荐 `uv`；插件会用它创建固定 Python 3.12 的私有 venv。
+- 无 `uv` 时使用支持 `venv` 的 Python，依次尝试 3.12、3.11 和当前 Python。
 
 不要求用户预先手动安装 `code-review-graph`；setup 会检测并安装。用户让 AI 安装插件时，AI 应完成以下整个闭环，不把 setup 留给用户记忆。
 
-1. 检查 `codex`、Git、`uv`/`uvx` 或 Python + `pip` 是否可用。
+1. 检查 `codex`、Git、`uv` 或支持 `venv` 的 Python 是否可用。
 2. 添加插件市场：
 
 ```bash
@@ -46,14 +46,14 @@ codex plugin add codemap-boost-codex@codex-toolshop
 node "<plugin-root>/scripts/setup.cjs" --build
 ```
 
-5. 验证 `code-review-graph --version`、`code-review-graph status` 和 `codex mcp get code-review-graph --json`。MCP 必须为启用的 stdio，命令为 `uvx code-review-graph serve`（无 uvx 时为 `code-review-graph serve`），且 `cwd` 为 `null`。
+5. setup 会打印 `managed runtime` 绝对路径。用该路径执行 `--version` 和 `status`，再检查 `codex mcp get code-review-graph --json`。MCP 必须为启用的 stdio，`command` 必须等于该私有运行时路径，参数为 `serve`，且 `cwd` 为 `null`。
 6. 提示用户新开一个 Codex 任务，让插件 hooks、skill 和新注册的 MCP 工具一起加载。当前已启动任务不会动态补载 MCP 工具。
 
 setup 必须在目标 Git 仓库执行，不能在插件目录执行；它会完成依赖、MCP、仓库忽略规则和初始图谱预热。正常安装不需要用户另行执行底层依赖命令。
 
 ## 自动启用
 
-即使安装 AI 漏跑 setup，插件仍会自愈。`SessionStart` 会检查 `code-review-graph`；缺失时在后台依次尝试 uv 和 pip，并提示完成后新开任务。CLI 已可用时，它会同步检查并修复 MCP、写入 `$CODEX_HOME/AGENTS.md` 托管块，并在当前 Git 仓库完成 build/update。旧配置、禁用配置或固定 `cwd` 都会被修复；本次才修好的 MCP 会明确提示新开任务。
+即使安装 AI 漏跑 setup，插件仍会自愈。`SessionStart` 会检查插件私有运行时及 Python、JavaScript、TypeScript、TSX parser；缺失或损坏时在后台重建隔离 venv，并提示完成后新开任务。运行时健康后，它会同步检查并修复 MCP、写入 `$CODEX_HOME/AGENTS.md` 托管块，并在当前 Git 仓库完成 build/update。旧配置、禁用配置、固定 `cwd`、全局 PATH 命令和 uvx 配置都会迁移到私有运行时。
 
 `codemap-boost-setup` 仍保留为手动诊断/预热入口。需要立即验证或手动预热时，可以在 Codex 中输入：
 
@@ -63,24 +63,25 @@ setup 必须在目标 Git 仓库执行，不能在插件目录执行；它会完
 
 setup 会执行这些动作：
 
-- 检查 `code-review-graph` 是否已经可用；已安装则不重复安装。
-- 缺失时才安装 `code-review-graph[all]`。
-- 使用 `codex mcp get/remove/add` 注册 Codex MCP，命令优先为 `uvx code-review-graph serve`，无 uvx 时回退为 `code-review-graph serve`；不会让第三方工具写入 hooks、instructions、skills。
-- 写入诊断 marker；hook 的实际工作门槛是 `code-review-graph` CLI 可用。
+- 在插件数据目录维护独立的 `crg-runtime` venv，不读取用户级 site-packages，也不修改用户 PATH。
+- 优先用 `uv` + Python 3.12 创建 venv；无 uv 时用系统 Python 的 `venv`，然后只向该 venv 安装 `code-review-graph[all]`。
+- 安装后用与上游相同的 Python `-I` 隔离模式加载 Python、JavaScript、TypeScript、TSX parser；仅 CLI 存在不再视为健康。
+- 使用 `codex mcp get/remove/add` 把 MCP 注册到私有 CRG 绝对路径；不会让第三方工具写入 hooks、instructions、skills。
+- 健康检查或注册失败时写入诊断 marker 并返回非零。
 - 可选安装 `graphifyy[all]`，用于提供 `graphify` 命令。
 
 setup 脚本应以你的目标项目作为工作目录运行；这样 `.gitignore` 和初始图谱都会落在当前项目，而不是插件仓库。
 
 正常使用不需要每次启动 Codex 都重新运行 setup。后续 SessionStart / PostToolUse hook 会自动 build 或 update 图谱。
 
-底层依赖命令如下；setup 脚本会把依赖检测、MCP 注册和启用状态集中成一条可重复执行的配置入口：
+setup 内部执行的等价流程如下，仅用于排障；正常安装不要手动执行，更不要使用 `pip install --user`：
 
 ```bash
-uv tool install "code-review-graph[all]"
-codex mcp add code-review-graph -- uvx code-review-graph serve
-# 没有 uv/uvx 时：
-python -m pip install "code-review-graph[all]"
-codex mcp add code-review-graph -- code-review-graph serve
+uv venv --python 3.12 "<plugin-data>/crg-runtime"
+uv pip install --python "<plugin-data>/crg-runtime/<python>" --upgrade "code-review-graph[all]"
+# 没有 uv 时：
+python -m venv "<plugin-data>/crg-runtime"
+"<plugin-data>/crg-runtime/<python>" -m pip install --upgrade "code-review-graph[all]"
 ```
 
 `graphify` 是可选能力；需要时再安装：
@@ -91,9 +92,9 @@ python -m pip install "graphifyy[all]"
 
 ## 它会做什么
 
-插件会注册 5 类 Codex hook。`SessionStart` 会自动 bootstrap；`code-review-graph` CLI 可用后，结构提示、图谱构建和增量更新自动工作。显式禁用时 hook 保持静默。
+插件会注册 6 类 Codex hook。`SessionStart` 会自动 bootstrap；插件私有 CRG 运行环境及 parser 健康后，结构提示、图谱构建和增量更新自动工作。显式禁用时 hook 保持静默。
 
-| Hook | CLI 可用后的作用 |
+| Hook | 私有 CRG 运行环境健康后的作用 |
 | --- | --- |
 | `SessionStart` | 安装/注册 `code-review-graph`，维护 `$CODEX_HOME/AGENTS.md` 的 CodeMap 托管块，并同步完成 build/update；不会修改项目 `.gitignore`。 |
 | `PostToolUse` | Codex 写文件或执行可能修改源码的 Bash 后同步刷新；只读 Bash 命令不会触发重复刷新。 |

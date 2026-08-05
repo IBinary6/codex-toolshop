@@ -4,7 +4,14 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { ensureCli, ensureCrg, pythonCandidates } = require('../lib/bootstrap');
+const {
+  crgRuntimePaths,
+  ensureCli,
+  ensureCrg,
+  installManagedCrg,
+  probeCrgRuntime,
+  pythonCandidates,
+} = require('../lib/bootstrap');
 
 {
   let installed = null;
@@ -33,74 +40,165 @@ const { ensureCli, ensureCrg, pythonCandidates } = require('../lib/bootstrap');
 }
 
 {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-bootstrap-uv-'));
-  const marker = path.join(tmp, '.crg-install-failed');
-  const installers = [];
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-managed-paths-'));
   try {
-    const ok = ensureCrg({
-      probe: () => false,
+    const paths = crgRuntimePaths({ runtimeDir: tmp });
+    assert.strictEqual(paths.dir, tmp);
+    assert.ok(paths.python.startsWith(tmp), 'managed Python stays inside plugin data');
+    assert.ok(paths.command.startsWith(tmp), 'managed CRG stays inside plugin data');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-managed-probe-'));
+  const calls = [];
+  try {
+    const paths = crgRuntimePaths({ runtimeDir: tmp });
+    const ok = probeCrgRuntime({
+      runtimeDir: tmp,
+      pathExists: () => true,
+      spawnSync: (command, args) => {
+        calls.push([command, args]);
+        return { status: 0 };
+      },
+    });
+    assert.strictEqual(ok, true);
+    assert.deepStrictEqual(calls[0], [paths.command, ['--version']]);
+    assert.strictEqual(calls[1][0], paths.python);
+    assert.strictEqual(calls[1][1][0], '-I', 'parser probe matches CRG isolated interpreter mode');
+    assert.match(calls[1][1][2], /get_parser/);
+    assert.match(calls[1][1][2], /typescript/);
+    assert.match(calls[1][1][2], /javascript/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+{
+  let calls = 0;
+  assert.strictEqual(probeCrgRuntime({
+    runtimeDir: path.join(os.tmpdir(), 'codemap-managed-broken-parser'),
+    pathExists: () => true,
+    spawnSync: () => ({ status: calls++ === 0 ? 0 : 1 }),
+  }), false, 'CLI existence is insufficient when the isolated parser probe fails');
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-managed-uv-'));
+  const calls = [];
+  let runtimeExists = false;
+  try {
+    const paths = crgRuntimePaths({ runtimeDir: tmp });
+    const ok = installManagedCrg('code-review-graph[all]', {
+      runtimeDir: tmp,
       uvProbe: () => true,
-      uvInstall: (pkg) => {
-        installers.push(`uv:${pkg}`);
-        return true;
+      pathExists: () => runtimeExists,
+      spawnSync: (command, args) => {
+        calls.push([command, args]);
+        if (command === 'uv' && args[0] === 'venv') runtimeExists = true;
+        return { status: 0 };
       },
-      install: (pkg) => {
-        installers.push(`pip:${pkg}`);
-        return false;
-      },
-      markerPath: marker,
+      probeRuntime: () => true,
     });
-    assert.strictEqual(ok, false, 'a failed post-install probe remains a failure');
-    assert.deepStrictEqual(installers, ['uv:code-review-graph[all]', 'pip:code-review-graph[all]']);
-    assert.ok(fs.existsSync(marker), 'failed dependency bootstrap writes a marker');
-    assert.match(fs.readFileSync(marker, 'utf8'), /uv tool install/);
-    assert.match(fs.readFileSync(marker, 'utf8'), /pip/);
+    assert.strictEqual(ok, true);
+    assert.deepStrictEqual(calls[0], ['uv', ['venv', '--python', '3.12', tmp]]);
+    assert.deepStrictEqual(calls[1], ['uv', ['pip', 'install', '--python', paths.python, '--upgrade', 'code-review-graph[all]']]);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }
 
 {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-bootstrap-pip-'));
-  const marker = path.join(tmp, '.crg-install-failed');
-  const installers = [];
-  let available = false;
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-managed-venv-'));
+  const calls = [];
+  let runtimeExists = false;
   try {
-    const ok = ensureCrg({
-      probe: () => available,
+    const paths = crgRuntimePaths({ runtimeDir: tmp });
+    const ok = installManagedCrg('code-review-graph[all]', {
+      runtimeDir: tmp,
       uvProbe: () => false,
-      uvInstall: () => {
-        installers.push('uv');
-        return false;
+      pythonCandidates: () => [['custom-python', ['-3.12']]],
+      pathExists: () => runtimeExists,
+      spawnSync: (command, args) => {
+        calls.push([command, args]);
+        if (command === 'custom-python') runtimeExists = true;
+        return { status: 0 };
       },
-      install: (pkg) => {
-        installers.push(`pip:${pkg}`);
-        available = true;
-        return true;
-      },
-      markerPath: marker,
+      probeRuntime: () => true,
     });
-    assert.strictEqual(ok, true, 'pip fallback enables code-review-graph');
-    assert.deepStrictEqual(installers, ['pip:code-review-graph[all]']);
-    assert.ok(!fs.existsSync(marker), 'successful fallback does not write a failure marker');
+    assert.strictEqual(ok, true);
+    assert.deepStrictEqual(calls[0], ['custom-python', ['-3.12', '-m', 'venv', tmp]]);
+    assert.strictEqual(calls[1][0], paths.python);
+    assert.deepStrictEqual(calls[1][1], ['-m', 'pip', 'install', '--disable-pip-version-check', '--upgrade', 'code-review-graph[all]']);
+    assert.ok(!calls[1][1].includes('--user'), 'fallback never installs into user-site');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }
 
 {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-bootstrap-fail-'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-managed-ensure-'));
   const marker = path.join(tmp, '.crg-install-failed');
+  let healthy = false;
+  let installed = 0;
   try {
     const ok = ensureCrg({
-      probe: () => false,
-      uvProbe: () => false,
-      install: () => false,
+      runtimeDir: path.join(tmp, 'runtime'),
       markerPath: marker,
+      probeRuntime: () => healthy,
+      installRuntime: (pkg) => {
+        installed += 1;
+        assert.strictEqual(pkg, 'code-review-graph[all]');
+        healthy = true;
+        return true;
+      },
     });
-    assert.strictEqual(ok, false, 'all dependency installers failing is reported');
-    assert.match(fs.readFileSync(marker, 'utf8'), /code-review-graph/);
-    assert.match(fs.readFileSync(marker, 'utf8'), /重新运行|rerun/i);
+    assert.strictEqual(ok, true, 'unhealthy or user-site CLI is replaced by managed runtime');
+    assert.strictEqual(installed, 1);
+    assert.ok(!fs.existsSync(marker));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-managed-fail-'));
+  const marker = path.join(tmp, '.crg-install-failed');
+  const diagnostics = [];
+  try {
+    const ok = ensureCrg({
+      runtimeDir: path.join(tmp, 'runtime'),
+      markerPath: marker,
+      diagnostics,
+      probeRuntime: () => { throw new Error('probe exploded'); },
+      installRuntime: () => { throw new Error('install exploded'); },
+    });
+    assert.strictEqual(ok, false);
+    assert.match(fs.readFileSync(marker, 'utf8'), /隔离运行环境/);
+    assert.match(fs.readFileSync(marker, 'utf8'), /probe exploded/);
+    assert.match(fs.readFileSync(marker, 'utf8'), /install exploded/);
+    assert.match(fs.readFileSync(marker, 'utf8'), /user-site|setup/i);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-managed-diagnostics-'));
+  const diagnostics = [];
+  try {
+    assert.strictEqual(installManagedCrg('code-review-graph[all]', {
+      runtimeDir: tmp,
+      diagnostics,
+      uvProbe: () => true,
+      pythonCandidates: () => [['fallback-python', []]],
+      pathExists: () => false,
+      spawnSync: () => ({ status: 1 }),
+    }), false);
+    assert.ok(diagnostics.some((entry) => /uv venv/.test(entry)), 'diagnostic records the failed uv stage');
+    assert.ok(diagnostics.some((entry) => /fallback-python venv/.test(entry)), 'diagnostic records the failed Python fallback');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -119,6 +217,14 @@ const { ensureCli, ensureCrg, pythonCandidates } = require('../lib/bootstrap');
     if (oldArgs === undefined) delete process.env.CODEMAP_BOOST_PYTHON_ARGS;
     else process.env.CODEMAP_BOOST_PYTHON_ARGS = oldArgs;
   }
+}
+
+{
+  const candidates = pythonCandidates().map(([command]) => command);
+  assert.ok(candidates.includes('python3.12'), 'fallback probes an explicit Python 3.12 executable');
+  assert.ok(candidates.includes('python3.11'), 'fallback probes an explicit Python 3.11 executable');
+  assert.ok(candidates.indexOf('python3.12') < candidates.indexOf('python'), 'fallback prefers Python 3.12 before generic Python');
+  assert.ok(candidates.indexOf('python3.11') < candidates.indexOf('python3'), 'fallback prefers Python 3.11 before generic Python 3');
 }
 
 console.log('bootstrap.test.js PASS');

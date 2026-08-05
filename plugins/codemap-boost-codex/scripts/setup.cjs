@@ -3,10 +3,13 @@
 const fs = require('fs');
 const path = require('path');
 
-const { ensureCrg, ensureGraphify } = require('../hooks/js/lib/bootstrap');
+const {
+  crgRuntimePaths,
+  ensureCrg,
+  ensureGraphify,
+} = require('../hooks/js/lib/bootstrap');
 const {
   ENABLED_MARKER,
-  canUseCrg,
   enableCodeMap,
   ensureAgentsBlock,
   ensureGitignore,
@@ -44,7 +47,7 @@ function usage() {
     'Options:',
     '  --with-graphify  Also install optional graphifyy package when graphify is missing.',
     '  --build          Start an initial code-review-graph build after setup.',
-    '  --skip-install   Do not install packages; only enable if code-review-graph is already available.',
+    '  --skip-install   Do not install packages; require an already healthy managed CRG runtime.',
   ].join('\n'));
 }
 
@@ -61,12 +64,15 @@ function main() {
   removeMarker('.codemap-bootstrap-failed');
   if (args.has('--with-graphify')) removeMarker('.graphify-install-failed');
 
-  const crgOk = args.has('--skip-install') ? canUseCrg() : ensureCrg();
+  const crgOk = args.has('--skip-install')
+    ? (process.env.CODEMAP_BOOST_ASSUME_CRG === '1' || ensureCrg({ installRuntime: () => false }))
+    : ensureCrg();
   if (!crgOk) {
-    warn('[codemap-boost-codex] code-review-graph is not available. Install it and rerun setup.');
-    warn('  python -m pip install "code-review-graph[all]"');
+    warn('[codemap-boost-codex] 插件私有 code-review-graph 运行环境不可用或 parser 健康检查失败。');
+    warn('[codemap-boost-codex] 请不要使用 pip --user 修补；直接重新运行 setup 让插件重建隔离环境。');
     process.exit(1);
   }
+  log(`[codemap-boost-codex] managed runtime: ${crgRuntimePaths().command}`);
 
   const mcp = ensureCrgMcp({ cwd: process.cwd() });
   if (!mcp.ok) {

@@ -9,15 +9,15 @@ Use this skill when the user asks how to configure, verify, or troubleshoot `cod
 
 ## Rule
 
-CodeMap Boost is auto-enabled for Codex. The standard AI installation flow checks `codex` CLI and prefers `uv`/`uvx` (falling back to Python + `pip`), installs the plugin, then immediately runs setup in the user's target repository. SessionStart remains a fallback for missed setup, old MCP config, or a fixed `cwd`; it repairs the shared MCP configuration, writes AGENTS.md guidance, and synchronously builds or updates the project graph before use. Structural prompts and source-changing tools maintain the graph; SubagentStart only injects retrieval guidance, while the graph MCP PreToolUse barrier performs the final synchronous freshness check.
+CodeMap Boost is auto-enabled for Codex. The standard AI installation flow checks `codex` CLI and prefers `uv` (falling back to Python `venv`), installs the plugin, then immediately runs setup in the user's target repository. Setup owns an isolated CRG venv under plugin data, probes parsers with Python isolated mode, and registers MCP to that absolute runtime path. SessionStart remains a fallback for missed setup, broken user-site installs, old MCP config, or a fixed `cwd`. Structural prompts and source-changing tools maintain the graph; SubagentStart only injects retrieval guidance, while the graph MCP PreToolUse barrier performs the final synchronous freshness check.
 
 ## Quick Checks
 
 Run these from the current project when the user wants validation:
 
 ```bash
-code-review-graph --version
-code-review-graph status
+<managed-runtime-reported-by-setup> --version
+<managed-runtime-reported-by-setup> status
 codex mcp get code-review-graph --json
 ```
 
@@ -31,9 +31,10 @@ node <plugin-root>/scripts/setup.cjs --build
 
 The setup script is idempotent:
 
-- If `code-review-graph` already exists, it does not reinstall it.
-- If `code-review-graph` is missing, it tries `uv tool install "code-review-graph[all]"`, then Python + `pip`, and records a concise diagnostic marker if both fail.
-- It checks `codex mcp get code-review-graph --json`; missing, disabled, wrong command/args, or fixed `cwd` are repaired with `codex mcp remove` (missing is tolerated) and `codex mcp add`.
+- It ignores unrelated global/user-site CRG commands and owns `<plugin-data>/crg-runtime` without changing PATH.
+- It prefers `uv venv --python 3.12`, falling back to Python `venv`, then installs `code-review-graph[all]` only inside that venv.
+- It verifies the managed CLI and loads Python, JavaScript, TypeScript, and TSX parsers using `python -I`, matching CRG's own isolated parser probe.
+- It checks `codex mcp get code-review-graph --json`; missing, disabled, wrong command/args, uvx/global command, or fixed `cwd` are repaired to the managed absolute path with `codex mcp remove` and `codex mcp add`.
 - It writes a diagnostic marker and exits non-zero on registration failure; the message includes a copy-pasteable command and says to open a new task after repair.
 - It updates the target project's `.gitignore` for graph output directories when run explicitly.
 - Hooks synchronously build/update graphs when `code-review-graph` is available; SessionStart attempts to make it available automatically. PostToolUse skips known read-only Bash commands.
@@ -44,14 +45,14 @@ Optional graphify support is enabled only when explicitly requested:
 node <plugin-root>/scripts/setup.cjs --with-graphify
 ```
 
-Recommended dependency and MCP commands:
+Equivalent internal commands for troubleshooting only; never repair this with `pip install --user`:
 
 ```bash
-uv tool install "code-review-graph[all]"
-codex mcp add code-review-graph -- uvx code-review-graph serve
-# 没有 uv/uvx 时：
-python -m pip install "code-review-graph[all]"
-codex mcp add code-review-graph -- code-review-graph serve
+uv venv --python 3.12 "<plugin-data>/crg-runtime"
+uv pip install --python "<plugin-data>/crg-runtime/<python>" --upgrade "code-review-graph[all]"
+# 没有 uv 时：
+python -m venv "<plugin-data>/crg-runtime"
+"<plugin-data>/crg-runtime/<python>" -m pip install --upgrade "code-review-graph[all]"
 python -m pip install "graphifyy[all]"
 ```
 

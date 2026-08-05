@@ -13,6 +13,9 @@ const {
   parseMcpJson,
   readBootstrapFailure,
   registerCrgMcp,
+  startAutoBootstrap,
+  startCrgBuild,
+  startCrgUpdate,
 } = require('../lib/codemap');
 
 function mkdirp(dir) {
@@ -34,6 +37,86 @@ const healthyUvx = {
     cwd: null,
   },
 };
+const managedCommand = process.platform === 'win32'
+  ? 'C:\\codex data\\crg-runtime\\Scripts\\code-review-graph.exe'
+  : '/codex data/crg-runtime/bin/code-review-graph';
+const healthyManaged = {
+  name: 'code-review-graph',
+  enabled: true,
+  transport: {
+    type: 'stdio',
+    command: managedCommand,
+    args: ['serve'],
+    cwd: null,
+  },
+};
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-background-command-'));
+  try {
+    const repo = path.join(tmp, 'repo');
+    mkdirp(repo);
+    const init = require('node:child_process').spawnSync('git', ['init'], {
+      cwd: repo,
+      encoding: 'utf8',
+      windowsHide: process.platform === 'win32',
+    });
+    assert.strictEqual(init.status, 0, init.stderr);
+
+    const launches = [];
+    const options = {
+      isCodeMapEnabled: () => true,
+      crgCommand: () => managedCommand,
+      spawnDetached: (command, args, spawnOptions) => {
+        launches.push({ command, args, spawnOptions });
+        return require('node:child_process').spawnSync(command, args, {
+          cwd: spawnOptions.cwd,
+          encoding: 'utf8',
+          windowsHide: process.platform === 'win32',
+        });
+      },
+    };
+    assert.strictEqual(startCrgBuild(repo, options), true);
+    mkdirp(path.join(repo, '.code-review-graph'));
+    assert.strictEqual(startCrgUpdate(repo, options), true);
+    assert.strictEqual(launches.length, 2);
+    for (const launch of launches) {
+      assert.strictEqual(launch.command, process.execPath);
+      assert.ok(launch.args[1].includes(JSON.stringify(managedCommand)), 'background refresh embeds the managed absolute CRG path');
+      assert.ok(!launch.args[1].includes("spawnSync('code-review-graph'"), 'background refresh must not use PATH CRG');
+    }
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-bootstrap-launch-failed-'));
+  const oldPluginData = process.env.PLUGIN_DATA;
+  try {
+    const repo = path.join(tmp, 'repo');
+    const data = path.join(tmp, 'plugin-data');
+    mkdirp(repo);
+    process.env.PLUGIN_DATA = data;
+    const init = require('node:child_process').spawnSync('git', ['init'], {
+      cwd: repo,
+      encoding: 'utf8',
+      windowsHide: process.platform === 'win32',
+    });
+    assert.strictEqual(init.status, 0, init.stderr);
+    assert.strictEqual(startAutoBootstrap(repo, {
+      canUseCrg: () => false,
+      spawnDetached: () => null,
+    }), false);
+    const diagnostic = fs.readFileSync(path.join(data, '.codemap-bootstrap-failed'), 'utf8');
+    assert.match(diagnostic, /无法启动后台/);
+    assert.match(diagnostic, /setup/);
+  } finally {
+    if (oldPluginData === undefined) delete process.env.PLUGIN_DATA;
+    else process.env.PLUGIN_DATA = oldPluginData;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
 
 {
   const parsed = parseMcpJson('\u001b[32mINFO mcp config:\u001b[0m ' + JSON.stringify(healthyUvx));
@@ -50,10 +133,7 @@ function exerciseRepair(config, options = {}) {
       if (args[1] === 'get') {
         getCalls += 1;
         if (getCalls > 1) {
-          const expected = options.uvxAvailable === false
-            ? { ...healthyUvx, transport: { ...healthyUvx.transport, command: 'code-review-graph', args: ['serve'] } }
-            : healthyUvx;
-          return options.finalGetResult || { status: 0, stdout: JSON.stringify(expected) };
+          return options.finalGetResult || { status: 0, stdout: JSON.stringify(healthyManaged) };
         }
         return options.getResult || { status: 0, stdout: JSON.stringify(config) };
       }
@@ -62,7 +142,7 @@ function exerciseRepair(config, options = {}) {
       return { status: 1, stdout: '', error: new Error('unexpected command') };
     },
     canUseCrg: () => true,
-    uvxProbe: () => options.uvxAvailable !== false,
+    crgCommand: () => managedCommand,
     markerPath: options.markerPath,
   });
   return { calls, result };
@@ -80,27 +160,22 @@ function exerciseRepair(config, options = {}) {
 }
 
 {
-  const healthy = exerciseRepair(healthyUvx);
+  const healthy = exerciseRepair(healthyManaged);
   assert.strictEqual(healthy.result.ok, true, 'healthy MCP config is accepted');
   assert.deepStrictEqual(healthy.calls, [['codex', ['mcp', 'get', 'code-review-graph', '--json']]], 'healthy config is not rewritten');
 }
 
 for (const config of [
   null,
-  { ...healthyUvx, enabled: false },
-  { ...healthyUvx, transport: { ...healthyUvx.transport, cwd: 'D:\\old-repo' } },
-  { ...healthyUvx, transport: { ...healthyUvx.transport, command: 'python', args: ['-m', 'code_review_graph'] } },
+  healthyUvx,
+  { ...healthyManaged, enabled: false },
+  { ...healthyManaged, transport: { ...healthyManaged.transport, cwd: 'D:\\old-repo' } },
+  { ...healthyManaged, transport: { ...healthyManaged.transport, command: 'python', args: ['-m', 'code_review_graph'] } },
 ]) {
   const repaired = exerciseRepair(config);
   assert.strictEqual(repaired.result.ok, true, 'invalid MCP config is repaired');
   assert.deepStrictEqual(repaired.calls[1], ['codex', ['mcp', 'remove', 'code-review-graph']]);
-  assert.deepStrictEqual(repaired.calls[2], ['codex', ['mcp', 'add', 'code-review-graph', '--', 'uvx', 'code-review-graph', 'serve']]);
-}
-
-{
-  const fallback = exerciseRepair(null, { uvxAvailable: false });
-  assert.strictEqual(fallback.result.ok, true, 'MCP repair falls back when uvx is unavailable');
-  assert.deepStrictEqual(fallback.calls[2], ['codex', ['mcp', 'add', 'code-review-graph', '--', 'code-review-graph', 'serve']]);
+  assert.deepStrictEqual(repaired.calls[2], ['codex', ['mcp', 'add', 'code-review-graph', '--', managedCommand, 'serve']]);
 }
 
 {
@@ -217,10 +292,10 @@ for (const config of [
     const calls = [];
     assert.strictEqual(registerCrgMcp({
       canUseCrg: () => true,
-      uvxProbe: () => true,
+      crgCommand: () => managedCommand,
       spawnSync: (cmd, args, options) => {
         calls.push({ cmd, args, options });
-        return { status: 0, stdout: JSON.stringify(healthyUvx), stderr: '' };
+        return { status: 0, stdout: JSON.stringify(healthyManaged), stderr: '' };
       },
     }), true);
     assert.strictEqual(calls.length, 1);

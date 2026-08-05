@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { crgRuntimePaths } = require('../lib/bootstrap');
 
 const pluginRoot = path.join(__dirname, '..', '..', '..');
 const setup = path.join(pluginRoot, 'scripts', 'setup.cjs');
@@ -43,7 +44,7 @@ function writeFakeCodex(binDir) {
     fs.writeFileSync(file, [
       '@echo off',
       'echo %*>>"%CODEMAP_TEST_MCP_LOG%"',
-      'if "%2"=="get" if exist "%CODEMAP_TEST_MCP_OK%" echo {"name":"code-review-graph","enabled":true,"transport":{"type":"stdio","command":"code-review-graph","args":["serve"],"cwd":null}} & exit /b 0',
+      'if "%2"=="get" if exist "%CODEMAP_TEST_MCP_OK%" echo {"name":"code-review-graph","enabled":true,"transport":{"type":"stdio","command":"%CODEMAP_TEST_CRG_JSON_COMMAND%","args":["serve"],"cwd":null}} & exit /b 0',
       'if "%2"=="get" exit /b 1',
       'if "%2"=="remove" exit /b 1',
       'if "%2"=="add" echo ok>"%CODEMAP_TEST_MCP_OK%" & exit /b 0',
@@ -57,7 +58,7 @@ function writeFakeCodex(binDir) {
     '#!/bin/sh',
     'echo "$@" >> "$CODEMAP_TEST_MCP_LOG"',
     'if [ "$2" = "get" ] && [ -f "$CODEMAP_TEST_MCP_OK" ]; then',
-    '  printf "%s\\n" \'{"name":"code-review-graph","enabled":true,"transport":{"type":"stdio","command":"code-review-graph","args":["serve"],"cwd":null}}\'',
+    '  printf \'{"name":"code-review-graph","enabled":true,"transport":{"type":"stdio","command":"%s","args":["serve"],"cwd":null}}\\n\' "$CODEMAP_TEST_CRG_COMMAND"',
     '  exit 0',
     'fi',
     'if [ "$2" = "get" ]; then exit 1; fi',
@@ -93,6 +94,9 @@ try {
   writeFakeCrg(bin);
   writeFakeCodex(bin);
   mkdirp(data);
+  const managed = crgRuntimePaths({ runtimeDir: path.join(data, 'crg-runtime') });
+  mkdirp(path.dirname(managed.command));
+  fs.writeFileSync(managed.command, '', 'utf8');
   fs.writeFileSync(path.join(data, '.codemap-bootstrap-failed'), '旧版本失败状态\n', 'utf8');
 
   const result = spawnSync(process.execPath, [setup, '--skip-install'], {
@@ -105,21 +109,39 @@ try {
       CODEMAP_TEST_LOG: log,
       CODEMAP_TEST_MCP_LOG: mcpLog,
       CODEMAP_TEST_MCP_OK: mcpOk,
-      CODEMAP_BOOST_DISABLE_UVX: '1',
+      CODEMAP_TEST_CRG_COMMAND: managed.command,
+      CODEMAP_TEST_CRG_JSON_COMMAND: managed.command.replace(/\\/g, '\\\\'),
+      CODEMAP_BOOST_ASSUME_CRG: '1',
       PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
     },
     windowsHide: process.platform === 'win32',
   });
 
   assert.strictEqual(result.status, 0, result.stderr);
+  assert.ok(result.stdout.includes(managed.command), 'setup reports the plugin-owned runtime path');
   assert.ok(fs.existsSync(path.join(data, '.codemap-boost-enabled')), 'setup writes enable marker');
   assert.ok(!fs.existsSync(path.join(data, '.codemap-bootstrap-failed')), 'successful setup clears a stale bootstrap failure');
   assert.ok(fs.readFileSync(path.join(home, 'AGENTS.md'), 'utf8').includes('codemap-boost-codex:start'), 'setup writes AGENTS block');
   assert.ok(fs.readFileSync(path.join(repo, '.gitignore'), 'utf8').includes('.code-review-graph/'), 'setup updates project gitignore');
   const mcpCalls = fs.readFileSync(mcpLog, 'utf8');
   assert.ok(mcpCalls.includes('mcp get code-review-graph --json'), 'setup checks the existing MCP config');
-  assert.ok(mcpCalls.includes('mcp add code-review-graph -- code-review-graph serve'), 'setup repairs MCP with a portable fallback');
+  assert.ok(mcpCalls.includes(`mcp add code-review-graph -- ${managed.command} serve`), 'setup registers the plugin-owned runtime');
   assert.ok(!fs.existsSync(log), 'setup without --build does not start graph build');
+
+  const brokenData = path.join(tmp, 'broken-plugin-data');
+  const broken = spawnSync(process.execPath, [setup, '--skip-install'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CODEX_HOME: home,
+      PLUGIN_DATA: brokenData,
+      PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
+    },
+    windowsHide: process.platform === 'win32',
+  });
+  assert.notStrictEqual(broken.status, 0, 'skip-install rejects a missing managed runtime');
+  assert.ok(fs.existsSync(path.join(brokenData, '.crg-install-failed')), 'skip-install failure writes a diagnostic marker');
 
   console.log('setup.test.js PASS');
 } finally {
