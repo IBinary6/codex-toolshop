@@ -2,7 +2,7 @@
 'use strict';
 
 const { loadConfig, loadDefaults } = require('./lib/config');
-const { mainAgentGuidance, promptNeedsDispatch } = require('./lib/guidance');
+const { promptGuidance } = require('./lib/guidance');
 const { hookCwd, readStdinJson, writeHookContext } = require('./lib/protocol');
 
 function main() {
@@ -14,8 +14,10 @@ function main() {
   } catch (_) {
     config = loadDefaults();
   }
-  if (!config.modules.prompt_guidance || !promptNeedsDispatch(input.prompt, config)) return;
-  writeHookContext('UserPromptSubmit', mainAgentGuidance(config, true));
+  if (!config.modules.prompt_guidance) return;
+  const guidance = promptGuidance(input.prompt, config);
+  if (!guidance) return;
+  writeHookContext('UserPromptSubmit', guidance);
 }
 
 main();

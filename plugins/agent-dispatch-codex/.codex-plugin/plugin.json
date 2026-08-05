@@ -1,7 +1,7 @@
 {
   "name": "agent-dispatch-codex",
-  "version": "0.1.6",
-  "description": "Codex-native main-agent dispatch guidance with per-role model profiles, serial primary-agent Git, cross-shell tool nudges, and Claude-parity dispatch semantics.",
+  "version": "0.1.7",
+  "description": "Codex-native cost-aware task routing across Sol, Terra, and Luna custom agents, with automatic hooks and serial primary-agent Git.",
   "author": {
     "name": "IBinary6"
   },
@@ -18,8 +18,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Agent Dispatch",
-    "shortDescription": "Dispatch bounded work while keeping Git serial in the primary agent.",
-    "longDescription": "Adds Codex-native lifecycle guidance for deciding when the primary agent must delegate bounded, parallel work, while telling spawned subagents to execute directly and report changed files and validation. Keeps pure Git CLI operations in the primary agent and runs them serially without Git subcommand classification, while still reviewing nested shell evaluation. Generates project-local custom agent profiles with independent model, reasoning, and sandbox settings, plus built-in lightweight MCP compatibility for CodeMap Boost, Context Mode, and Serena.",
+    "shortDescription": "Route planning, search, development, hard work, and review to cost-aware agents.",
+    "longDescription": "Automatically injects Codex-native routing guidance and generates project-local custom agents after installation. Keeps trivial work in the primary agent, routes bounded search and development to Luna, broad read-heavy mapping and difficult execution to Terra, and reserves Sol for non-trivial planning or high-risk review. Keeps pure Git CLI operations serial in the primary agent, limits concurrent subagents, and tells the coordinator to close agents as soon as their work is integrated.",
     "developerName": "IBinary6",
     "category": "Productivity",
     "capabilities": [
@@ -29,7 +29,8 @@
     "defaultPrompt": [
       "Show the effective Agent Dispatch policy for this project.",
       "Configure which commands Agent Dispatch treats as lightweight.",
-      "Configure models for Agent Dispatch worker and reviewer roles.",
+      "Explain the automatic Sol, Terra, and Luna task routing.",
+      "Configure models for Agent Dispatch planning, search, worker, and reviewer roles.",
       "Explain the primary-agent-only serial Git policy."
     ],
     "brandColor": "#7C3AED",

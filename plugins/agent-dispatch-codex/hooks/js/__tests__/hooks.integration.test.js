@@ -53,6 +53,17 @@ try {
     prompt: '请审查并迁移多个插件，然后并行验证实现',
   }));
   assert.equal(prompt.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
+  assert.match(prompt.hookSpecificOutput.additionalContext, /任务路由：/);
+  assert.match(prompt.hookSpecificOutput.additionalContext, /dispatch_mapper|dispatch_explorer|dispatch_reviewer|dispatch_worker/);
+  assert.doesNotMatch(prompt.hookSpecificOutput.additionalContext, /Agent Dispatch policy for the primary Codex agent/);
+
+  const hardPrompt = parse(run('user_prompt_submit', {
+    hook_event_name: 'UserPromptSubmit',
+    prompt: '请实现一个困难且复杂的功能，并排查复杂调试问题',
+  }));
+  assert.match(hardPrompt.hookSpecificOutput.additionalContext, /dispatch_planner/);
+  assert.match(hardPrompt.hookSpecificOutput.additionalContext, /dispatch_hard_worker/);
+  assert.match(hardPrompt.hookSpecificOutput.additionalContext, /停止并整合/);
 
   const subagent = parse(run('subagent_start', {
     hook_event_name: 'SubagentStart',

@@ -1,7 +1,7 @@
 {
   "name": "agent-dispatch-codex",
-  "version": "0.1.6",
-  "description": "Codex-native agent dispatch lifecycle plugin with Claude-parity dispatch semantics.",
+  "version": "0.1.7",
+  "description": "Automatic cost-aware Sol, Terra, and Luna routing for Codex subagent workflows.",
   "license": "MIT",
   "private": true,
   "scripts": {

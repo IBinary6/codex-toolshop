@@ -5,6 +5,8 @@ const { loadDefaults } = require('../lib/config');
 const {
   mainAgentGuidance,
   promptNeedsDispatch,
+  promptGuidance,
+  routePrompt,
   subagentGuidance,
   toolNudge,
 } = require('../lib/guidance');
@@ -15,18 +17,58 @@ assert.match(mainAgentGuidance(config), /Keep requirements clarification, archit
 assert.match(mainAgentGuidance(config), /even when that work is sequential/);
 assert.match(mainAgentGuidance(config), /no more than 3 subagents/);
 assert.match(mainAgentGuidance(config), /dispatch_worker \(gpt-5\.6-luna, max\)/);
-assert.match(mainAgentGuidance(config), /use a high-reasoning reviewer only when an independent review is justified by risk/);
+assert.match(mainAgentGuidance(config), /use Terra high for requested routine independent review and Sol xhigh only for high-risk review/);
 assert.match(mainAgentGuidance(config), /do not leave idle agents occupying limited slots/);
 assert.match(mainAgentGuidance(config), /Execute all Git commands in the primary agent, one at a time/);
 assert.match(mainAgentGuidance(config, true), /所有 Git 命令均由主代理串行执行/);
 assert.match(mainAgentGuidance(config, true), /立即停止子代理/);
-assert.match(mainAgentGuidance(config, true), /只有高风险范围确实需要独立复核时/);
+assert.match(mainAgentGuidance(config, true), /高风险审查才用 Sol xhigh/);
 assert.match(subagentGuidance(config), /do not spawn or delegate/i);
 assert.match(subagentGuidance(config), /every file you changed/i);
 assert.match(subagentGuidance(config), /Do not run Git commands/);
 
 assert.equal(promptNeedsDispatch('请帮我审查并迁移这个多文件插件', config), true);
 assert.equal(promptNeedsDispatch('解释这一行', config), false);
+assert.equal(promptGuidance('解释这一行', config), '');
+assert.equal(routePrompt('查找单个符号 Foo', config).category, 'generic');
+assert.equal(routePrompt('查找单个符号 Foo', config).shouldDispatch, false);
+assert.equal(routePrompt('设计一个按钮', config).shouldDispatch, false);
+assert.equal(routePrompt('请实现一个 getter', config).shouldDispatch, false);
+assert.equal(routePrompt('请先制定计划然后实现用户模块', config).category, 'plan');
+
+const highRisk = promptGuidance('请审查安全权限和生产并发风险', config);
+assert.match(highRisk, /高风险审查/);
+assert.match(highRisk, /dispatch_deep_reviewer/);
+assert.doesNotMatch(highRisk, /dispatch_worker/);
+assert.match(promptGuidance('请查找这个文件并审查安全漏洞', config), /dispatch_deep_reviewer/);
+
+const hard = promptGuidance('请实现一个困难且复杂的功能，并排查复杂调试问题', config);
+assert.match(hard, /dispatch_planner/);
+assert.match(hard, /停止并整合/);
+assert.match(hard, /dispatch_hard_worker/);
+assert.match(hard, /非必要不并行/);
+assert.ok(hard.indexOf('dispatch_planner') < hard.indexOf('dispatch_hard_worker'));
+
+assert.match(promptGuidance('请设计新的架构和接口方案', config), /dispatch_planner/);
+assert.match(promptGuidance('请设计新的架构和接口方案', config), /gpt-5\.6-sol\/xhigh/);
+assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', config), /dispatch_mapper/);
+assert.match(promptGuidance('请搜索多个文件中的调用链和影响面', config), /dispatch_explorer/);
+assert.match(promptGuidance('请实现这个常规功能', config), /dispatch_worker/);
+assert.match(promptGuidance('请审查这段代码的正确性', config), /dispatch_reviewer/);
+assert.match(promptGuidance('review this code for correctness', config), /dispatch_reviewer/);
+assert.match(promptGuidance('请审查这段代码的正确性', config), /gpt-5\.6-terra\/high/);
+
+const disabled = JSON.parse(JSON.stringify(config));
+disabled.agent_profiles.profiles.dispatch_deep_reviewer.enabled = false;
+disabled.agent_profiles.profiles.dispatch_reviewer.enabled = false;
+disabled.agent_profiles.profiles.dispatch_mapper.enabled = false;
+disabled.agent_profiles.profiles.dispatch_worker.enabled = false;
+assert.doesNotMatch(promptGuidance('请审查安全权限风险', disabled), /dispatch_deep_reviewer|dispatch_reviewer/);
+assert.match(promptGuidance('请审查安全权限风险', disabled), /主代理/);
+assert.doesNotMatch(promptGuidance('请扫描整个仓库的跨模块调用链', disabled), /dispatch_mapper/);
+assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', disabled), /dispatch_explorer/);
+assert.doesNotMatch(promptGuidance('请实现这个常规功能', disabled), /dispatch_worker/);
+assert.match(promptGuidance('请实现这个常规功能', disabled), /主代理/);
 
 assert.equal(toolNudge({ tool_name: 'apply_patch', tool_input: {} }, config), '');
 assert.equal(toolNudge({ tool_name: 'mcp__code_review_graph__get_minimal_context_tool', tool_input: {} }, config), '');

@@ -29,6 +29,14 @@ Codex 当前的 `PreToolUse` 只可靠覆盖部分 Bash、`apply_patch` 和 MCP 
 | `PreToolUse` | 对未知或高风险 Bash/MCP 调用添加软提示，不执行 deny。 |
 | `SubagentStart` | 告知子代理直接完成已分配工作，不再次分派。 |
 
+## 安装后自动工作
+
+不需要先运行 `agent-dispatch-setup`。插件安装并启用后，新建 Codex 任务会自动触发 `SessionStart`：创建缺失的全局/项目配置骨架、合并三层配置、在当前 Git 项目生成 `.codex/agents/*.toml`，并注入主代理调度规则。之后每次 `UserPromptSubmit` 会按当前提示词只补充一条精简路由建议。
+
+`agent-dispatch-setup` 只用于查看有效配置或做自定义覆盖。平台仍要求新任务重新加载插件；Hook 哈希变化时仍需在 `/hooks` 中审查并信任。账号或工作区未开放某个模型/推理档位时，Codex 只能按可用能力降级，插件不能绕过模型权限。
+
+Profile 文件本身不会占用智能体名额；只有实际 spawn 出来的线程占用并发槽。主代理在结果整合、阻塞或不再需要时必须立即停止/关闭对应线程。
+
 ## Shell 兼容
 
 插件 Hook 本身由 Node.js 执行，不依赖集成终端选择。工具提示解析同时支持：
@@ -61,13 +69,19 @@ Codex 支持项目级 `.codex/agents/*.toml` 自定义 Agent，并允许每个 A
 
 | Agent | 默认模型 | 推理强度 | 用途 |
 | --- | --- | --- | --- |
-| `dispatch_explorer` | `gpt-5.6-luna` | `medium` | 快速、只读的代码探索与证据收集。 |
-| `dispatch_worker` | `gpt-5.6-luna` | `max` | 按明确步骤执行编码、重构和修复；不自行决定架构或接口契约。 |
-| `dispatch_reviewer` | `gpt-5.6-sol` | `high` | 正确性、安全性和测试缺口审查。 |
+| `dispatch_explorer` | `gpt-5.6-luna` | `medium` | 有边界的跨文件搜索、调用链和证据收集。 |
+| `dispatch_mapper` | `gpt-5.6-terra` | `medium` | 大范围、跨模块、读重型扫描和结构梳理。 |
+| `dispatch_planner` | `gpt-5.6-sol` | `xhigh` | 非琐碎计划、架构、接口和复杂决策。 |
+| `dispatch_worker` | `gpt-5.6-luna` | `max` | 验收标准明确的日常开发、重构和修复。 |
+| `dispatch_hard_worker` | `gpt-5.6-terra` | `ultra` | Sol 完成计划后的困难实现与复杂调试。 |
+| `dispatch_reviewer` | `gpt-5.6-terra` | `high` | 常规独立正确性、回归和测试缺口审查。 |
+| `dispatch_deep_reviewer` | `gpt-5.6-sol` | `xhigh` | 安全、权限、并发、生产等高风险审查。 |
+
+该分层遵循 Codex 当前模型建议：Terra 适合强调速度和效率的读重型扫描，Luna 适合明确、重复、批量的窄任务；推理强度越高，耗时和 token 通常越多，多数任务不需要 Max 或 Ultra。参见 [Subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) 和 [Models](https://learn.chatgpt.com/docs/models)。
 
 主对话模型不受插件修改，仍由 Codex 桌面版模型选择器或顶层配置决定。生成文件会逐项加入 `.git/info/exclude`；若同名文件不是插件生成的，插件会保留用户文件，不覆盖。首次生成或修改模型配置后，新建 Codex 任务即可加载新的 Agent 配置。
 
-这套默认值对应“强模型做决策、便宜模型做执行”的分工：当主对话使用 Sol 时，主代理澄清需求、决定架构和接口、拆出验收标准，并审查 Luna 的结果；`dispatch_worker` 使用 `gpt-5.6-luna`，即使给到 `max` 推理强度，仍避免让 Sol 消耗在逐行实现上。这里不承诺固定的额度倍率，实际消耗取决于任务、上下文和账号计费策略。
+这套默认值贯彻“使用能可靠完成任务的最低档位”：精确单符号/单文件查找和琐碎编辑由主代理直接完成；真正需要跨文件证据时才启动 Luna；超大或跨模块扫描才升级到 Terra；只有非琐碎计划和高风险审查使用 Sol xhigh。验收标准明确的开发交给 Luna max，困难任务按 `Sol xhigh 计划 -> 整合并停止 planner -> Terra ultra 实现` 串行升级，非必要不同时占用两个高档 Agent。这里不承诺固定的额度倍率，实际消耗取决于任务、上下文和账号计费策略。
 
 委派不再只限于并行任务：只要实现边界和验收标准已经明确，串行的编码或修复也可以交给 `dispatch_worker`。简单读取、很小的修改、强耦合步骤和最终整合仍由主代理完成。子代理结果已整合、遇到阻塞或不再需要时，主代理应立即停止它，避免空闲智能体持续占用有限名额。
 

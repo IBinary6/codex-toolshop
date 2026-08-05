@@ -20,7 +20,7 @@ const { loadDefaults } = require('../lib/config');
 try {
   const config = loadDefaults();
   const first = ensureAgentProfiles(root, config);
-  assert.equal(first.written.length, 3);
+  assert.equal(first.written.length, 7);
 
   const worker = path.join(root, '.codex', 'agents', 'dispatch_worker.toml');
   const content = fs.readFileSync(worker, 'utf8');
@@ -33,6 +33,22 @@ try {
   const explorer = path.join(root, '.codex', 'agents', 'dispatch_explorer.toml');
   const explorerContent = fs.readFileSync(explorer, 'utf8');
   assert.equal((explorerContent.match(/Do not run Git commands/g) || []).length, 1);
+  const expectedProfiles = {
+    dispatch_explorer: ['gpt-5.6-luna', 'medium', 'read-only'],
+    dispatch_mapper: ['gpt-5.6-terra', 'medium', 'read-only'],
+    dispatch_planner: ['gpt-5.6-sol', 'xhigh', 'read-only'],
+    dispatch_worker: ['gpt-5.6-luna', 'max', 'workspace-write'],
+    dispatch_hard_worker: ['gpt-5.6-terra', 'ultra', 'workspace-write'],
+    dispatch_reviewer: ['gpt-5.6-terra', 'high', 'read-only'],
+    dispatch_deep_reviewer: ['gpt-5.6-sol', 'xhigh', 'read-only'],
+  };
+  for (const [name, [model, effort, sandbox]] of Object.entries(expectedProfiles)) {
+    const profile = fs.readFileSync(path.join(root, '.codex', 'agents', `${name}.toml`), 'utf8');
+    assert.match(profile, new RegExp(`model = "${model.replace('.', '\\.')}`));
+    assert.match(profile, new RegExp(`model_reasoning_effort = "${effort}"`));
+    assert.match(profile, new RegExp(`sandbox_mode = "${sandbox}"`));
+    assert.equal((profile.match(/Do not run Git commands/g) || []).length, 1);
+  }
   const custom = renderAgentProfile('custom_worker', {
     developer_instructions: 'Use the project-specific workflow.',
   });

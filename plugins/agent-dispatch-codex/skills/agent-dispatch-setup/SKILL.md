@@ -54,6 +54,8 @@ Supported custom-agent values:
 
 The `SessionStart` hook materializes enabled profiles as project-local `.codex/agents/<name>.toml` files. After changing a profile, open a new Codex task so the client reloads custom agents. Preserve any same-name file that does not carry the plugin-managed header.
 
+The setup skill is not an installation prerequisite. After the plugin is installed and enabled, `SessionStart` automatically creates missing configuration skeletons, merges the three layers, materializes managed profiles, and injects the coordinator policy. `UserPromptSubmit` automatically adds a short task-specific route when a prompt needs delegation. Use this skill only to inspect or customize the automatic defaults.
+
 Supported list overrides:
 
 - `mcp_prefixes_add` / `mcp_prefixes_remove`
@@ -71,5 +73,6 @@ Supported list overrides:
 - Project configuration is excluded through `.git/info/exclude`; do not edit the project's tracked `.gitignore` unless the user explicitly asks.
 - Generated custom-agent files are excluded individually through `.git/info/exclude`. Do not exclude the whole `.codex/` directory.
 - An empty `model` omits the field so the child inherits the parent choice. Model availability is still controlled by the user's account and workspace policy.
-- The plugin does not change the primary conversation model. Its default split keeps decisions and final review in the primary agent, sends concrete execution to `dispatch_worker` (`gpt-5.6-luna`, `max`), and reserves `dispatch_reviewer` (`gpt-5.6-sol`, `high`) for an explicitly independent high-risk review.
+- The plugin does not change the primary conversation model. It creates narrow project agents for bounded search, broad mapping, non-trivial planning, routine development, difficult execution, normal review, and high-risk review. Prompt routing must use the lowest suitable role and reserve `xhigh` or `ultra` for the categories that explicitly require them.
+- A generated profile does not consume a runtime slot. Only a spawned agent thread does. Stop or close active/completed threads as soon as their result is integrated.
 - After Hook definitions change, the user must open a new task and trust the new Hook hash in `/hooks`.

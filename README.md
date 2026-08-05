@@ -38,6 +38,8 @@ codex plugin add agent-dispatch-codex@codex-toolshop
 - 简单读取、小范围修改或强耦合步骤继续由主代理完成，避免为了委派而委派。
 - 子代理收到独立指令后直接执行，不递归分派，并在结果中列出修改文件和验证命令。
 - 子代理结果已整合、阻塞或不再需要时立即停止，避免空闲智能体占用有限名额。
+- 路由按任务升级：Luna 处理有界搜索和明确开发，Terra 处理广泛扫描、常规审查和困难实现，Sol 只用于非琐碎计划或高风险审查。
+- 安装后无需手动运行 setup；新建任务会自动生成项目 Agent 并注入路由。`agent-dispatch-setup` 只用于查看或覆盖配置。
 - PowerShell 和 Git Bash 都受支持；集成终端 Shell 的选择不会改变 Hook 的 Node.js 运行逻辑。
 - 全局配置保存在插件 `PLUGIN_DATA/config.json`，项目配置保存在 `.agent-dispatch-codex/config.json`。
 
