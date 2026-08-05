@@ -11,7 +11,7 @@ const {
   commandExists,
   ensureDir,
   isGitRepo,
-  markerExists,
+  markerPath,
   repoRoot,
   spawnDetached,
   writeMarker,
@@ -23,6 +23,7 @@ const LOCK_BOOT_MS = 5000;
 const LOCK_STALE_MS = 4 * 60 * 60 * 1000;
 const BOOTSTRAP_LOCK_STALE_MS = 30 * 60 * 1000;
 const REFRESH_WAIT_MS = 10 * 60 * 1000;
+const CRG_MCP_REGISTER_FAILED_MARKER = '.crg-codex-register-failed';
 const SOURCE_EXTENSIONS = new Set([
   '.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx',
   '.cs', '.go', '.java', '.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx',
@@ -352,7 +353,7 @@ function startCrgBuild(cwd) {
 
 function bootstrapWithCrg(cwd) {
   enableCodeMap();
-  registerCrgMcp();
+  if (!registerCrgMcp()) return false;
   ensureAgentsBlock();
   ensureGitInfoExclude(cwd);
   return startCrgBuild(cwd);
@@ -364,8 +365,10 @@ function startAutoBootstrap(cwd) {
   const root = repoRoot(cwd);
   if (!root) return false;
   const hasCrg = canUseCrg();
-  if (hasCrg) enableCodeMap();
-  if (!hasCrg && markerExists(BOOTSTRAP_FAILED_MARKER)) return false;
+  if (hasCrg) {
+    enableCodeMap();
+    return false;
+  }
   const lockFile = path.join(os.tmpdir(), lockName('codemap-bootstrap', root));
   if (isLockActive(lockFile, BOOTSTRAP_LOCK_STALE_MS)) return false;
   if (!tryWriteLock(lockFile)) return false;
@@ -377,15 +380,21 @@ function startAutoBootstrap(cwd) {
     try {
       try { fs.writeFileSync(${JSON.stringify(lockFile)}, String(process.pid)); } catch (_) {}
       if (ensureCrg()) {
-        codemap.enableCodeMap();
-        codemap.registerCrgMcp();
-        codemap.cleanLegacyCrgHooks();
-        codemap.cleanLegacyCrgGitHook(${JSON.stringify(root)});
-        codemap.ensureAgentsBlock();
-        codemap.ensureGitInfoExclude(${JSON.stringify(root)});
-        codemap.startCrgBuild(${JSON.stringify(root)});
+        const mcp = codemap.ensureCrgMcp({ cwd: ${JSON.stringify(root)} });
+        if (mcp.ok) {
+          codemap.enableCodeMap();
+          try { fs.rmSync(markerPath(${JSON.stringify(BOOTSTRAP_FAILED_MARKER)}), { force: true }); } catch (_) {}
+          codemap.cleanLegacyCrgHooks();
+          codemap.cleanLegacyCrgGitHook(${JSON.stringify(root)});
+          codemap.ensureAgentsBlock();
+          codemap.ensureGitInfoExclude(${JSON.stringify(root)});
+          codemap.startCrgBuild(${JSON.stringify(root)});
+        } else {
+          try { fs.writeFileSync(markerPath(${JSON.stringify(BOOTSTRAP_FAILED_MARKER)}), mcp.diagnostic || '1'); } catch (_) {}
+        }
       } else {
-        try { fs.writeFileSync(markerPath(${JSON.stringify(BOOTSTRAP_FAILED_MARKER)}), '1'); } catch (_) {}
+        const diagnostic = codemap.readBootstrapFailure();
+        try { fs.writeFileSync(markerPath(${JSON.stringify(BOOTSTRAP_FAILED_MARKER)}), diagnostic || '1'); } catch (_) {}
       }
     } finally {
       try { fs.unlinkSync(${JSON.stringify(lockFile)}); } catch (_) {}
@@ -430,35 +439,176 @@ function startCrgUpdate(cwd) {
   return true;
 }
 
-function registerCrgMcp(options = {}) {
-  const canUse = options.canUseCrg || canUseCrg;
-  const spawn = options.spawnSync || spawnSync;
-  if (!canUse()) return false;
-  if (markerExists('.crg-codex-register-failed')) return false;
-  const installArgs = [
-    'install',
-    '--platform',
-    'codex',
-    '--no-hooks',
-    '--no-instructions',
-    '--no-skills',
-    '--yes',
-  ];
-  const useCmdShim = process.platform === 'win32' && !options.spawnSync;
-  const command = useCmdShim ? 'cmd.exe' : 'code-review-graph';
-  const args = useCmdShim
-    ? ['/d', '/s', '/c', `code-review-graph ${installArgs.join(' ')}`]
-    : installArgs;
+function stripAnsi(value) {
+  return String(value || '')
+    .replace(/[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g, '')
+    .replace(/[\u001b\u005d].*?(?:\u0007|\u001b\\)/g, '');
+}
+
+function parseMcpJson(value) {
+  if (value && typeof value === 'object') return value;
+  const text = stripAnsi(value);
+  for (let start = 0; start < text.length; start += 1) {
+    if (text[start] !== '{' && text[start] !== '[') continue;
+    let depth = 0;
+    let quote = false;
+    let escaped = false;
+    for (let index = start; index < text.length; index += 1) {
+      const char = text[index];
+      if (quote) {
+        if (escaped) escaped = false;
+        else if (char === '\\') escaped = true;
+        else if (char === '"') quote = false;
+        continue;
+      }
+      if (char === '"') {
+        quote = true;
+        continue;
+      }
+      if (char === '{' || char === '[') depth += 1;
+      else if (char === '}' || char === ']') depth -= 1;
+      if (depth !== 0) continue;
+      try { return JSON.parse(text.slice(start, index + 1)); } catch (_) { break; }
+    }
+  }
+  return null;
+}
+
+function mcpTransport(config) {
+  if (!config || typeof config !== 'object') return {};
+  const transport = config.transport;
+  if (transport && typeof transport === 'object') return transport;
+  return config;
+}
+
+function isCrgMcpConfigHealthy(config, expected = {}) {
+  if (!config || typeof config !== 'object') return false;
+  const transport = mcpTransport(config);
+  const type = typeof config.transport === 'string'
+    ? config.transport
+    : (transport.type || config.type || config.transport_type || '');
+  const command = transport.command || config.command;
+  const args = transport.args || config.args;
+  const cwd = Object.hasOwn(transport, 'cwd') ? transport.cwd : config.cwd;
+  const wantedCommand = expected.command || 'uvx';
+  const wantedArgs = expected.args || ['code-review-graph', 'serve'];
+  return config.enabled === true
+    && String(type).toLowerCase() === 'stdio'
+    && command === wantedCommand
+    && Array.isArray(args)
+    && JSON.stringify(args) === JSON.stringify(wantedArgs)
+    && cwd === null;
+}
+
+function mcpMarkerFile(options = {}) {
+  return options.markerPath || markerPath(CRG_MCP_REGISTER_FAILED_MARKER);
+}
+
+function writeCrgMcpFailure(options, diagnostic) {
+  const target = mcpMarkerFile(options);
   try {
-    const result = spawn(command, args, {
-      stdio: 'ignore',
-      timeout: 30000,
+    ensureDir(path.dirname(target));
+    fs.writeFileSync(target, `${diagnostic}\n`, 'utf8');
+  } catch (_) {
+    try { writeMarker(CRG_MCP_REGISTER_FAILED_MARKER); } catch (_) {}
+  }
+}
+
+function readCrgMcpFailure(options = {}) {
+  try { return fs.readFileSync(mcpMarkerFile(options), 'utf8').trim(); } catch (_) { return ''; }
+}
+
+function readBootstrapFailure() {
+  for (const name of ['.crg-install-failed', BOOTSTRAP_FAILED_MARKER]) {
+    try {
+      const diagnostic = fs.readFileSync(markerPath(name), 'utf8').trim();
+      if (diagnostic && diagnostic !== '1') return diagnostic;
+    } catch (_) {}
+  }
+  return readCrgMcpFailure();
+}
+
+function runCodexMcp(args, options = {}) {
+  const spawn = options.spawnSync || spawnSync;
+  const useCmdShim = process.platform === 'win32' && !options.spawnSync;
+  const command = useCmdShim ? (process.env.ComSpec || 'cmd.exe') : 'codex';
+  const commandArgs = useCmdShim
+    ? ['/d', '/s', '/c', ['codex', ...args].map(quoteCmd).join(' ')]
+    : args;
+  try {
+    return spawn(command, commandArgs, {
+      cwd: options.cwd || process.cwd(),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: options.timeout || 30000,
       windowsHide: process.platform === 'win32',
     });
-    if (!result.error && result.status === 0) return true;
-  } catch (_) {}
-  writeMarker('.crg-codex-register-failed');
-  return false;
+  } catch (error) {
+    return { status: null, error, stdout: '', stderr: '' };
+  }
+}
+
+function expectedCrgMcp(options = {}) {
+  const uvxProbe = options.uvxProbe || commandExists;
+  let uvx = false;
+  if (process.env.CODEMAP_BOOST_DISABLE_UVX !== '1') {
+    try { uvx = !!uvxProbe('uvx'); } catch (_) {}
+  }
+  if (uvx) return { command: 'uvx', args: ['code-review-graph', 'serve'] };
+  return { command: 'code-review-graph', args: ['serve'] };
+}
+
+function ensureCrgMcp(options = {}) {
+  const canUse = options.canUseCrg || canUseCrg;
+  try {
+    if (!canUse()) {
+      const diagnostic = 'code-review-graph 不可用，无法配置 Codex MCP。请先安装 code-review-graph[all]，然后重新运行 setup。';
+      writeCrgMcpFailure(options, diagnostic);
+      return { ok: false, changed: false, diagnostic };
+    }
+  } catch (_) {
+    const diagnostic = '无法确认 code-review-graph 是否可用。请检查 CLI 安装后重新运行 setup。';
+    writeCrgMcpFailure(options, diagnostic);
+    return { ok: false, changed: false, diagnostic };
+  }
+
+  const expected = expectedCrgMcp(options);
+  const getResult = runCodexMcp(['mcp', 'get', 'code-review-graph', '--json'], options);
+  const config = parseMcpJson(`${getResult && getResult.stdout ? getResult.stdout : ''}\n${getResult && getResult.stderr ? getResult.stderr : ''}`);
+  if (isCrgMcpConfigHealthy(config, expected)) {
+    try { fs.rmSync(mcpMarkerFile(options), { force: true }); } catch (_) {}
+    return { ok: true, changed: false, config, expected };
+  }
+
+  // 首次运行时服务不存在会令 remove 返回非零，这是正常状态，不能阻断后续 add。
+  runCodexMcp(['mcp', 'remove', 'code-review-graph'], options);
+  const addArgs = ['mcp', 'add', 'code-review-graph', '--', expected.command, ...expected.args];
+  const addResult = runCodexMcp(addArgs, options);
+  if (addResult && !addResult.error && addResult.status === 0) {
+    const verifyResult = runCodexMcp(['mcp', 'get', 'code-review-graph', '--json'], options);
+    const verified = parseMcpJson(`${verifyResult && verifyResult.stdout ? verifyResult.stdout : ''}\n${verifyResult && verifyResult.stderr ? verifyResult.stderr : ''}`);
+    if (isCrgMcpConfigHealthy(verified, expected)) {
+      try { fs.rmSync(mcpMarkerFile(options), { force: true }); } catch (_) {}
+      return { ok: true, changed: true, config: verified, expected, addArgs };
+    }
+    const diagnostic = 'code-review-graph MCP add 命令已返回成功，但读取配置验证失败。请执行 `codex mcp get code-review-graph --json` 检查后重试。';
+    writeCrgMcpFailure(options, diagnostic);
+    return { ok: false, changed: false, config: verified, expected, addArgs, diagnostic };
+  }
+
+  const codexMissing = getResult && getResult.error
+    && (getResult.error.code === 'ENOENT' || /not found/i.test(String(getResult.error.message || '')));
+  const diagnostic = codexMissing
+    ? '找不到 codex CLI，无法注册 code-review-graph MCP。请安装 Codex CLI 后重新运行 setup。'
+    : '无法注册 code-review-graph MCP。请执行 `codex mcp add code-review-graph -- '
+      + `${expected.command} ${expected.args.join(' ')}`
+      + '`；修复后请新开一个 Codex 任务（当前已启动任务不会动态注入新的 MCP）。';
+  writeCrgMcpFailure(options, diagnostic);
+  return { ok: false, changed: false, config, expected, addArgs, diagnostic };
+}
+
+function registerCrgMcp(options = {}) {
+  return ensureCrgMcp(options).ok;
 }
 
 const CONTEXT = [
@@ -568,6 +718,7 @@ module.exports = {
   CONTEXT,
   ENABLED_MARKER,
   BOOTSTRAP_FAILED_MARKER,
+  CRG_MCP_REGISTER_FAILED_MARKER,
   agentsPath,
   ensureAgentsBlock,
   ensureGitignore,
@@ -582,6 +733,11 @@ module.exports = {
   refreshCrgSync,
   listLinkedWorktrees,
   refreshLinkedWorktreesSync,
+  parseMcpJson,
+  isCrgMcpConfigHealthy,
+  ensureCrgMcp,
+  readCrgMcpFailure,
+  readBootstrapFailure,
   registerCrgMcp,
   cleanLegacyCrgHooks,
   cleanLegacyCrgGitHook,

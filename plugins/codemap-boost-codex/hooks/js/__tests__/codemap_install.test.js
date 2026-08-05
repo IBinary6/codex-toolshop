@@ -8,6 +8,10 @@ const path = require('path');
 const {
   cleanLegacyCrgGitHook,
   cleanLegacyCrgHooks,
+  ensureCrgMcp,
+  isCrgMcpConfigHealthy,
+  parseMcpJson,
+  readBootstrapFailure,
   registerCrgMcp,
 } = require('../lib/codemap');
 
@@ -18,6 +22,121 @@ function mkdirp(dir) {
 function writeJson(file, value) {
   mkdirp(path.dirname(file));
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+const healthyUvx = {
+  name: 'code-review-graph',
+  enabled: true,
+  transport: {
+    type: 'stdio',
+    command: 'uvx',
+    args: ['code-review-graph', 'serve'],
+    cwd: null,
+  },
+};
+
+{
+  const parsed = parseMcpJson('\u001b[32mINFO mcp config:\u001b[0m ' + JSON.stringify(healthyUvx));
+  assert.deepStrictEqual(parsed, healthyUvx, 'MCP JSON parser accepts ANSI and prefixed output');
+  assert.strictEqual(isCrgMcpConfigHealthy(parsed, { command: 'uvx', args: ['code-review-graph', 'serve'] }), true);
+}
+
+function exerciseRepair(config, options = {}) {
+  const calls = [];
+  let getCalls = 0;
+  const result = ensureCrgMcp({
+    spawnSync: (cmd, args) => {
+      calls.push([cmd, args]);
+      if (args[1] === 'get') {
+        getCalls += 1;
+        if (getCalls > 1) {
+          const expected = options.uvxAvailable === false
+            ? { ...healthyUvx, transport: { ...healthyUvx.transport, command: 'code-review-graph', args: ['serve'] } }
+            : healthyUvx;
+          return options.finalGetResult || { status: 0, stdout: JSON.stringify(expected) };
+        }
+        return options.getResult || { status: 0, stdout: JSON.stringify(config) };
+      }
+      if (args[1] === 'remove') return options.removeResult || { status: 0, stdout: '' };
+      if (args[1] === 'add') return options.addResult || { status: 0, stdout: '' };
+      return { status: 1, stdout: '', error: new Error('unexpected command') };
+    },
+    canUseCrg: () => true,
+    uvxProbe: () => options.uvxAvailable !== false,
+    markerPath: options.markerPath,
+  });
+  return { calls, result };
+}
+
+{
+  const flat = {
+    enabled: true,
+    transport: 'stdio',
+    command: 'uvx',
+    args: ['code-review-graph', 'serve'],
+    cwd: null,
+  };
+  assert.strictEqual(isCrgMcpConfigHealthy(flat, { command: 'uvx', args: ['code-review-graph', 'serve'] }), true);
+}
+
+{
+  const healthy = exerciseRepair(healthyUvx);
+  assert.strictEqual(healthy.result.ok, true, 'healthy MCP config is accepted');
+  assert.deepStrictEqual(healthy.calls, [['codex', ['mcp', 'get', 'code-review-graph', '--json']]], 'healthy config is not rewritten');
+}
+
+for (const config of [
+  null,
+  { ...healthyUvx, enabled: false },
+  { ...healthyUvx, transport: { ...healthyUvx.transport, cwd: 'D:\\old-repo' } },
+  { ...healthyUvx, transport: { ...healthyUvx.transport, command: 'python', args: ['-m', 'code_review_graph'] } },
+]) {
+  const repaired = exerciseRepair(config);
+  assert.strictEqual(repaired.result.ok, true, 'invalid MCP config is repaired');
+  assert.deepStrictEqual(repaired.calls[1], ['codex', ['mcp', 'remove', 'code-review-graph']]);
+  assert.deepStrictEqual(repaired.calls[2], ['codex', ['mcp', 'add', 'code-review-graph', '--', 'uvx', 'code-review-graph', 'serve']]);
+}
+
+{
+  const fallback = exerciseRepair(null, { uvxAvailable: false });
+  assert.strictEqual(fallback.result.ok, true, 'MCP repair falls back when uvx is unavailable');
+  assert.deepStrictEqual(fallback.calls[2], ['codex', ['mcp', 'add', 'code-review-graph', '--', 'code-review-graph', 'serve']]);
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-register-failed-'));
+  const marker = path.join(tmp, '.crg-codex-register-failed');
+  try {
+    const failed = exerciseRepair(null, {
+      markerPath: marker,
+      addResult: { status: 1, stdout: 'unable to write mcp config', error: new Error('add failed') },
+    });
+    assert.strictEqual(failed.result.ok, false, 'failed MCP repair is reported');
+    assert.ok(fs.existsSync(marker), 'failed MCP repair writes a marker');
+    assert.match(failed.result.diagnostic, /codex mcp add/);
+    assert.match(failed.result.diagnostic, /新开|new task/i);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-bootstrap-diagnostic-'));
+  const oldPluginData = process.env.PLUGIN_DATA;
+  try {
+    process.env.PLUGIN_DATA = tmp;
+    fs.writeFileSync(path.join(tmp, '.codemap-bootstrap-failed'), '1', 'utf8');
+    fs.writeFileSync(path.join(tmp, '.crg-install-failed'), 'uv 和 pip 安装均失败\n', 'utf8');
+    assert.strictEqual(
+      readBootstrapFailure(),
+      'uv 和 pip 安装均失败',
+      'SessionStart surfaces the dependency installer diagnostic instead of a legacy marker'
+    );
+  } finally {
+    if (oldPluginData === undefined) delete process.env.PLUGIN_DATA;
+    else process.env.PLUGIN_DATA = oldPluginData;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 {
@@ -95,26 +214,19 @@ function writeJson(file, value) {
 
     process.env.PLUGIN_DATA = data;
 
-    let call = null;
+    const calls = [];
     assert.strictEqual(registerCrgMcp({
       canUseCrg: () => true,
+      uvxProbe: () => true,
       spawnSync: (cmd, args, options) => {
-        call = { cmd, args, options };
-        return { status: 0 };
+        calls.push({ cmd, args, options });
+        return { status: 0, stdout: JSON.stringify(healthyUvx), stderr: '' };
       },
     }), true);
-    assert.strictEqual(call.cmd, 'code-review-graph');
-    const args = call.args;
-    assert.deepStrictEqual(args, [
-      'install',
-      '--platform',
-      'codex',
-      '--no-hooks',
-      '--no-instructions',
-      '--no-skills',
-      '--yes',
-    ]);
-    assert.strictEqual(call.options.stdio, 'ignore');
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(calls[0].cmd, 'codex');
+    assert.deepStrictEqual(calls[0].args, ['mcp', 'get', 'code-review-graph', '--json']);
+    assert.strictEqual(calls[0].options.stdio[1], 'pipe');
   } finally {
     if (oldPluginData === undefined) delete process.env.PLUGIN_DATA;
     else process.env.PLUGIN_DATA = oldPluginData;

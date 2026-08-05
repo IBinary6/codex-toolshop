@@ -9,7 +9,7 @@ Use this skill when the user asks how to configure, verify, or troubleshoot `cod
 
 ## Rule
 
-CodeMap Boost is auto-enabled for Codex. SessionStart bootstraps `code-review-graph` when needed, registers MCP with plugin-owned flags, writes AGENTS.md guidance, and synchronously builds or updates the project graph before use. Structural prompts and source-changing tools maintain the graph; SubagentStart only injects retrieval guidance, while the graph MCP PreToolUse barrier performs the final synchronous freshness check. The setup script remains the explicit troubleshooting/prewarm path.
+CodeMap Boost is auto-enabled for Codex. The standard AI installation flow checks `codex` CLI and prefers `uv`/`uvx` (falling back to Python + `pip`), installs the plugin, then immediately runs setup in the user's target repository. SessionStart remains a fallback for missed setup, old MCP config, or a fixed `cwd`; it repairs the shared MCP configuration, writes AGENTS.md guidance, and synchronously builds or updates the project graph before use. Structural prompts and source-changing tools maintain the graph; SubagentStart only injects retrieval guidance, while the graph MCP PreToolUse barrier performs the final synchronous freshness check.
 
 ## Quick Checks
 
@@ -18,22 +18,23 @@ Run these from the current project when the user wants validation:
 ```bash
 code-review-graph --version
 code-review-graph status
+codex mcp get code-review-graph --json
 ```
 
 ## Setup
 
-Resolve the plugin root from this skill location, then run the setup script with the user's target project as the working directory. Do not run it from the plugin root unless the plugin repository itself is the target project.
+Resolve the plugin root from this skill location. If the skill is not loaded in the current task, run `codex plugin list --json`, find `codemap-boost-codex@codex-toolshop`, and use its `source.path`. Run the setup script with the user's target project as the working directory. The installing AI should do this immediately after plugin installation; do not make the user remember it. Do not run it from the plugin root unless the plugin repository itself is the target project.
 
 ```bash
-node <plugin-root>/scripts/setup.cjs
+node <plugin-root>/scripts/setup.cjs --build
 ```
 
 The setup script is idempotent:
 
 - If `code-review-graph` already exists, it does not reinstall it.
-- If `code-review-graph` is missing, it installs `code-review-graph[all]`.
-- It registers MCP with `--no-hooks --no-instructions --no-skills`.
-- It writes a diagnostic marker in plugin data.
+- If `code-review-graph` is missing, it tries `uv tool install "code-review-graph[all]"`, then Python + `pip`, and records a concise diagnostic marker if both fail.
+- It checks `codex mcp get code-review-graph --json`; missing, disabled, wrong command/args, or fixed `cwd` are repaired with `codex mcp remove` (missing is tolerated) and `codex mcp add`.
+- It writes a diagnostic marker and exits non-zero on registration failure; the message includes a copy-pasteable command and says to open a new task after repair.
 - It updates the target project's `.gitignore` for graph output directories when run explicitly.
 - Hooks synchronously build/update graphs when `code-review-graph` is available; SessionStart attempts to make it available automatically. PostToolUse skips known read-only Bash commands.
 
@@ -43,13 +44,18 @@ Optional graphify support is enabled only when explicitly requested:
 node <plugin-root>/scripts/setup.cjs --with-graphify
 ```
 
-Underlying dependency commands:
+Recommended dependency and MCP commands:
 
 ```bash
+uv tool install "code-review-graph[all]"
+codex mcp add code-review-graph -- uvx code-review-graph serve
+# 没有 uv/uvx 时：
 python -m pip install "code-review-graph[all]"
-code-review-graph install --platform codex --no-hooks --no-instructions --no-skills --yes
+codex mcp add code-review-graph -- code-review-graph serve
 python -m pip install "graphifyy[all]"
 ```
+
+完成 setup 后验证版本、状态和 MCP JSON；修复或首次注册 MCP 后必须新开 Codex 任务，因为已启动任务不会动态注入新的 MCP。
 
 ## Codex Behavior
 

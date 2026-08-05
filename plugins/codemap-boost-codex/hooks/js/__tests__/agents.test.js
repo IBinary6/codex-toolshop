@@ -63,7 +63,7 @@ try {
 
   const first = runSession(repo, home, { CODEMAP_BOOST_ASSUME_CRG: '1' });
   assert.strictEqual(first.status, 0, first.stderr);
-  assert.strictEqual(first.stdout, '', 'SessionStart should be silent');
+  assert.ok(first.stdout === '' || first.stdout.includes('新开一个 Codex 任务'), 'MCP repair may request a new task');
   assert.strictEqual(first.stderr, '', 'SessionStart should keep stderr silent');
 
   const agents = path.join(home, 'AGENTS.md');

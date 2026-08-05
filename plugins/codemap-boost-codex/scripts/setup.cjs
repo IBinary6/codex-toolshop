@@ -13,7 +13,7 @@ const {
   isCodeMapEnabled,
   cleanLegacyCrgGitHook,
   cleanLegacyCrgHooks,
-  registerCrgMcp,
+  ensureCrgMcp,
   startCrgBuild,
 } = require('../hooks/js/lib/codemap');
 const { markerPath, pluginDataDir } = require('../hooks/js/lib/runtime');
@@ -58,6 +58,7 @@ function main() {
 
   removeMarker('.crg-install-failed');
   removeMarker('.crg-codex-register-failed');
+  removeMarker('.codemap-bootstrap-failed');
   if (args.has('--with-graphify')) removeMarker('.graphify-install-failed');
 
   const crgOk = args.has('--skip-install') ? canUseCrg() : ensureCrg();
@@ -67,8 +68,14 @@ function main() {
     process.exit(1);
   }
 
-  if (!registerCrgMcp()) {
-    warn('[codemap-boost-codex] code-review-graph MCP registration did not complete. Rerun setup after fixing the CLI.');
+  const mcp = ensureCrgMcp({ cwd: process.cwd() });
+  if (!mcp.ok) {
+    warn(`[codemap-boost-codex] ${mcp.diagnostic || 'code-review-graph MCP registration failed.'}`);
+    process.exitCode = 1;
+    return;
+  }
+  if (mcp.changed) {
+    log('[codemap-boost-codex] code-review-graph MCP 已注册或修复；请新开一个 Codex 任务使当前会话加载新配置。');
   }
 
   if (args.has('--with-graphify') && !ensureGraphify()) {
