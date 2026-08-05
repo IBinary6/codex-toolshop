@@ -65,6 +65,14 @@ try {
   assert.match(hardPrompt.hookSpecificOutput.additionalContext, /dispatch_hard_worker/);
   assert.match(hardPrompt.hookSpecificOutput.additionalContext, /停止并整合/);
 
+  const searchPrompt = parse(run('user_prompt_submit', {
+    hook_event_name: 'UserPromptSubmit',
+    prompt: '请搜索多个文件中的调用链和影响面',
+  }));
+  assert.match(searchPrompt.hookSpecificOutput.additionalContext, /dispatch_explorer/);
+  assert.match(searchPrompt.hookSpecificOutput.additionalContext, /图刷新由 CodeMap Boost 负责/);
+  assert.match(searchPrompt.hookSpecificOutput.additionalContext, /不要重复 build\/update/);
+
   const subagent = parse(run('subagent_start', {
     hook_event_name: 'SubagentStart',
     agent_id: 'a-1',

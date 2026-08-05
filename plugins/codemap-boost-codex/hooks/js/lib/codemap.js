@@ -33,10 +33,11 @@ const BLOCK_END = '<!-- codemap-boost-codex:end -->';
 const AGENTS_BLOCK = `${BLOCK_START}
 ## CodeMap Boost
 
-本机已启用 CodeMap Boost。涉及代码结构、符号、调用关系、引用关系、影响面或代码审查上下文时，必须先刷新代码图，再使用 code-review-graph MCP 工具：
+本机已启用 CodeMap Boost。涉及代码结构、符号、调用关系、引用关系、影响面或代码审查上下文时，优先使用 code-review-graph MCP 工具；图刷新由 CodeMap Boost hooks 统一负责：
 
-- 每个需要代码图的任务开始时，先确认 CodeMap Boost 的同步 build/update 已完成；图谱 MCP 的 PreToolUse barrier 会阻止刷新期间的并发读写。
-- 仅当仓库没有未跟踪源文件时，才调用 \`mcp__code_review_graph__build_or_update_graph_tool\` 做显式增量刷新并等待完成。存在未跟踪源文件时不要调用该 MCP full rebuild；CodeMap Boost 会用不污染真实暂存区的临时 Git index 执行 full build，确保新文件进入图谱。
+- SessionStart、结构类 UserPromptSubmit 和源码修改后的 PostToolUse 会同步维护图谱；每次图谱 MCP 读取前仍有 PreToolUse barrier 兜底。
+- 不要为了“先刷新”从主代理或子代理重复调用 \`mcp__code_review_graph__build_or_update_graph_tool\`。仅在 hook 明确报告刷新失败、用户要求强制重建或执行 setup/诊断时显式调用。
+- 调度插件只负责选择合适的搜索或执行代理；CodeMap Boost 负责图刷新和检索规则。子代理启动时只注入规则，不重复 build/update。
 - 任务已经明确涉及影响面、代码审查、调用链、引用关系或跨模块定位时，直接调用对应的 \`semantic_search_nodes_tool\`、\`query_graph_tool\`、\`get_impact_radius_tool\` 或 review-context 工具。
 - 任务不明确或需要快速路由时，最多调用一次 \`mcp__code_review_graph__get_minimal_context_tool\` 获取概览；不要反复调用 minimal 试探。
 - 如果概览信息不足（缺少有效实体、文件、调用关系或下一步工具），立即升级到更完整的工具或使用 \`detail_level="standard"\`，不要再次调用 minimal。
@@ -461,7 +462,9 @@ function registerCrgMcp(options = {}) {
 }
 
 const CONTEXT = [
-  'CodeMap Boost: wait for the graph refresh to finish before symbol, function, class, call graph, reference, impact, or review-context work.',
+  'CodeMap Boost owns graph freshness: SessionStart, structural prompts, source-changing tools, and the graph MCP PreToolUse barrier synchronize the graph.',
+  'Do not start a duplicate build/update from the primary agent or a spawned agent unless a hook reports refresh failure, the user requests a forced rebuild, or you are troubleshooting setup.',
+  'Routing integrations select the agent; CodeMap Boost owns graph refresh and retrieval policy. SubagentStart injects these rules without refreshing again.',
   'Use adaptive retrieval: when the task is clear, call the specialized tool directly (semantic_search_nodes_tool, query_graph_tool, get_impact_radius_tool, or the relevant review-context tool).',
   'When the task is unclear, get_minimal_context_tool may be called once as a routing overview; do not repeat minimal. If the result lacks a useful entity, file, relationship, or next tool, immediately upgrade to a fuller tool or detail_level="standard".',
   'Use the lowest-cost detail level that can answer the question, then upgrade immediately when needed. Use rg/grep only for literal text, comments, or strings.',

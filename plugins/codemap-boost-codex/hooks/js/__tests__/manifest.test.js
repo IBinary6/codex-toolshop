@@ -65,6 +65,10 @@ assert.ok(
   hooks.hooks.SessionStart[0].hooks[0].timeout >= 300,
   'SessionStart refresh needs enough time for a full build'
 );
+assert.ok(
+  hooks.hooks.SubagentStart[0].hooks[0].timeout <= 5,
+  'SubagentStart only injects guidance and must not reserve a long refresh timeout'
+);
 
 const marketplacePath = findMarketplace(pluginRoot);
 if (marketplacePath) {

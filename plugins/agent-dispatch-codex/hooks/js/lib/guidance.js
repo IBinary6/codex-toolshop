@@ -214,9 +214,9 @@ function promptGuidance(prompt, config) {
     case 'plan':
       return `任务路由：非琐碎计划/架构。${roleFallback(config, ['dispatch_planner'])}`;
     case 'broad-search':
-      return `任务路由：广泛/跨模块读重型搜索。${roleFallback(config, ['dispatch_mapper', 'dispatch_explorer'])}`;
+      return `任务路由：广泛/跨模块读重型搜索。${roleFallback(config, ['dispatch_mapper', 'dispatch_explorer'])} 若 CodeMap Boost 可用，优先图查询；图刷新由 CodeMap Boost 负责，不要重复 build/update。`;
     case 'bounded-search':
-      return `任务路由：跨文件/调用链搜索。${roleFallback(config, ['dispatch_explorer'])} 精确单符号/单文件快速查找由主代理直接完成。`;
+      return `任务路由：跨文件/调用链搜索。${roleFallback(config, ['dispatch_explorer'])} 若 CodeMap Boost 可用，优先图查询；图刷新由 CodeMap Boost 负责，不要重复 build/update。精确单符号/单文件快速查找由主代理直接完成。`;
     case 'implementation':
       return `任务路由：常规实现。${roleFallback(config, ['dispatch_worker'])}`;
     case 'review':
@@ -235,6 +235,7 @@ function mainAgentGuidance(config, compact = false) {
       'Agent Dispatch：你是主代理。需求澄清、架构/接口决策、任务拆分、结果审查和最终整合由主代理负责；',
       '明确、有界的编码、重构和修 bug 优先交给低成本执行子代理，即使步骤串行也可委派；琐碎读取、小改和强耦合步骤直接完成。',
       '按最低可靠档位路由：有界搜索用 Luna，广泛扫描/常规审查用 Terra；非琐碎计划或高风险审查才用 Sol xhigh；困难实现才用 Terra ultra。',
+      '代码搜索若可用 CodeMap Boost，应优先用图；Agent Dispatch 只负责选代理，图刷新和检索规则由 CodeMap Boost 负责，不要重复 build/update。',
       '可独立并行的子任务必须并行委派。所有 Git 命令均由主代理串行执行，不委派、不并行拆分。',
       '普通结果由主代理自行审查；用户明确要求独立审查时用 Terra high，高风险审查才用 Sol xhigh。',
       '子代理须报告修改文件、验证和阻塞；结果已整合或不再需要时立即停止子代理，避免占用有限智能体名额。',
@@ -247,6 +248,7 @@ function mainAgentGuidance(config, compact = false) {
     '- Keep requirements clarification, architecture and interface decisions, task decomposition, result review, and final integration in the primary agent.',
     '- Prefer a cost-efficient execution agent for concrete, bounded implementation, refactoring, and bug-fix work once the steps and acceptance criteria are clear, even when that work is sequential.',
     '- Route at the lowest reliable tier: Luna for bounded search and clear development; Terra for broad mapping and routine independent review; Sol xhigh only for non-trivial planning or high-risk review; Terra ultra only for difficult execution after a plan.',
+    '- For code search, prefer CodeMap Boost graph tools when available. Agent Dispatch selects the agent; CodeMap Boost owns graph refresh and retrieval policy, so do not duplicate build/update.',
     '- Delegate independent bounded subtasks in parallel when useful.',
     `- Use no more than ${maxParallel} subagents concurrently unless the user explicitly requests more.`,
     '- Keep trivial reads, small edits, tightly coupled steps, and final integration in the primary agent.',

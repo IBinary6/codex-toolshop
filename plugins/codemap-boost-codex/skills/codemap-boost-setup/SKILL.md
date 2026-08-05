@@ -9,7 +9,7 @@ Use this skill when the user asks how to configure, verify, or troubleshoot `cod
 
 ## Rule
 
-CodeMap Boost is auto-enabled for Codex. SessionStart bootstraps `code-review-graph` when needed, registers MCP with plugin-owned flags, writes AGENTS.md guidance, and synchronously builds or updates the project graph before use. The setup script remains the explicit troubleshooting/prewarm path.
+CodeMap Boost is auto-enabled for Codex. SessionStart bootstraps `code-review-graph` when needed, registers MCP with plugin-owned flags, writes AGENTS.md guidance, and synchronously builds or updates the project graph before use. Structural prompts and source-changing tools maintain the graph; SubagentStart only injects retrieval guidance, while the graph MCP PreToolUse barrier performs the final synchronous freshness check. The setup script remains the explicit troubleshooting/prewarm path.
 
 ## Quick Checks
 
@@ -61,3 +61,4 @@ python -m pip install "graphifyy[all]"
 - The plugin owns Codex hooks; do not let `code-review-graph install` add third-party hooks.
 - The plugin should not read or write old host directories.
 - Use code-review-graph MCP tools for symbols, callers, callees, references, impact analysis, and review context.
+- Routing plugins such as Agent Dispatch choose the worker; CodeMap Boost owns graph refresh and retrieval policy. Do not start a duplicate build/update from a subagent unless a hook reports failure or the user explicitly requests a rebuild.

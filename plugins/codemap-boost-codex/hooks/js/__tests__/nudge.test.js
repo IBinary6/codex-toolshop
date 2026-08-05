@@ -8,6 +8,9 @@ const { spawnSync } = require('child_process');
 
 const pluginRoot = path.join(__dirname, '..', '..', '..');
 const runner = path.join(pluginRoot, 'scripts', 'run-hook.cjs');
+const subagentSource = fs.readFileSync(path.join(pluginRoot, 'hooks', 'js', 'subagent_start.js'), 'utf8');
+
+assert.ok(!subagentSource.includes('refreshCrgSync'), 'SubagentStart must not launch a duplicate graph refresh');
 
 function runHook(name, payload, extraEnv = {}, enabled = true) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-nudge-'));
@@ -84,6 +87,9 @@ function parseOutput(result) {
   assert.strictEqual(payload.hookSpecificOutput.hookEventName, 'SubagentStart');
   assert.ok(payload.hookSpecificOutput.additionalContext.includes('semantic_search_nodes_tool'));
   assert.ok(payload.hookSpecificOutput.additionalContext.includes('do not repeat minimal'));
+  assert.ok(payload.hookSpecificOutput.additionalContext.includes('SubagentStart injects these rules without refreshing again'));
+  assert.ok(payload.hookSpecificOutput.additionalContext.includes('Do not start a duplicate build/update'));
+  assert.ok(!payload.hookSpecificOutput.additionalContext.includes('refresh completed'));
 }
 
 console.log('nudge.test.js PASS');

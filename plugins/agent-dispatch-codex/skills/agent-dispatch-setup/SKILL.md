@@ -69,6 +69,7 @@ Supported list overrides:
 - Continue classifying non-Git segments in a compound shell command even when another segment is Git.
 - Nested shell evaluation, process substitution, script blocks, block comments, and cross-shell ambiguous escapes are not Git CLI operations and continue to require dispatch review even when the outer segment starts with `git`.
 - Default lightweight MCP prefixes include CodeMap Boost, Context Mode (canonical and plugin-namespaced forms), and Serena (`serena` and `serena-cross-platform`). These integrations remain separately installed and enabled.
+- When CodeMap Boost is installed, Agent Dispatch owns role selection while CodeMap Boost owns graph refresh, read barriers, and retrieval guidance. Search agents should prefer its graph tools and must not start a duplicate build/update.
 - The integrated terminal can be Git Bash while the Windows Codex agent uses PowerShell. Keep configuration entries as executable heads, not shell-specific command strings.
 - Project configuration is excluded through `.git/info/exclude`; do not edit the project's tracked `.gitignore` unless the user explicitly asks.
 - Generated custom-agent files are excluded individually through `.git/info/exclude`. Do not exclude the whole `.codex/` directory.

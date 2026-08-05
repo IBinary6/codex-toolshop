@@ -33,6 +33,13 @@ try {
   const explorer = path.join(root, '.codex', 'agents', 'dispatch_explorer.toml');
   const explorerContent = fs.readFileSync(explorer, 'utf8');
   assert.equal((explorerContent.match(/Do not run Git commands/g) || []).length, 1);
+  assert.match(explorerContent, /CodeMap Boost graph tools/);
+  assert.match(explorerContent, /instead of starting another build\/update/);
+  assert.match(explorerContent, /text search only for literal text, comments, or strings/);
+  const mapper = path.join(root, '.codex', 'agents', 'dispatch_mapper.toml');
+  const mapperContent = fs.readFileSync(mapper, 'utf8');
+  assert.match(mapperContent, /CodeMap Boost graph tools/);
+  assert.match(mapperContent, /instead of starting another build\/update/);
   const expectedProfiles = {
     dispatch_explorer: ['gpt-5.6-luna', 'medium', 'read-only'],
     dispatch_mapper: ['gpt-5.6-terra', 'medium', 'read-only'],

@@ -13,7 +13,7 @@
 | 会话启动维护图谱 | `SessionStart` 自动 bootstrap 并同步 build/update | `SessionStart` 后台 build/update，缺 CLI 时提示 setup |
 | 修改后更新图谱 | `PostToolUse` 同步刷新 | `PostToolUse` / `CwdChanged` 后台刷新 |
 | 读取前屏障 | 图谱 MCP `PreToolUse` 同步刷新，失败则 deny | 图谱 MCP `PreToolUse` 同步刷新，失败则 deny |
-| grep/agent 引导 | `Bash` / prompt / subagent 软提示优先用图谱 | `Grep` / `Agent` 强提示优先用图谱 |
+| grep/agent 引导 | `Bash` / prompt / subagent 软提示优先用图谱；subagent 不重复刷新 | `Grep` / `Agent` 强提示优先用图谱 |
 | 依赖安装 | Codex 插件可在 SessionStart 自动 bootstrap | 通过 `/codemap-boost-setup` 显式确认安装 |
 
 Codex 版会把 grep 注入这类 Claude 专属能力改写到 `AGENTS.md`、`UserPromptSubmit`、`SubagentStart` 和 Bash 提示里；这是平台机制不同，不是能力缺口。
@@ -80,7 +80,11 @@ python -m pip install "graphifyy[all]"
 | `PreToolUse:Bash` | 当 Bash 命令像是在做代码结构搜索时，向 Codex 注入图谱优先提示，不阻止命令。 |
 | `PreToolUse:MCP` | 调用 code-review-graph / codegraph / graphify MCP 前同步刷新图谱；CLI 不可用或刷新失败时阻止本次图谱读取。 |
 | `UserPromptSubmit` | 当用户问题涉及符号、调用、引用、影响面等结构问题时，提醒 Codex 优先使用图谱 MCP 工具。 |
-| `SubagentStart` | 子代理启动时注入同样的 CodeMap 使用规则。 |
+| `SubagentStart` | 子代理启动时只注入 CodeMap 使用规则，不重复 build/update；首次图谱读取仍由 `PreToolUse:MCP` 屏障同步兜底。 |
+
+## 与 Agent Dispatch 协作
+
+两者同时安装时，Agent Dispatch 负责把有界搜索交给 Luna、广泛扫描交给 Terra；CodeMap Boost 负责图刷新、读取屏障和检索规则。搜索子代理启动时不会再次刷新图，随后第一次图谱 MCP 调用会经过同步屏障，因此既避免每个子代理重复 update，也不会读取过期图谱。
 
 ## 生成文件
 

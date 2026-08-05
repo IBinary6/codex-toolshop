@@ -57,9 +57,11 @@ Shell 嵌套求值不属于 Git 权限。例如 `git status $(other-command)`、
 
 这里调整的是 Agent Dispatch 的编排策略，不会绕过 Codex sandbox、用户授权、Hook 信任机制或 Git 自身的安全保护。主代理仍应根据用户意图审慎执行破坏性 Git 操作。
 
-## Context Mode 与 Serena 协作
+## CodeMap Boost、Context Mode 与 Serena 协作
 
 默认轻量 MCP 前缀已覆盖 CodeMap Boost、Context Mode 和 Serena。Context Mode 的 Codex 原生前缀与插件命名空间前缀均受支持；Serena 同时兼容官方 `serena` 名称和常见的 `serena-cross-platform` 名称。调用这些工具时不会产生“必须委派”的误提示，主代理可直接完成上下文压缩、代码图和符号查询。
+
+安装 CodeMap Boost 后，两者按职责协作：Agent Dispatch 选择最低成本且可靠的搜索代理，CodeMap Boost 负责图刷新、读取屏障和图检索策略。`dispatch_explorer` 与 `dispatch_mapper` 会优先使用可用的代码图，不自行重复执行 build/update；纯文本、注释和字符串查找才使用文本搜索。
 
 Agent Dispatch 不捆绑安装这些 MCP。Context Mode 应作为独立 Codex 插件安装，Serena 应按其 Codex setup 流程注册；未安装的工具不会因为加入前缀而被加载。若使用其他服务器名称，可通过 `mcp_prefixes_add` 增加项目或全局覆盖。
 

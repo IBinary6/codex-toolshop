@@ -1,6 +1,6 @@
 {
   "name": "agent-dispatch-codex",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Codex-native cost-aware task routing across Sol, Terra, and Luna custom agents, with automatic hooks and serial primary-agent Git.",
   "author": {
     "name": "IBinary6"

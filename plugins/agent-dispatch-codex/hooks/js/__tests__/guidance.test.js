@@ -20,7 +20,9 @@ assert.match(mainAgentGuidance(config), /dispatch_worker \(gpt-5\.6-luna, max\)/
 assert.match(mainAgentGuidance(config), /use Terra high for requested routine independent review and Sol xhigh only for high-risk review/);
 assert.match(mainAgentGuidance(config), /do not leave idle agents occupying limited slots/);
 assert.match(mainAgentGuidance(config), /Execute all Git commands in the primary agent, one at a time/);
+assert.match(mainAgentGuidance(config), /Agent Dispatch selects the agent; CodeMap Boost owns graph refresh/);
 assert.match(mainAgentGuidance(config, true), /所有 Git 命令均由主代理串行执行/);
+assert.match(mainAgentGuidance(config, true), /Agent Dispatch 只负责选代理/);
 assert.match(mainAgentGuidance(config, true), /立即停止子代理/);
 assert.match(mainAgentGuidance(config, true), /高风险审查才用 Sol xhigh/);
 assert.match(subagentGuidance(config), /do not spawn or delegate/i);
@@ -52,7 +54,9 @@ assert.ok(hard.indexOf('dispatch_planner') < hard.indexOf('dispatch_hard_worker'
 assert.match(promptGuidance('请设计新的架构和接口方案', config), /dispatch_planner/);
 assert.match(promptGuidance('请设计新的架构和接口方案', config), /gpt-5\.6-sol\/xhigh/);
 assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', config), /dispatch_mapper/);
+assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', config), /图刷新由 CodeMap Boost 负责/);
 assert.match(promptGuidance('请搜索多个文件中的调用链和影响面', config), /dispatch_explorer/);
+assert.match(promptGuidance('请搜索多个文件中的调用链和影响面', config), /不要重复 build\/update/);
 assert.match(promptGuidance('请实现这个常规功能', config), /dispatch_worker/);
 assert.match(promptGuidance('请审查这段代码的正确性', config), /dispatch_reviewer/);
 assert.match(promptGuidance('review this code for correctness', config), /dispatch_reviewer/);

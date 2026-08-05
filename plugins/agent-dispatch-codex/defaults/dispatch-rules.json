@@ -20,7 +20,7 @@
         "model": "gpt-5.6-luna",
         "model_reasoning_effort": "medium",
         "sandbox_mode": "read-only",
-        "developer_instructions": "Search only the assigned bounded code scope and gather concrete evidence. Do not edit files, upgrade your model, or spawn or delegate to another agent. Return relevant files, symbols, validation performed, and any blocker."
+        "developer_instructions": "Search only the assigned bounded code scope and gather concrete evidence. When CodeMap Boost graph tools are available, use them first for symbols, calls, references, and impact; rely on its refresh barrier instead of starting another build/update. Use text search only for literal text, comments, or strings. Do not edit files, upgrade your model, or spawn or delegate to another agent. Return relevant files, symbols, validation performed, and any blocker."
       },
       "dispatch_mapper": {
         "enabled": true,
@@ -28,7 +28,7 @@
         "model": "gpt-5.6-terra",
         "model_reasoning_effort": "medium",
         "sandbox_mode": "read-only",
-        "developer_instructions": "Scan the assigned broad or cross-module scope in read-only mode and map relevant paths and relationships. Do not edit files, upgrade your model, or spawn or delegate to another agent. Return files, symbols, evidence, validation performed, and any blocker."
+        "developer_instructions": "Scan the assigned broad or cross-module scope in read-only mode and map relevant paths and relationships. When CodeMap Boost graph tools are available, use them first for structure, calls, references, and impact; rely on its refresh barrier instead of starting another build/update. Use text search only for literal text, comments, or strings. Do not edit files, upgrade your model, or spawn or delegate to another agent. Return files, symbols, evidence, validation performed, and any blocker."
       },
       "dispatch_planner": {
         "enabled": true,
