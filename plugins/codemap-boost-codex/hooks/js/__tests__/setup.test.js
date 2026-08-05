@@ -125,7 +125,11 @@ try {
   assert.ok(fs.readFileSync(path.join(repo, '.gitignore'), 'utf8').includes('.code-review-graph/'), 'setup updates project gitignore');
   const mcpCalls = fs.readFileSync(mcpLog, 'utf8');
   assert.ok(mcpCalls.includes('mcp get code-review-graph --json'), 'setup checks the existing MCP config');
-  assert.ok(mcpCalls.includes(`mcp add code-review-graph -- ${managed.command} serve`), 'setup registers the plugin-owned runtime');
+  const normalizedMcpCalls = mcpCalls.replace(/"/g, '');
+  assert.ok(
+    normalizedMcpCalls.includes(`mcp add code-review-graph -- ${managed.command} serve`),
+    `setup registers the plugin-owned runtime\nMCP calls:\n${mcpCalls}`
+  );
   assert.ok(!fs.existsSync(log), 'setup without --build does not start graph build');
 
   const brokenData = path.join(tmp, 'broken-plugin-data');

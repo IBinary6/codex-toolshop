@@ -575,6 +575,7 @@ function runCodexMcp(args, options = {}) {
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: options.timeout || 30000,
       windowsHide: process.platform === 'win32',
+      windowsVerbatimArguments: useCmdShim,
     });
   } catch (error) {
     return { status: null, error, stdout: '', stderr: '' };
