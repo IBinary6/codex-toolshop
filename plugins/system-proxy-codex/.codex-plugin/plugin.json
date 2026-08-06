@@ -1,0 +1,39 @@
+{
+  "name": "system-proxy-codex",
+  "version": "0.1.0",
+  "description": "Enable Codex system-proxy support automatically and configure proxy environment variables safely with Python.",
+  "author": {
+    "name": "IBinary6",
+    "url": "https://github.com/IBinary6"
+  },
+  "homepage": "https://github.com/IBinary6/codex-toolshop/tree/main/plugins/system-proxy-codex",
+  "repository": "https://github.com/IBinary6/codex-toolshop",
+  "license": "MIT",
+  "keywords": [
+    "proxy",
+    "clash",
+    "network",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "System Proxy for Codex",
+    "shortDescription": "Make Codex use your local system proxy without hand-editing config files.",
+    "longDescription": "Automatically enables Codex's respect_system_proxy feature on first start. An optional Python setup command detects Windows, macOS, or Linux proxy settings and safely merges HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, and NO_PROXY into CODEX_HOME/.env with backups.",
+    "developerName": "IBinary6",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/IBinary6/codex-toolshop",
+    "defaultPrompt": [
+      "使用 system-proxy-setup 一键配置 Codex 代理。",
+      "使用 system-proxy-setup，把 Codex 代理端口设置为 7890。",
+      "检查当前 Codex 系统代理配置。"
+    ],
+    "brandColor": "#2563EB",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/logo.svg"
+  }
+}

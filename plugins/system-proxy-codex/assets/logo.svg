@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 96" role="img" aria-label="System Proxy for Codex">
+  <rect width="320" height="96" rx="20" fill="#eff6ff"/>
+  <rect x="12" y="12" width="72" height="72" rx="16" fill="#2563eb"/>
+  <path d="M30 38h22a10 10 0 0 1 0 20H41" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
+  <path d="m36 50-9 8 9 8" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="65" cy="37" r="6" fill="#93c5fd"/>
+  <text x="104" y="44" fill="#0f172a" font-family="Arial, sans-serif" font-size="24" font-weight="700">System Proxy</text>
+  <text x="104" y="68" fill="#475569" font-family="Arial, sans-serif" font-size="16">for Codex</text>
+</svg>

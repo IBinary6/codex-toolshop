@@ -16,6 +16,7 @@ codex plugin marketplace add https://github.com/IBinary6/codex-toolshop.git
 codex plugin add codemap-boost-codex@codex-toolshop
 codex plugin add cpp-style-enforcer-codex@codex-toolshop
 codex plugin add agent-dispatch-codex@codex-toolshop
+codex plugin add system-proxy-codex@codex-toolshop
 ```
 
 安装或升级后，重新打开一个 Codex 会话，让 hooks、skills 和 MCP 配置重新加载。
@@ -27,6 +28,7 @@ codex plugin add agent-dispatch-codex@codex-toolshop
 | `codemap-boost-codex` | 自动接入 `code-review-graph` 代码结构图，提供符号、调用、引用和影响面检索能力。 | 新会话自动 bootstrap、自动 build/update。涉及代码结构时优先用 `mcp__code_review_graph__*` 工具。 |
 | `cpp-style-enforcer-codex` | 自动执行团队 C++ 风格流程，包括 clang-format、版权头、BOM、cpplint 和提交前检查。 | 正常编辑即可；写入 C/C++ 文件后 hook 自动处理，`git commit` 前会检查暂存区 C++ 文件。 |
 | `agent-dispatch-codex` | 让主代理负责决策和审查，把明确、有界的执行工作交给低成本子代理。 | 新会话自动注入调度策略；子代理直接执行、报告结果，并在整合后及时释放。 |
+| `system-proxy-codex` | 自动启用 Codex 系统代理支持，并用 Python 安全配置 `.env`。 | 默认使用系统代理；也可用 `system-proxy-setup` 自动检测或指定 `7897`、`7890` 等端口。 |
 
 ## Agent Dispatch 怎么用
 
