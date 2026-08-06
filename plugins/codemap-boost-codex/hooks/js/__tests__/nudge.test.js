@@ -89,6 +89,8 @@ function parseOutput(result) {
   assert.ok(payload.hookSpecificOutput.additionalContext.includes('do not repeat minimal'));
   assert.ok(payload.hookSpecificOutput.additionalContext.includes('SubagentStart injects these rules without refreshing again'));
   assert.ok(payload.hookSpecificOutput.additionalContext.includes('Do not start a duplicate build/update'));
+  assert.ok(payload.hookSpecificOutput.additionalContext.includes('If the current tool list does not expose mcp__code_review_graph__'));
+  assert.ok(payload.hookSpecificOutput.additionalContext.includes('report that the MCP tools are unavailable'));
   assert.ok(!payload.hookSpecificOutput.additionalContext.includes('refresh completed'));
 }
 

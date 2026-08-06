@@ -70,6 +70,23 @@ setup 会执行这些动作：
 - 健康检查或注册失败时写入诊断 marker 并返回非零。
 - 可选安装 `graphifyy[all]`，用于提供 `graphify` 命令。
 
+只需要检查、不希望修改任何配置时，在目标项目目录运行：
+
+```bash
+node "<plugin-root>/scripts/setup.cjs" --doctor
+```
+
+`--doctor` 是只读诊断，不安装依赖、不执行 MCP add/remove、不构建图谱，也不修改 `AGENTS.md`、`.gitignore` 或插件 marker。它会分别报告：
+
+- Codex CLI 的实际路径、版本、`CODEX_HOME` 和插件数据目录。
+- 插件私有 CRG 运行环境及 parser 健康状态。
+- MCP 是否启用并精确注册到私有运行时；旧 `uvx`、全局命令、错误参数或固定 `cwd` 会标为失败。
+- 当前目录对应的 Git 仓库和项目图谱 `status`。
+- 当前任务工具状态为 `UNKNOWN`：外部 CLI 无法读取已启动任务的工具快照，需在新任务中确认 `mcp__code_review_graph__*` 是否出现。
+- 可直接执行的修复命令，以及修复后是否必须完整重启并创建新任务。
+
+诊断结果为 `READY` 时退出码为 `0`；需要修复或构建时退出码为 `1`。`--doctor` 不能与 `--build`、`--with-graphify` 或 `--skip-install` 一起使用，以保证只读。
+
 setup 脚本应以你的目标项目作为工作目录运行；这样 `.gitignore` 和初始图谱都会落在当前项目，而不是插件仓库。
 
 正常使用不需要每次启动 Codex 都重新运行 setup。后续 SessionStart / PostToolUse hook 会自动 build 或 update 图谱。

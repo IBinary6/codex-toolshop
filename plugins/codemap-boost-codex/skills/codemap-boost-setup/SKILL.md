@@ -13,6 +13,16 @@ CodeMap Boost is auto-enabled for Codex. The standard AI installation flow check
 
 ## Quick Checks
 
+Prefer the plugin's read-only doctor command when the user asks for diagnosis. Run it from the target project; it must not be combined with setup flags:
+
+```bash
+node <plugin-root>/scripts/setup.cjs --doctor
+```
+
+Doctor reports Codex/CODEX_HOME paths, managed runtime and parsers, exact MCP registration, legacy `uvx`, repository graph status, restart guidance, and the limitation that an external CLI cannot inspect the current task's already-loaded tool snapshot. Exit `0` means `READY`; exit `1` means setup/build attention is required. Doctor must remain read-only: do not install, repair, build, edit files, or clear markers.
+
+For lower-level validation after setup:
+
 Run these from the current project when the user wants validation:
 
 ```bash
@@ -69,3 +79,4 @@ python -m pip install "graphifyy[all]"
 - The plugin should not read or write old host directories.
 - Use code-review-graph MCP tools for symbols, callers, callees, references, impact analysis, and review context.
 - Routing plugins such as Agent Dispatch choose the worker; CodeMap Boost owns graph refresh and retrieval policy. Do not start a duplicate build/update from a subagent unless a hook reports failure or the user explicitly requests a rebuild.
+- If `mcp__code_review_graph__` is absent from the current task's tool list, say that the task did not load the MCP and use a suitable fallback. Do not claim a graph query ran. Repair with setup if doctor reports a problem, then fully restart Codex and create a new task.

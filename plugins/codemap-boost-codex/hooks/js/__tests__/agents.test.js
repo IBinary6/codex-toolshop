@@ -76,6 +76,8 @@ try {
   assert.ok(content.includes('任务已经明确'), 'block allows direct specialized retrieval');
   assert.ok(content.includes('不要为了“先刷新”'), 'block prevents duplicate explicit graph builds');
   assert.ok(content.includes('子代理启动时只注入规则'), 'block keeps dispatch and graph ownership separate');
+  assert.ok(content.includes('当前任务的工具列表中不存在'), 'block requires an honest fallback when MCP tools are absent');
+  assert.ok(content.includes('不得声称已经查询图谱'), 'block prevents false graph-query claims');
   assert.ok(!fs.existsSync(path.join(home, '.claude')), 'SessionStart must not create old host directories');
   assert.ok(fs.readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8').includes('.code-review-graph/'), 'SessionStart ignores generated graph output locally');
 
