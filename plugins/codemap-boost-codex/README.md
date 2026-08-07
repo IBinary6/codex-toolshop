@@ -37,7 +37,7 @@ codex plugin add codemap-boost-codex@codex-toolshop
 
 安装后创建一个新的 Codex 任务。插件自带的 `.mcp.json` 会在任务加载 MCP 时直接启动跨平台 Node 入口；入口会在 Codex 插件数据目录中创建或修复隔离的 CRG venv，然后启动 `code-review-graph serve`。首次安装不依赖 SessionStart 事后注册 MCP，因此主代理和自动子代理能在同一新任务中获得图工具。
 
-插件原生 MCP 明确设置 `startup_timeout_sec = 600`，给首次创建 venv、安装依赖和 CRG 冷启动留出时间。多个任务同时首次启动时通过安装锁串行化，不会并发重建同一个 venv。
+插件原生 MCP 明确设置 `startup_timeout_sec = 100`，给首次创建 venv、安装依赖和 CRG 冷启动留出时间，同时避免异常启动长时间占用任务。多个任务同时首次启动时通过安装锁串行化，不会并发重建同一个 venv。
 
 可以用下面的命令验证 Codex 已解析插件原生 MCP：
 
@@ -45,13 +45,13 @@ codex plugin add codemap-boost-codex@codex-toolshop
 codex mcp get code-review-graph --json
 ```
 
-正常结果是 stdio、`command = node`、参数为 `scripts/mcp-server.cjs`、`cwd` 位于已安装插件根目录，并显示 `startup_timeout_sec = 600`。这个 `cwd` 只负责稳定定位插件启动脚本；图查询前的 `PreToolUse` 会把当前任务的 Git 根目录补入 CRG 的 `repo_root`，避免误查插件目录。已经启动的旧任务不会动态补载新插件能力，所以“新建任务”是 Codex 的加载边界，不是额外配置步骤。
+正常结果是 stdio、`command = node`、参数为 `scripts/mcp-server.cjs`、`cwd` 位于已安装插件根目录，并显示 `startup_timeout_sec = 100`。这个 `cwd` 只负责稳定定位插件启动脚本；图查询前的 `PreToolUse` 会把当前任务的 Git 根目录补入 CRG 的 `repo_root`，避免误查插件目录。已经启动的旧任务不会动态补载新插件能力，所以“新建任务”是 Codex 的加载边界，不是额外配置步骤。
 
 ## 自动启用
 
 原生 MCP 启动器是默认安装路径：它解析与 Codex hooks 相同的 marketplace-qualified 插件数据目录，维护私有运行时并启用 CodeMap。`SessionStart` 继续负责 `$CODEX_HOME/AGENTS.md` 托管块、旧版插件全局 MCP 覆盖迁移和当前 Git 仓库的 build/update。
 
-从旧版本升级时，如果 `config.toml` 中还存在插件以前创建的私有运行时绝对路径注册，它会比插件原生 MCP 优先。SessionStart 会根据插件数据目录路径证明其归属后自动移除，且不会删除无关的用户配置。发生迁移后，新建一个任务即可，不需要手工 setup。旧式 `uvx code-review-graph serve` 无法仅凭命令判断是插件还是用户创建，因此不会自动删除；`--doctor` 会把这类同名覆盖明确列出，交由用户确认。
+从旧版本升级时，如果 `config.toml` 中还存在插件以前创建的私有运行时绝对路径注册，它会比插件原生 MCP 优先。SessionStart 会逐个验证 PATH 中的 Codex CLI 候选，跳过存在但不能执行的桌面应用入口，再根据插件数据目录路径证明归属后移除旧注册；不会删除无关的用户配置。发生迁移后，新建一个任务即可，不需要手工 setup。独立 Codex CLI 不可用时无法检查这项旧版覆盖，但新安装的插件原生 MCP 启动本身不依赖 CLI。旧式 `uvx code-review-graph serve` 无法仅凭命令判断是插件还是用户创建，因此不会自动删除；`--doctor` 会把这类同名覆盖明确列出，交由用户确认。
 
 ## setup 与 doctor 后补选项
 
@@ -78,9 +78,9 @@ node "<plugin-root>/scripts/setup.cjs" --doctor
 
 `--doctor` 是只读诊断，不安装依赖、不执行 MCP add/remove、不构建图谱，也不修改 `AGENTS.md`、`.gitignore` 或插件 marker。它会分别报告：
 
-- Codex CLI 的实际路径、版本、`CODEX_HOME` 和插件数据目录。
+- 可执行的独立 Codex CLI 路径、版本、`CODEX_HOME` 和插件数据目录；CLI 不可用时标记为 `WARN`，不把可选检查误报成插件损坏。
 - 插件私有 CRG 运行环境及 parser 健康状态。
-- 插件原生 MCP 声明、600 秒启动超时，以及是否存在会遮蔽它的同名全局配置。
+- 插件原生 MCP 声明、100 秒启动超时，以及是否存在会遮蔽它的同名全局配置。
 - 当前目录对应的 Git 仓库和项目图谱 `status`。
 - 当前任务工具状态为 `UNKNOWN`：外部 CLI 无法读取已启动任务的工具快照，需在新任务中确认 `mcp__code_review_graph__*` 是否出现。
 - 可直接执行的修复命令，以及修复后是否必须完整重启并创建新任务。

@@ -10,9 +10,12 @@ const {
   cleanLegacyCrgHooks,
   isLegacyUvxCrgMcpConfig,
   isPluginManagedLegacyCrgMcpConfig,
+  isNativeCrgMcpConfig,
   parseMcpJson,
   readBootstrapFailure,
   removeLegacyCrgMcp,
+  resolveCodexCommand,
+  runCodexMcp,
   startAutoBootstrap,
   startCrgBuild,
   startCrgUpdate,
@@ -67,8 +70,60 @@ const healthyManaged = {
 }
 
 {
+  const native = {
+    type: 'stdio',
+    command: 'node',
+    args: ['scripts/mcp-server.cjs'],
+    cwd: '.',
+    startup_timeout_sec: 100,
+  };
+  assert.strictEqual(isNativeCrgMcpConfig(native, { allowRelativeCwd: true }), true);
+  for (const timeout of [99, 101, 600]) {
+    assert.strictEqual(
+      isNativeCrgMcpConfig({ ...native, startup_timeout_sec: timeout }, { allowRelativeCwd: true }),
+      false,
+      `native MCP rejects unexpected startup timeout ${timeout}`
+    );
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-codex-path-'));
+  try {
+    const brokenBin = path.join(tmp, 'broken-bin');
+    const healthyBin = path.join(tmp, 'healthy %TEMP% bin');
+    mkdirp(brokenBin);
+    mkdirp(healthyBin);
+    const fileName = process.platform === 'win32' ? 'codex.cmd' : 'codex';
+    const broken = path.join(brokenBin, fileName);
+    const healthy = path.join(healthyBin, fileName);
+    if (process.platform === 'win32') {
+      fs.writeFileSync(broken, '@echo off\r\nexit /b 1\r\n', 'utf8');
+      fs.writeFileSync(healthy, '@echo off\r\necho codex-cli test\r\nexit /b 0\r\n', 'utf8');
+    } else {
+      fs.writeFileSync(broken, '#!/bin/sh\nexit 1\n', 'utf8');
+      fs.writeFileSync(healthy, '#!/bin/sh\necho codex-cli test\nexit 0\n', 'utf8');
+      fs.chmodSync(broken, 0o755);
+      fs.chmodSync(healthy, 0o755);
+    }
+    const env = {
+      ...process.env,
+      PATH: `${brokenBin}${path.delimiter}${healthyBin}`,
+      PATHEXT: '.CMD',
+    };
+    assert.strictEqual(resolveCodexCommand({ env, cwd: tmp }), healthy);
+    const version = runCodexMcp(['--version'], { codexCommand: healthy, env, cwd: tmp });
+    assert.strictEqual(version.status, 0);
+    assert.match(version.stdout, /codex-cli test/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+{
   const calls = [];
   const result = removeLegacyCrgMcp({
+    codexCommand: 'codex',
     spawnSync: (cmd, args) => {
       calls.push([cmd, args]);
       if (args[1] === 'get') return { status: 0, stdout: JSON.stringify(healthyManaged), stderr: '' };

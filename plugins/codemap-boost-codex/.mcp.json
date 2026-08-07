@@ -7,7 +7,7 @@
         "scripts/mcp-server.cjs"
       ],
       "cwd": ".",
-      "startup_timeout_sec": 600
+      "startup_timeout_sec": 100
     }
   }
 }

@@ -23,6 +23,7 @@ const {
   isNativeCrgMcpConfig,
   parseMcpJson,
   removeLegacyCrgMcp,
+  resolveCodexCommand,
   runCodexMcp,
   startCrgBuild,
 } = require('../hooks/js/lib/codemap');
@@ -61,34 +62,11 @@ function usage() {
 }
 
 /**
- * 从 PATH 中解析当前实际使用的 Codex 命令路径。
- * @example resolveCommandOnPath('codex')
- */
-function resolveCommandOnPath(command) {
-  const directories = String(process.env.PATH || '').split(path.delimiter).filter(Boolean);
-  const suffixes = process.platform === 'win32'
-    ? String(process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';')
-    : [''];
-  const names = process.platform === 'win32'
-    ? [command, ...suffixes.map((suffix) => `${command}${suffix.toLowerCase()}`)]
-    : [command];
-  for (const directory of directories) {
-    for (const name of names) {
-      const candidate = path.resolve(directory.replace(/^"|"$/g, ''), name);
-      try {
-        if (fs.statSync(candidate).isFile()) return candidate;
-      } catch (_) {}
-    }
-  }
-  return null;
-}
-
-/**
  * 读取 MCP 配置而不执行 add/remove，保证 doctor 诊断不改变注册状态。
  * @example readMcpConfig(process.cwd())
  */
-function readMcpConfig(cwd) {
-  const result = runCodexMcp(['mcp', 'get', 'code-review-graph', '--json'], { cwd });
+function readMcpConfig(cwd, options = {}) {
+  const result = runCodexMcp(['mcp', 'get', 'code-review-graph', '--json'], { ...options, cwd });
   const output = `${result && result.stdout ? result.stdout : ''}\n${result && result.stderr ? result.stderr : ''}`;
   return {
     ok: !!result && !result.error && result.status === 0,
@@ -121,14 +99,18 @@ function runDoctor(cwd) {
   const data = pluginDataDir();
   const managed = crgRuntimePaths();
   const root = repoRoot(cwd);
-  const codexPath = resolveCommandOnPath('codex');
-  const codexVersion = runCodexMcp(['--version'], { cwd });
+  const codexPath = resolveCodexCommand({ cwd });
+  const codexVersion = codexPath
+    ? runCodexMcp(['--version'], { cwd, codexCommand: codexPath })
+    : null;
   const codexOk = !!codexVersion && !codexVersion.error && codexVersion.status === 0;
   const versionText = String(codexVersion && codexVersion.stdout ? codexVersion.stdout : '').trim();
   const runtimeDiagnostics = [];
   const runtimeOk = probeCrgRuntime({ diagnostics: runtimeDiagnostics });
   const nativeMcp = readNativeMcpConfig();
-  const resolvedMcp = readMcpConfig(cwd);
+  const resolvedMcp = codexOk
+    ? readMcpConfig(cwd, { codexCommand: codexPath })
+    : { ok: false, config: null, unavailable: true };
   const nativePluginRoot = path.resolve(__dirname, '..');
   const resolvedLooksNative = resolvedMcp.ok && isNativeCrgMcpConfig(resolvedMcp.config, {
     allowDisabled: true,
@@ -157,21 +139,25 @@ function runDoctor(cwd) {
 
   log('CodeMap Boost doctor（只读诊断）');
   log(`插件版本:          ${packageJson.version}`);
-  log(`Codex CLI:         ${codexOk ? 'PASS' : 'FAIL'}  ${codexPath || 'PATH 中未找到'}${versionText ? ` (${versionText})` : ''}`);
+  log(`Codex CLI:         ${codexOk ? 'PASS' : 'WARN'}  ${codexPath || '未找到可执行的独立 CLI'}${versionText ? ` (${versionText})` : ''}`);
   log(`CODEX_HOME:        ${home}`);
   log(`插件数据目录:      ${data}`);
   log(`私有运行时:        ${runtimeOk ? 'PASS' : 'FAIL'}  ${managed.command}`);
   if (!runtimeOk && runtimeDiagnostics.length > 0) log(`运行时诊断:        ${runtimeDiagnostics.slice(-2).join('；')}`);
-  log(`MCP 原生配置:      ${nativeMcp.ok ? 'PASS' : 'FAIL'}  ${nativeMcp.ok ? '启动超时 600 秒' : nativeMcp.diagnostic || '声明缺失或无效'}`);
-  log(`Codex MCP 解析:    ${resolvedIsNative ? 'PASS' : 'FAIL'}  ${resolvedIsNative
-    ? '已解析插件原生启动器'
+  log(`MCP 原生配置:      ${nativeMcp.ok ? 'PASS' : 'FAIL'}  ${nativeMcp.ok ? `启动超时 ${nativeMcp.config.startup_timeout_sec} 秒` : nativeMcp.diagnostic || '声明缺失或无效'}`);
+  log(`Codex MCP 解析:    ${!codexOk ? 'UNKNOWN' : resolvedIsNative ? 'PASS' : 'FAIL'}  ${!codexOk
+    ? '独立 CLI 不可用，无法读取有效配置；插件启动不依赖 CLI'
+    : resolvedIsNative
+      ? '已解析插件原生启动器'
     : nativeDisabled
       ? '插件原生 MCP 已被禁用'
       : hasGlobalOverride
         ? '同名配置优先于插件原生 MCP'
         : 'codex mcp get 未返回插件原生 MCP'}`);
-  log(`同名全局覆盖:      ${hasGlobalOverride ? 'FAIL' : 'PASS'}  ${hasGlobalOverride
-    ? legacyOverride
+  log(`同名全局覆盖:      ${!codexOk ? 'UNKNOWN' : hasGlobalOverride ? 'FAIL' : 'PASS'}  ${!codexOk
+    ? '独立 CLI 不可用，已跳过旧版覆盖检查'
+    : hasGlobalOverride
+      ? legacyOverride
       ? '旧版插件私有运行时注册会遮蔽原生 MCP，setup 可自动移除'
       : ambiguousUvxOverride
         ? '发现旧式 uvx 同名配置，但无法确认所有权，需由用户确认是否移除'
@@ -181,11 +167,11 @@ function runDoctor(cwd) {
   log(`项目图谱:          ${graphStatusOk ? 'PASS' : graphExists ? 'WARN  图谱存在但 status 检查失败' : 'WARN  尚未找到图谱目录'}`);
   log('当前任务工具:      UNKNOWN  CLI 无法读取已启动任务的工具快照，请在新任务中确认 mcp__code_review_graph__ 工具。');
 
-  const needsRepair = !codexOk || !runtimeOk || !nativeMcp.ok || !resolvedIsNative;
+  const needsRepair = !runtimeOk || !nativeMcp.ok || (codexOk && !resolvedIsNative);
   const needsProject = !root;
   const needsBuild = !!root && !graphStatusOk;
   log('建议:');
-  if (!codexOk) log('  - 安装或修复 Codex CLI，并确认运行 `codex --version` 成功；setup 无法安装 Codex CLI。');
+  if (!codexOk) log('  - 独立 Codex CLI 不可用；已跳过可选的有效 MCP 与旧版覆盖检查，插件原生 MCP 不依赖 CLI。');
   if (needsProject) log('  - 切换到目标 Git 仓库目录后重新运行 --doctor；不要在插件目录或普通目录构建项目图谱。');
   if (!nativeMcp.ok) log('  - 插件原生 MCP 声明损坏；请更新或重新安装 codemap-boost-codex。');
   if (nativeDisabled) log('  - 在 Codex 插件设置中重新启用 code-review-graph MCP。');
@@ -243,6 +229,8 @@ function main() {
   }
   if (migration.changed) {
     log('[codemap-boost-codex] 已移除旧版全局 MCP 覆盖；新任务会直接加载插件原生 code-review-graph MCP。');
+  } else if (migration.skipped) {
+    log('[codemap-boost-codex] 未找到可执行的独立 Codex CLI，无法检查旧版全局 MCP 覆盖；插件原生 MCP 启动本身不依赖 CLI。');
   }
 
   if (args.has('--with-graphify') && !ensureGraphify()) {

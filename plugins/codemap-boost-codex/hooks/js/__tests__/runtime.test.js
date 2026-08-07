@@ -16,7 +16,7 @@ const { pluginDataDir } = require('../lib/runtime');
       'cache',
       'codex-toolshop',
       'codemap-boost-codex',
-      '0.1.18'
+      '0.1.19'
     );
     assert.strictEqual(
       pluginDataDir({ codexHome: home, pluginRoot }),

@@ -44,6 +44,7 @@ function writeFakeCodex(binDir) {
     fs.writeFileSync(file, [
       '@echo off',
       'echo %*>>"%CODEMAP_TEST_MCP_LOG%"',
+      'if "%1"=="--version" echo codex-cli test & exit /b 0',
       'if "%2"=="get" echo {"name":"code-review-graph","enabled":true,"transport":{"type":"stdio","command":"%CODEMAP_TEST_CRG_JSON_COMMAND%","args":["serve"],"cwd":null}} & exit /b 0',
       'if "%2"=="remove" exit /b 0',
       'exit /b 1',
@@ -55,6 +56,7 @@ function writeFakeCodex(binDir) {
   fs.writeFileSync(file, [
     '#!/bin/sh',
     'echo "$@" >> "$CODEMAP_TEST_MCP_LOG"',
+    'if [ "$1" = "--version" ]; then echo "codex-cli test"; exit 0; fi',
     'if [ "$2" = "get" ]; then',
     '  printf \'{"name":"code-review-graph","enabled":true,"transport":{"type":"stdio","command":"%s","args":["serve"],"cwd":null}}\\n\' "$CODEMAP_TEST_CRG_COMMAND"',
     '  exit 0',
@@ -132,6 +134,26 @@ try {
   assert.ok(normalizedMcpCalls.includes('mcp remove code-review-graph'), 'setup removes the legacy global override');
   assert.doesNotMatch(normalizedMcpCalls, /mcp add code-review-graph/, 'setup relies on the plugin-bundled MCP instead of creating global config');
   assert.ok(!fs.existsSync(log), 'setup without --build does not start graph build');
+
+  const noCliHome = path.join(tmp, 'no-cli-home');
+  const noCliData = path.join(tmp, 'no-cli-data');
+  const noCli = spawnSync(process.execPath, [setup, '--skip-install'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CODEX_HOME: noCliHome,
+      PLUGIN_DATA: noCliData,
+      CODEMAP_BOOST_ASSUME_CRG: '1',
+      CODEMAP_BOOST_CODEX_CLI: path.join(tmp, 'missing-codex'),
+      PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
+    },
+    windowsHide: process.platform === 'win32',
+  });
+  assert.strictEqual(noCli.status, 0, noCli.stderr);
+  assert.match(noCli.stdout, /无法检查旧版全局 MCP 覆盖/);
+  assert.ok(fs.existsSync(path.join(noCliData, '.codemap-boost-enabled')), 'setup enables native MCP flow without a standalone Codex CLI');
+  assert.ok(fs.readFileSync(path.join(noCliHome, 'AGENTS.md'), 'utf8').includes('codemap-boost-codex:start'));
 
   const brokenData = path.join(tmp, 'broken-plugin-data');
   const broken = spawnSync(process.execPath, [setup, '--skip-install'], {

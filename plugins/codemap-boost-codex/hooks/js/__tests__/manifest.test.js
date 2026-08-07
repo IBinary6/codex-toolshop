@@ -49,7 +49,7 @@ assert.ok(crgServer, 'plugin bundles the code-review-graph MCP server');
 assert.strictEqual(crgServer.command, 'node');
 assert.deepStrictEqual(crgServer.args, ['scripts/mcp-server.cjs']);
 assert.strictEqual(crgServer.cwd, '.', 'relative launcher path is resolved from the installed plugin root');
-assert.ok(crgServer.startup_timeout_sec >= 300, 'first-use runtime installation needs an explicit startup timeout');
+assert.strictEqual(crgServer.startup_timeout_sec, 100, 'bundled MCP startup timeout stays at 100 seconds');
 
 const hooks = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'hooks', 'hooks.json'), 'utf8'));
 const legacyHooks = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'hooks', 'codex-hooks.json'), 'utf8'));

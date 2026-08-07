@@ -1,6 +1,6 @@
 'use strict';
 
-const { additionalContext, commandExists, readStdinJson, hookCwd, passSilent } = require('./lib/runtime');
+const { additionalContext, readStdinJson, hookCwd, passSilent } = require('./lib/runtime');
 const {
   cleanLegacyCrgGitHook,
   cleanLegacyCrgHooks,
@@ -21,14 +21,12 @@ async function main() {
   try { bootstrapStarted = startAutoBootstrap(cwd); } catch (_) {}
   let mcpNotice = '';
   if (isCodeMapEnabled()) {
-    if (commandExists('codex') || process.env.CODEMAP_BOOST_ASSUME_CRG !== '1') {
-      const migration = removeLegacyCrgMcp({ cwd });
-      if (!migration.ok) {
-        additionalContext('SessionStart', migration.diagnostic);
-        return;
-      }
-      if (migration.changed) mcpNotice = '已自动移除旧版全局 MCP 覆盖；请新开一个任务加载插件原生 code-review-graph 工具。';
+    const migration = removeLegacyCrgMcp({ cwd });
+    if (!migration.ok) {
+      additionalContext('SessionStart', migration.diagnostic);
+      return;
     }
+    if (migration.changed) mcpNotice = '已自动移除旧版全局 MCP 覆盖；请新开一个任务加载插件原生 code-review-graph 工具。';
     try { cleanLegacyCrgHooks(); } catch (_) {}
     try { cleanLegacyCrgGitHook(cwd); } catch (_) {}
     try { ensureAgentsBlock(); } catch (_) {}

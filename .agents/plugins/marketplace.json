@@ -20,7 +20,7 @@
     },
     {
       "name": "codemap-boost-codex",
-      "version": "0.1.18",
+      "version": "0.1.19",
       "description": "Install-ready CodeMap workflow for Codex with a bundled code-review-graph MCP and synchronized graph-read barriers.",
       "source": {
         "source": "local",

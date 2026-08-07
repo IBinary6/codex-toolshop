@@ -9,7 +9,6 @@ const { crgRuntimePaths, probeCrgRuntime } = require('./bootstrap');
 
 const {
   codexHome,
-  commandExists,
   ensureDir,
   isGitRepo,
   markerPath,
@@ -247,11 +246,6 @@ function withTemporaryGitIndex(root, callback) {
   } finally {
     try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {}
   }
-}
-
-function quoteCmd(value) {
-  const text = String(value);
-  return /^[A-Za-z0-9_./:\\-]+$/.test(text) ? text : `"${text.replace(/"/g, '""')}"`;
 }
 
 function runCrgDefault(args, options = {}) {
@@ -545,7 +539,7 @@ function isPluginManagedLegacyCrgMcpConfig(config) {
 
 /**
  * 判断当前 MCP 配置是否来自插件自带的跨平台启动器。
- * @example isNativeCrgMcpConfig({ command: 'node', args: ['scripts/mcp-server.cjs'], cwd: '.', startup_timeout_sec: 600 }, { allowRelativeCwd: true })
+ * @example isNativeCrgMcpConfig({ command: 'node', args: ['scripts/mcp-server.cjs'], cwd: '.', startup_timeout_sec: 100 }, { allowRelativeCwd: true })
  */
 function isNativeCrgMcpConfig(config, options = {}) {
   if (!config || typeof config !== 'object') return false;
@@ -573,7 +567,7 @@ function isNativeCrgMcpConfig(config, options = {}) {
     && JSON.stringify(args) === JSON.stringify(['scripts/mcp-server.cjs'])
     && cwdOk
     && Number.isFinite(timeout)
-    && timeout >= 300;
+    && timeout === 100;
 }
 
 function readBootstrapFailure() {
@@ -586,16 +580,40 @@ function readBootstrapFailure() {
   return '';
 }
 
-function runCodexMcp(args, options = {}) {
+/**
+ * 运行已解析的 Codex CLI；Windows 批处理入口必须经 cmd.exe 启动。
+ * @example runCodexCommand('codex', ['--version'])
+ */
+function runCodexCommand(command, args, options = {}) {
   const spawn = options.spawnSync || spawnSync;
-  const useCmdShim = process.platform === 'win32' && !options.spawnSync;
-  const command = useCmdShim ? (process.env.ComSpec || 'cmd.exe') : 'codex';
+  const env = options.env || process.env;
+  const useCmdShim = process.platform === 'win32'
+    && !options.spawnSync
+    && /\.(?:cmd|bat)$/i.test(command);
+  const executable = useCmdShim ? (env.ComSpec || process.env.ComSpec || 'cmd.exe') : command;
+  const commandEnv = useCmdShim ? { ...env, CODEMAP_BOOST_CODEX_COMMAND: command } : env;
+  if (useCmdShim) {
+    args.forEach((arg, index) => {
+      commandEnv[`CODEMAP_BOOST_CODEX_ARG_${index}`] = String(arg);
+    });
+  }
+  const commandArgRefs = args.map((arg, index) => {
+    const ref = `%CODEMAP_BOOST_CODEX_ARG_${index}%`;
+    return /^[A-Za-z0-9_./:\\-]+$/.test(String(arg)) ? ref : `"${ref}"`;
+  });
   const commandArgs = useCmdShim
-    ? ['/d', '/s', '/c', ['codex', ...args].map(quoteCmd).join(' ')]
+    ? [
+        '/d',
+        '/v:off',
+        '/s',
+        '/c',
+        `""%CODEMAP_BOOST_CODEX_COMMAND%" ${commandArgRefs.join(' ')}"`,
+      ]
     : args;
   try {
-    return spawn(command, commandArgs, {
+    return spawn(executable, commandArgs, {
       cwd: options.cwd || process.cwd(),
+      env: commandEnv,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: options.timeout || 30000,
@@ -608,15 +626,78 @@ function runCodexMcp(args, options = {}) {
 }
 
 /**
+ * 从 PATH 中逐个探测 Codex CLI，跳过存在但无法执行的桌面应用入口。
+ * @example resolveCodexCommand({ cwd: process.cwd() })
+ */
+function resolveCodexCommand(options = {}) {
+  const env = options.env || process.env;
+  const explicit = String(env.CODEMAP_BOOST_CODEX_CLI || '').trim();
+  const candidates = [];
+  if (explicit) {
+    candidates.push(explicit);
+  } else {
+    const suffixes = process.platform === 'win32'
+      ? String(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+      : [''];
+    const names = process.platform === 'win32'
+      ? [...suffixes.map((suffix) => `codex${suffix.toLowerCase()}`), 'codex']
+      : ['codex'];
+    for (const directory of String(env.PATH || '').split(path.delimiter).filter(Boolean)) {
+      for (const name of names) {
+        const candidate = path.resolve(directory.replace(/^"|"$/g, ''), name);
+        try {
+          if (fs.statSync(candidate).isFile()) candidates.push(candidate);
+        } catch (_) {}
+      }
+    }
+  }
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const key = process.platform === 'win32' ? candidate.toLowerCase() : candidate;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const probe = runCodexCommand(candidate, ['--version'], { ...options, env, timeout: 10000 });
+    if (probe && !probe.error && probe.status === 0) return candidate;
+  }
+  return null;
+}
+
+/**
+ * 通过已验证的 CLI 执行 Codex MCP 子命令；测试可注入 spawnSync。
+ * @example runCodexMcp(['mcp', 'get', 'code-review-graph', '--json'])
+ */
+function runCodexMcp(args, options = {}) {
+  const command = options.codexCommand
+    || (options.spawnSync ? 'codex' : resolveCodexCommand(options));
+  if (!command) {
+    const error = new Error('Codex CLI is unavailable');
+    error.code = 'ENOENT';
+    return { status: null, error, stdout: '', stderr: '', available: false };
+  }
+  return runCodexCommand(command, args, options);
+}
+
+/**
  * 删除可由私有运行时路径证明归属插件的旧版全局注册。
  * @example removeLegacyCrgMcp({ cwd: process.cwd() })
  */
 function removeLegacyCrgMcp(options = {}) {
-  const getResult = runCodexMcp(['mcp', 'get', 'code-review-graph', '--json'], options);
+  const codexCommand = options.codexCommand
+    || (options.spawnSync ? 'codex' : resolveCodexCommand(options));
+  if (!codexCommand) {
+    return {
+      ok: true,
+      changed: false,
+      skipped: true,
+      diagnostic: '未找到可执行的独立 Codex CLI，无法检查旧版全局 MCP 覆盖；插件原生 MCP 启动本身不依赖 CLI。',
+    };
+  }
+  const commandOptions = { ...options, codexCommand };
+  const getResult = runCodexMcp(['mcp', 'get', 'code-review-graph', '--json'], commandOptions);
   const output = `${getResult && getResult.stdout ? getResult.stdout : ''}\n${getResult && getResult.stderr ? getResult.stderr : ''}`;
   const config = parseMcpJson(output);
   if (!isPluginManagedLegacyCrgMcpConfig(config)) return { ok: true, changed: false };
-  const removeResult = runCodexMcp(['mcp', 'remove', 'code-review-graph'], options);
+  const removeResult = runCodexMcp(['mcp', 'remove', 'code-review-graph'], commandOptions);
   if (removeResult && !removeResult.error && removeResult.status === 0) {
     return { ok: true, changed: true };
   }
@@ -753,6 +834,7 @@ module.exports = {
   isLegacyUvxCrgMcpConfig,
   isPluginManagedLegacyCrgMcpConfig,
   isNativeCrgMcpConfig,
+  resolveCodexCommand,
   runCodexMcp,
   removeLegacyCrgMcp,
   readBootstrapFailure,

@@ -55,7 +55,7 @@ function main() {
   assert(crgServer.command === 'node', 'bundled MCP must use the cross-platform Node launcher');
   assert(JSON.stringify(crgServer.args) === JSON.stringify(['scripts/mcp-server.cjs']), 'bundled MCP launcher path is wrong');
   assert(crgServer.cwd === '.', 'bundled MCP cwd must resolve from the plugin root');
-  assert(crgServer.startup_timeout_sec >= 300, 'bundled MCP must allow first-use installation time');
+  assert(crgServer.startup_timeout_sec === 100, 'bundled MCP startup timeout must stay at 100 seconds');
 
   const hooks = readJson(path.join(pluginRoot, 'hooks', 'hooks.json'), 'hooks manifest');
   const legacyHooks = readJson(path.join(pluginRoot, 'hooks', 'codex-hooks.json'), 'legacy hooks manifest');
