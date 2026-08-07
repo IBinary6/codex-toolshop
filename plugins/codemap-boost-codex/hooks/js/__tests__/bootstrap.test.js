@@ -5,13 +5,53 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
+  acquireInstallLock,
   crgRuntimePaths,
   ensureCli,
   ensureCrg,
   installManagedCrg,
   probeCrgRuntime,
   pythonCandidates,
+  releaseInstallLock,
 } = require('../lib/bootstrap');
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-stale-install-lock-'));
+  const lock = path.join(tmp, 'runtime.install.lock');
+  try {
+    fs.writeFileSync(lock, '999999999', 'utf8');
+    const old = new Date(Date.now() - 10000);
+    fs.utimesSync(lock, old, old);
+    const token = acquireInstallLock(lock, {
+      installLockWaitMs: 200,
+      installLockBootMs: 5000,
+    });
+    assert.ok(token, 'a dead installer lock is reclaimed after the boot grace period');
+    releaseInstallLock(lock, token);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-live-install-lock-'));
+  const lock = path.join(tmp, 'runtime.install.lock');
+  try {
+    fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, token: 'owner-token' }), 'utf8');
+    const old = new Date(Date.now() - 60 * 60 * 1000);
+    fs.utimesSync(lock, old, old);
+    assert.strictEqual(acquireInstallLock(lock, {
+      installLockWaitMs: 20,
+      installLockBootMs: 1,
+    }), false, 'a live installer lock is never reclaimed only because it is old');
+    releaseInstallLock(lock, 'another-token');
+    assert.ok(fs.existsSync(lock), 'a non-owner cannot release the installation lock');
+    releaseInstallLock(lock, 'owner-token');
+    assert.ok(!fs.existsSync(lock), 'the matching owner token releases the installation lock');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
 
 {
   let installed = null;
@@ -158,6 +198,28 @@ const {
     assert.strictEqual(ok, true, 'unhealthy or user-site CLI is replaced by managed runtime');
     assert.strictEqual(installed, 1);
     assert.ok(!fs.existsSync(marker));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-managed-concurrent-'));
+  let probes = 0;
+  let installs = 0;
+  let releases = 0;
+  try {
+    const ok = ensureCrg({
+      runtimeDir: path.join(tmp, 'runtime'),
+      markerPath: path.join(tmp, '.crg-install-failed'),
+      probeRuntime: () => { probes += 1; return probes > 1; },
+      installRuntime: () => { installs += 1; return true; },
+      acquireInstallLock: () => true,
+      releaseInstallLock: () => { releases += 1; },
+    });
+    assert.strictEqual(ok, true);
+    assert.strictEqual(installs, 0, 'a second task reuses the runtime installed by the lock holder');
+    assert.strictEqual(releases, 1, 'the installation lock is always released');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

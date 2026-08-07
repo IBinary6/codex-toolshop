@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -9,6 +10,8 @@ const { commandExists } = require('./runtime');
 const CRG_PACKAGE = 'code-review-graph[all]';
 const CRG_RUNTIME_DIR = 'crg-runtime';
 const CRG_PYTHON_VERSION = '3.12';
+const INSTALL_LOCK_WAIT_MS = 9 * 60 * 1000;
+const INSTALL_LOCK_BOOT_MS = 5000;
 
 function pythonCandidates() {
   const candidates = [];
@@ -202,6 +205,72 @@ function writeFailureMarker(file, diagnostic) {
   } catch (_) {}
 }
 
+/**
+ * 在短暂轮询间隔内同步等待，不启动额外 shell 进程。
+ * @example sleepSync(100)
+ */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * 检查锁文件记录的本机进程是否仍存活。
+ * @example isPidAlive(process.pid)
+ */
+function isPidAlive(pid) {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * 获取私有运行时安装锁，避免并发任务同时重建同一个 venv。
+ * @example acquireInstallLock('/tmp/crg-runtime.install.lock')
+ */
+function acquireInstallLock(file, options = {}) {
+  const waitMs = options.installLockWaitMs || INSTALL_LOCK_WAIT_MS;
+  const bootMs = options.installLockBootMs || INSTALL_LOCK_BOOT_MS;
+  const deadline = Date.now() + waitMs;
+  const token = crypto.randomUUID();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  while (Date.now() <= deadline) {
+    try {
+      fs.writeFileSync(file, JSON.stringify({ pid: process.pid, token }), { flag: 'wx' });
+      return token;
+    } catch (error) {
+      if (error.code !== 'EEXIST') return false;
+    }
+    try {
+      const raw = fs.readFileSync(file, 'utf8').trim();
+      let pid = Number.parseInt(raw, 10) || 0;
+      try { pid = Number(JSON.parse(raw).pid) || 0; } catch (_) {}
+      const age = Date.now() - fs.statSync(file).mtimeMs;
+      // 活进程的安装不能仅因耗时较长而被抢锁，否则两个任务会同时重建 venv。
+      if (!isPidAlive(pid) && age > bootMs) {
+        fs.rmSync(file, { force: true });
+        continue;
+      }
+    } catch (_) {}
+    sleepSync(100);
+  }
+  return false;
+}
+
+/**
+ * 释放当前任务持有的私有运行时安装锁。
+ * @example releaseInstallLock('/tmp/crg-runtime.install.lock', token)
+ */
+function releaseInstallLock(file, token) {
+  try {
+    const current = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (current.token === token) fs.rmSync(file, { force: true });
+  } catch (_) {}
+}
+
 function ensureCli(command, pkg, marker, opts = {}) {
   const probe = opts.probe || commandExists;
   const install = opts.install || pipInstall;
@@ -261,16 +330,38 @@ function ensureCrg(options = {}) {
     clearMarker();
     return true;
   }
-  let installed = false;
-  try { installed = !!install(CRG_PACKAGE, runtimeOptions); } catch (error) {
-    recordDiagnostic(runtimeOptions, `隔离运行环境安装异常：${errorSummary(error)}`);
+  const lockFile = options.installLockPath || `${crgRuntimePaths(options).dir}.install.lock`;
+  const acquire = options.acquireInstallLock || acquireInstallLock;
+  const release = options.releaseInstallLock || releaseInstallLock;
+  let lockToken = null;
+  try {
+    lockToken = acquire(lockFile, runtimeOptions);
+    if (!lockToken) recordDiagnostic(runtimeOptions, `等待私有运行环境安装锁超时：${lockFile}`);
+  } catch (error) {
+    recordDiagnostic(runtimeOptions, `获取私有运行环境安装锁异常：${errorSummary(error)}`);
   }
-  try { healthy = installed && !!probe(runtimeOptions); } catch (error) {
-    recordDiagnostic(runtimeOptions, `安装后健康检查异常：${errorSummary(error)}`);
-  }
-  if (healthy) {
-    clearMarker();
-    return true;
+  if (lockToken) {
+    try {
+      // 等锁期间另一任务可能已经完成安装，必须先复查再决定是否重建。
+      try { healthy = !!probe(runtimeOptions); } catch (error) {
+        recordDiagnostic(runtimeOptions, `加锁后健康检查异常：${errorSummary(error)}`);
+      }
+      let installed = false;
+      if (!healthy) {
+        try { installed = !!install(CRG_PACKAGE, runtimeOptions); } catch (error) {
+          recordDiagnostic(runtimeOptions, `隔离运行环境安装异常：${errorSummary(error)}`);
+        }
+        try { healthy = installed && !!probe(runtimeOptions); } catch (error) {
+          recordDiagnostic(runtimeOptions, `安装后健康检查异常：${errorSummary(error)}`);
+        }
+      }
+      if (healthy) {
+        clearMarker();
+        return true;
+      }
+    } finally {
+      release(lockFile, lockToken);
+    }
   }
   const detail = [...new Set(diagnostics)].slice(-6).join('；');
   const diagnostic = 'code-review-graph 插件隔离运行环境安装或 parser 健康检查失败。'
@@ -293,5 +384,7 @@ module.exports = {
   installManagedCrg,
   ensureCli,
   ensureCrg,
+  acquireInstallLock,
+  releaseInstallLock,
   ensureGraphify,
 };

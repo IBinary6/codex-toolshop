@@ -1,9 +1,9 @@
 'use strict';
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { pluginDataDir } = require('../hooks/js/lib/runtime');
 
 const HOOKS = {
   session_start: path.join('hooks', 'js', 'session_start.js'),
@@ -17,15 +17,6 @@ const HOOKS = {
 function pluginRoot() {
   const fromEnv = process.env.PLUGIN_ROOT;
   return fromEnv ? path.resolve(fromEnv) : path.resolve(__dirname, '..');
-}
-
-function pluginDataDir(root) {
-  const fromEnv = process.env.PLUGIN_DATA;
-  if (fromEnv) return path.resolve(fromEnv);
-  const codexHome = process.env.CODEX_HOME
-    ? path.resolve(process.env.CODEX_HOME)
-    : path.join(os.homedir(), '.codex');
-  return path.join(codexHome, 'plugins', 'data', 'codemap-boost-codex');
 }
 
 function readStdin() {
@@ -46,7 +37,7 @@ function main() {
 
   const root = pluginRoot();
   const target = path.join(root, rel);
-  const dataDir = pluginDataDir(root);
+  const dataDir = pluginDataDir({ pluginRoot: root });
   try {
     fs.mkdirSync(dataDir, { recursive: true });
   } catch (_) {}

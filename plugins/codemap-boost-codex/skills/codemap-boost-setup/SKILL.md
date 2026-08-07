@@ -1,82 +1,74 @@
 ---
 name: codemap-boost-setup
-description: Configure or explain CodeMap Boost for Codex, including code-review-graph, graphify, hooks, and AGENTS.md behavior.
+description: Configure, verify, or troubleshoot CodeMap Boost for Codex, including the bundled code-review-graph MCP, private runtime, legacy MCP migration, graphify, hooks, and AGENTS.md behavior.
 ---
 
 # CodeMap Boost Setup
 
-Use this skill when the user asks how to configure, verify, or troubleshoot `codemap-boost-codex`.
+## Default behavior
 
-## Rule
+Treat plugin installation as the complete normal setup. The bundled `.mcp.json` exposes `code-review-graph` while a cross-platform Node launcher creates or repairs the isolated CRG venv before serving MCP. It uses the marketplace-qualified Codex plugin data directory, serializes concurrent installation, and declares a 600-second startup timeout. Do not ask the user to run setup after a normal installation.
 
-CodeMap Boost is auto-enabled for Codex. The standard AI installation flow checks `codex` CLI and prefers `uv` (falling back to Python `venv`), installs the plugin, then immediately runs setup in the user's target repository. Setup owns an isolated CRG venv under plugin data, probes parsers with Python isolated mode, and registers MCP to that absolute runtime path. SessionStart remains a fallback for missed setup, broken user-site installs, old MCP config, or a fixed `cwd`. Structural prompts and source-changing tools maintain the graph; SubagentStart only injects retrieval guidance, while the graph MCP PreToolUse barrier performs the final synchronous freshness check.
+After installing or upgrading the plugin, ask the user to create a new Codex task because an already-running task cannot dynamically add MCP tools. On upgrades, SessionStart automatically removes an old absolute-path registration only when its plugin-data path proves plugin ownership; if that migration occurred, create one more new task. Never auto-remove `uvx code-review-graph serve`, because the command alone cannot prove whether the plugin or the user created it. Doctor should report that ambiguous override for user confirmation.
 
-## Quick Checks
+## Verification
 
-Prefer the plugin's read-only doctor command when the user asks for diagnosis. Run it from the target project; it must not be combined with setup flags:
+Use this command for a low-level MCP check:
+
+```bash
+codex mcp get code-review-graph --json
+```
+
+The bundled configuration should resolve to:
+
+- stdio command `node`;
+- argument `scripts/mcp-server.cjs`;
+- `cwd` resolved under the installed plugin root;
+- `startup_timeout_sec` equal to `600`.
+
+The plugin-root `cwd` is only for locating the launcher. The graph `PreToolUse` hook injects the active task's Git root as `repo_root` for CRG project tools, while preserving an explicit `repo_root` and leaving cross-repository registry tools unchanged.
+
+If `mcp__code_review_graph__` is absent from the current task, state that the task did not load the MCP and use a suitable fallback. Never claim a graph query ran. Check whether the task predates installation before diagnosing the plugin.
+
+## Doctor fallback
+
+When the user asks for diagnosis, run the read-only doctor from the target project:
 
 ```bash
 node <plugin-root>/scripts/setup.cjs --doctor
 ```
 
-Doctor reports Codex/CODEX_HOME paths, managed runtime and parsers, exact MCP registration, legacy `uvx`, repository graph status, restart guidance, and the limitation that an external CLI cannot inspect the current task's already-loaded tool snapshot. Exit `0` means `READY`; exit `1` means setup/build attention is required. Doctor must remain read-only: do not install, repair, build, edit files, or clear markers.
+Resolve `<plugin-root>` from this skill location or from `codex plugin list --json`. Doctor reports the effective Codex paths, marketplace-qualified plugin data directory, private runtime/parser health, bundled MCP timeout, same-name global overrides, project graph status, and restart guidance. Exit `0` means `READY`; exit `1` means attention is required. Never combine `--doctor` with setup flags.
 
-For lower-level validation after setup:
+## Setup fallback
 
-Run these from the current project when the user wants validation:
-
-```bash
-<managed-runtime-reported-by-setup> --version
-<managed-runtime-reported-by-setup> status
-codex mcp get code-review-graph --json
-```
-
-## Setup
-
-Resolve the plugin root from this skill location. If the skill is not loaded in the current task, run `codex plugin list --json`, find `codemap-boost-codex@codex-toolshop`, and use its `source.path`. Run the setup script with the user's target project as the working directory. The installing AI should do this immediately after plugin installation; do not make the user remember it. Do not run it from the plugin root unless the plugin repository itself is the target project.
+Run setup only for repair, explicit prewarming, initial graph build, or legacy registration migration:
 
 ```bash
 node <plugin-root>/scripts/setup.cjs --build
 ```
 
-The setup script is idempotent:
+Run it with the user's target Git repository as the working directory. It is idempotent and:
 
-- It ignores unrelated global/user-site CRG commands and owns `<plugin-data>/crg-runtime` without changing PATH.
-- It prefers `uv venv --python 3.12`, falling back to Python `venv`, then installs `code-review-graph[all]` only inside that venv.
-- It verifies the managed CLI and loads Python, JavaScript, TypeScript, and TSX parsers using `python -I`, matching CRG's own isolated parser probe.
-- It checks `codex mcp get code-review-graph --json`; missing, disabled, wrong command/args, uvx/global command, or fixed `cwd` are repaired to the managed absolute path with `codex mcp remove` and `codex mcp add`.
-- It writes a diagnostic marker and exits non-zero on registration failure; the message includes a copy-pasteable command and says to open a new task after repair.
-- It updates the target project's `.gitignore` for graph output directories when run explicitly.
-- Hooks synchronously build/update graphs when `code-review-graph` is available; SessionStart attempts to make it available automatically. PostToolUse skips known read-only Bash commands.
+- maintains `<plugin-data>/crg-runtime` without modifying PATH or user site-packages;
+- prefers `uv` with Python 3.12, then falls back to Python `venv`;
+- verifies the CLI and Python, JavaScript, TypeScript, and TSX parsers in isolated mode;
+- removes only old plugin-managed same-name global MCP registrations and preserves unrelated user-managed paths;
+- updates the target project's `.gitignore` and optionally starts the initial graph build.
 
-Optional graphify support is enabled only when explicitly requested:
+Enable optional graphify only when requested:
 
 ```bash
 node <plugin-root>/scripts/setup.cjs --with-graphify
 ```
 
-Equivalent internal commands for troubleshooting only; never repair this with `pip install --user`:
+Never repair CRG with `pip install --user`.
 
-```bash
-uv venv --python 3.12 "<plugin-data>/crg-runtime"
-uv pip install --python "<plugin-data>/crg-runtime/<python>" --upgrade "code-review-graph[all]"
-# 没有 uv 时：
-python -m venv "<plugin-data>/crg-runtime"
-"<plugin-data>/crg-runtime/<python>" -m pip install --upgrade "code-review-graph[all]"
-python -m pip install "graphifyy[all]"
-```
+## Codex behavior
 
-完成 setup 后验证版本、状态和 MCP JSON；修复或首次注册 MCP 后必须新开 Codex 任务，因为已启动任务不会动态注入新的 MCP。
-
-## Codex Behavior
-
-- Global guidance is managed in `$CODEX_HOME/AGENTS.md`.
-- Project graph output is `.code-review-graph/`.
-- Optional graphify output is `graphify-out/`.
-- SessionStart writes graph output paths to `.git/info/exclude` so passive hooks do not dirty tracked project files.
-- Hooks stay silent when graph behavior is explicitly disabled.
-- The plugin owns Codex hooks; do not let `code-review-graph install` add third-party hooks.
-- The plugin should not read or write old host directories.
-- Use code-review-graph MCP tools for symbols, callers, callees, references, impact analysis, and review context.
-- Routing plugins such as Agent Dispatch choose the worker; CodeMap Boost owns graph refresh and retrieval policy. Do not start a duplicate build/update from a subagent unless a hook reports failure or the user explicitly requests a rebuild.
-- If `mcp__code_review_graph__` is absent from the current task's tool list, say that the task did not load the MCP and use a suitable fallback. Do not claim a graph query ran. Repair with setup if doctor reports a problem, then fully restart Codex and create a new task.
+- Keep global guidance in `$CODEX_HOME/AGENTS.md`.
+- Keep project graph output in `.code-review-graph/` and optional graphify output in `graphify-out/`.
+- Let SessionStart and PostToolUse maintain the graph; let the graph MCP PreToolUse barrier perform the final synchronous freshness check.
+- Let SubagentStart inject retrieval rules without rebuilding the graph.
+- Let routing plugins choose the worker while CodeMap Boost owns graph freshness and retrieval policy.
+- Do not let `code-review-graph install` add third-party hooks, instructions, or skills.

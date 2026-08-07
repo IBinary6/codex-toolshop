@@ -7,9 +7,9 @@ const {
   ensureAgentsBlock,
   readBootstrapFailure,
   ensureGitInfoExclude,
-  ensureCrgMcp,
   isCodeMapEnabled,
   refreshCrgSync,
+  removeLegacyCrgMcp,
   startAutoBootstrap,
   startCrgBuild,
 } = require('./lib/codemap');
@@ -22,13 +22,12 @@ async function main() {
   let mcpNotice = '';
   if (isCodeMapEnabled()) {
     if (commandExists('codex') || process.env.CODEMAP_BOOST_ASSUME_CRG !== '1') {
-      const mcp = ensureCrgMcp({ cwd });
-      if (!mcp.ok) {
-        additionalContext('SessionStart', mcp.diagnostic
-          || '无法配置 code-review-graph MCP；请修复后新开一个 Codex 任务。');
+      const migration = removeLegacyCrgMcp({ cwd });
+      if (!migration.ok) {
+        additionalContext('SessionStart', migration.diagnostic);
         return;
       }
-      if (mcp.changed) mcpNotice = 'code-review-graph MCP 已修复，请新开一个 Codex 任务使当前会话加载新配置。';
+      if (migration.changed) mcpNotice = '已自动移除旧版全局 MCP 覆盖；请新开一个任务加载插件原生 code-review-graph 工具。';
     }
     try { cleanLegacyCrgHooks(); } catch (_) {}
     try { cleanLegacyCrgGitHook(cwd); } catch (_) {}

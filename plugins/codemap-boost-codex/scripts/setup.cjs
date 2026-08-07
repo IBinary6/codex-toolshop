@@ -18,9 +18,11 @@ const {
   isCodeMapEnabled,
   cleanLegacyCrgGitHook,
   cleanLegacyCrgHooks,
-  ensureCrgMcp,
-  isCrgMcpConfigHealthy,
+  isLegacyUvxCrgMcpConfig,
+  isPluginManagedLegacyCrgMcpConfig,
+  isNativeCrgMcpConfig,
   parseMcpJson,
+  removeLegacyCrgMcp,
   runCodexMcp,
   startCrgBuild,
 } = require('../hooks/js/lib/codemap');
@@ -95,32 +97,18 @@ function readMcpConfig(cwd) {
 }
 
 /**
- * 返回 MCP 当前配置的简短说明，不输出环境变量或其他敏感内容。
- * @example describeMcp({ transport: { command: 'uvx' } })
+ * 读取并验证插件自带 MCP 声明，不依赖用户全局配置。
+ * @example readNativeMcpConfig().ok
  */
-function describeMcp(config, expected) {
-  if (!config || typeof config !== 'object') return '未找到可解析的 code-review-graph MCP 配置';
-  const transport = config.transport && typeof config.transport === 'object' ? config.transport : config;
-  const type = typeof config.transport === 'string'
-    ? config.transport
-    : (transport.type || config.type || config.transport_type || '');
-  const command = String(transport.command || config.command || '');
-  const commandName = path.basename(command).toLowerCase();
-  const currentArgs = Array.isArray(transport.args || config.args) ? (transport.args || config.args) : null;
-  const cwd = Object.hasOwn(transport, 'cwd') ? transport.cwd : config.cwd;
-  const issues = [];
-  if (config.enabled !== true) issues.push('MCP 已禁用');
-  if (String(type).toLowerCase() !== 'stdio') issues.push(`transport 应为 stdio，实际为 ${type || '<缺失>'}`);
-  if (path.basename(command).toLowerCase() === 'uvx' || command.toLowerCase() === 'uvx') {
-    issues.push('发现旧 uvx 注册；应迁移到插件私有运行时绝对路径');
-  } else if (command !== expected.command) {
-    issues.push(`命令应为 ${expected.command}，实际为 ${command || '<缺失>'}`);
+function readNativeMcpConfig() {
+  try {
+    const file = path.join(__dirname, '..', '.mcp.json');
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const config = parsed && parsed.mcpServers && parsed.mcpServers['code-review-graph'];
+    return { ok: isNativeCrgMcpConfig(config, { allowRelativeCwd: true }), config };
+  } catch (error) {
+    return { ok: false, config: null, diagnostic: error.message };
   }
-  if (!currentArgs || JSON.stringify(currentArgs) !== JSON.stringify(expected.args)) {
-    issues.push(`参数应为 ${JSON.stringify(expected.args)}，实际为 ${JSON.stringify(currentArgs)}`);
-  }
-  if (cwd !== null) issues.push(`不应设置固定 cwd，实际为 ${JSON.stringify(cwd)}`);
-  return issues.length > 0 ? issues.join('；') : `配置精确匹配：${commandName || command}`;
 }
 
 /**
@@ -139,11 +127,20 @@ function runDoctor(cwd) {
   const versionText = String(codexVersion && codexVersion.stdout ? codexVersion.stdout : '').trim();
   const runtimeDiagnostics = [];
   const runtimeOk = probeCrgRuntime({ diagnostics: runtimeDiagnostics });
-  const mcp = readMcpConfig(cwd);
-  const mcpOk = mcp.ok && isCrgMcpConfigHealthy(mcp.config, {
-    command: managed.command,
-    args: ['serve'],
+  const nativeMcp = readNativeMcpConfig();
+  const resolvedMcp = readMcpConfig(cwd);
+  const nativePluginRoot = path.resolve(__dirname, '..');
+  const resolvedLooksNative = resolvedMcp.ok && isNativeCrgMcpConfig(resolvedMcp.config, {
+    allowDisabled: true,
+    expectedCwd: nativePluginRoot,
   });
+  const resolvedIsNative = resolvedMcp.ok && isNativeCrgMcpConfig(resolvedMcp.config, {
+    expectedCwd: nativePluginRoot,
+  });
+  const nativeDisabled = resolvedLooksNative && !resolvedIsNative;
+  const hasGlobalOverride = resolvedMcp.ok && !!resolvedMcp.config && !resolvedLooksNative;
+  const legacyOverride = hasGlobalOverride && isPluginManagedLegacyCrgMcpConfig(resolvedMcp.config);
+  const ambiguousUvxOverride = hasGlobalOverride && isLegacyUvxCrgMcpConfig(resolvedMcp.config);
   const graphDir = root ? path.join(root, '.code-review-graph') : null;
   const graphExists = !!graphDir && fs.existsSync(graphDir);
   let graphStatusOk = false;
@@ -165,22 +162,40 @@ function runDoctor(cwd) {
   log(`插件数据目录:      ${data}`);
   log(`私有运行时:        ${runtimeOk ? 'PASS' : 'FAIL'}  ${managed.command}`);
   if (!runtimeOk && runtimeDiagnostics.length > 0) log(`运行时诊断:        ${runtimeDiagnostics.slice(-2).join('；')}`);
-  log(`MCP 注册:          ${mcpOk ? 'PASS' : 'FAIL'}  ${describeMcp(mcp.config, { command: managed.command, args: ['serve'] })}`);
+  log(`MCP 原生配置:      ${nativeMcp.ok ? 'PASS' : 'FAIL'}  ${nativeMcp.ok ? '启动超时 600 秒' : nativeMcp.diagnostic || '声明缺失或无效'}`);
+  log(`Codex MCP 解析:    ${resolvedIsNative ? 'PASS' : 'FAIL'}  ${resolvedIsNative
+    ? '已解析插件原生启动器'
+    : nativeDisabled
+      ? '插件原生 MCP 已被禁用'
+      : hasGlobalOverride
+        ? '同名配置优先于插件原生 MCP'
+        : 'codex mcp get 未返回插件原生 MCP'}`);
+  log(`同名全局覆盖:      ${hasGlobalOverride ? 'FAIL' : 'PASS'}  ${hasGlobalOverride
+    ? legacyOverride
+      ? '旧版插件私有运行时注册会遮蔽原生 MCP，setup 可自动移除'
+      : ambiguousUvxOverride
+        ? '发现旧式 uvx 同名配置，但无法确认所有权，需由用户确认是否移除'
+        : '用户自定义同名 MCP 会遮蔽插件原生 MCP，需由用户决定保留或移除'
+    : '未发现遮蔽配置'}`);
   log(`目标 Git 仓库:     ${root ? `PASS  ${root}` : 'WARN  当前目录不在 Git 仓库中'}`);
   log(`项目图谱:          ${graphStatusOk ? 'PASS' : graphExists ? 'WARN  图谱存在但 status 检查失败' : 'WARN  尚未找到图谱目录'}`);
   log('当前任务工具:      UNKNOWN  CLI 无法读取已启动任务的工具快照，请在新任务中确认 mcp__code_review_graph__ 工具。');
 
-  const needsRepair = !codexOk || !runtimeOk || !mcpOk;
+  const needsRepair = !codexOk || !runtimeOk || !nativeMcp.ok || !resolvedIsNative;
   const needsProject = !root;
   const needsBuild = !!root && !graphStatusOk;
   log('建议:');
   if (!codexOk) log('  - 安装或修复 Codex CLI，并确认运行 `codex --version` 成功；setup 无法安装 Codex CLI。');
   if (needsProject) log('  - 切换到目标 Git 仓库目录后重新运行 --doctor；不要在插件目录或普通目录构建项目图谱。');
-  if (codexOk && runtimeOk && !mcpOk) log(`  - 在目标仓库修复 MCP：node "${path.join(__dirname, 'setup.cjs')}" --build`);
-  else if (!runtimeOk && codexOk) log(`  - 在目标仓库重建私有运行时：node "${path.join(__dirname, 'setup.cjs')}" --build`);
-  else if (codexOk && runtimeOk && mcpOk && needsBuild) log(`  - MCP 已就绪；运行：node "${path.join(__dirname, 'setup.cjs')}" --build`);
-  if (!mcpOk || needsRepair) log('  - 修复后完整退出 Codex，并创建一个全新任务；旧任务不会动态补载 MCP 工具。');
-  else log('  - 注册状态正常；若当前任务没有图工具，请完整重启 Codex 后创建新任务。');
+  if (!nativeMcp.ok) log('  - 插件原生 MCP 声明损坏；请更新或重新安装 codemap-boost-codex。');
+  if (nativeDisabled) log('  - 在 Codex 插件设置中重新启用 code-review-graph MCP。');
+  else if (!resolvedMcp.ok && codexOk) log('  - Codex 未解析插件原生 MCP；请更新或重新安装插件后创建新任务。');
+  if (legacyOverride) log(`  - 自动移除旧版全局覆盖：node "${path.join(__dirname, 'setup.cjs')}" --build`);
+  else if (hasGlobalOverride) log('  - 检查 `codex mcp get code-review-graph --json`，确认所有权后重命名或移除同名 MCP。');
+  if (!runtimeOk && codexOk) log(`  - 在目标仓库重建私有运行时：node "${path.join(__dirname, 'setup.cjs')}" --build`);
+  else if (codexOk && runtimeOk && nativeMcp.ok && needsBuild) log(`  - MCP 已就绪；运行：node "${path.join(__dirname, 'setup.cjs')}" --build`);
+  if (needsRepair) log('  - 修复后完整退出 Codex，并创建一个全新任务；旧任务不会动态补载 MCP 工具。');
+  else log('  - 原生 MCP 状态正常；若当前任务没有图工具，请完整重启 Codex 后创建新任务。');
   const finalStatus = needsRepair ? 'NEEDS_REPAIR' : needsProject ? 'NEEDS_PROJECT' : needsBuild ? 'NEEDS_BUILD' : 'READY';
   log(`最终状态:          ${finalStatus}`);
   process.exitCode = finalStatus === 'READY' ? 0 : 1;
@@ -220,14 +235,14 @@ function main() {
   }
   log(`[codemap-boost-codex] managed runtime: ${crgRuntimePaths().command}`);
 
-  const mcp = ensureCrgMcp({ cwd: process.cwd() });
-  if (!mcp.ok) {
-    warn(`[codemap-boost-codex] ${mcp.diagnostic || 'code-review-graph MCP registration failed.'}`);
+  const migration = removeLegacyCrgMcp({ cwd: process.cwd() });
+  if (!migration.ok) {
+    warn(`[codemap-boost-codex] ${migration.diagnostic}`);
     process.exitCode = 1;
     return;
   }
-  if (mcp.changed) {
-    log('[codemap-boost-codex] code-review-graph MCP 已注册或修复；请新开一个 Codex 任务使当前会话加载新配置。');
+  if (migration.changed) {
+    log('[codemap-boost-codex] 已移除旧版全局 MCP 覆盖；新任务会直接加载插件原生 code-review-graph MCP。');
   }
 
   if (args.has('--with-graphify') && !ensureGraphify()) {

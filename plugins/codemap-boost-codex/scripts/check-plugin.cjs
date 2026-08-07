@@ -47,6 +47,15 @@ function main() {
 
   assert(!Object.prototype.hasOwnProperty.call(plugin, 'hooks'), 'plugin.json must omit unsupported hooks field');
   assert(plugin.skills === './skills/', 'plugin must declare skills directory');
+  assert(plugin.mcpServers === './.mcp.json', 'plugin must declare bundled MCP config');
+
+  const mcp = readJson(path.join(pluginRoot, '.mcp.json'), 'MCP manifest');
+  const crgServer = mcp.mcpServers && mcp.mcpServers['code-review-graph'];
+  assert(crgServer, 'MCP manifest must include code-review-graph');
+  assert(crgServer.command === 'node', 'bundled MCP must use the cross-platform Node launcher');
+  assert(JSON.stringify(crgServer.args) === JSON.stringify(['scripts/mcp-server.cjs']), 'bundled MCP launcher path is wrong');
+  assert(crgServer.cwd === '.', 'bundled MCP cwd must resolve from the plugin root');
+  assert(crgServer.startup_timeout_sec >= 300, 'bundled MCP must allow first-use installation time');
 
   const hooks = readJson(path.join(pluginRoot, 'hooks', 'hooks.json'), 'hooks manifest');
   const legacyHooks = readJson(path.join(pluginRoot, 'hooks', 'codex-hooks.json'), 'legacy hooks manifest');

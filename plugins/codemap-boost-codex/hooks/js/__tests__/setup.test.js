@@ -44,10 +44,8 @@ function writeFakeCodex(binDir) {
     fs.writeFileSync(file, [
       '@echo off',
       'echo %*>>"%CODEMAP_TEST_MCP_LOG%"',
-      'if "%2"=="get" if exist "%CODEMAP_TEST_MCP_OK%" echo {"name":"code-review-graph","enabled":true,"transport":{"type":"stdio","command":"%CODEMAP_TEST_CRG_JSON_COMMAND%","args":["serve"],"cwd":null}} & exit /b 0',
-      'if "%2"=="get" exit /b 1',
-      'if "%2"=="remove" exit /b 1',
-      'if "%2"=="add" echo ok>"%CODEMAP_TEST_MCP_OK%" & exit /b 0',
+      'if "%2"=="get" echo {"name":"code-review-graph","enabled":true,"transport":{"type":"stdio","command":"%CODEMAP_TEST_CRG_JSON_COMMAND%","args":["serve"],"cwd":null}} & exit /b 0',
+      'if "%2"=="remove" exit /b 0',
       'exit /b 1',
       '',
     ].join('\r\n'), 'utf8');
@@ -57,13 +55,11 @@ function writeFakeCodex(binDir) {
   fs.writeFileSync(file, [
     '#!/bin/sh',
     'echo "$@" >> "$CODEMAP_TEST_MCP_LOG"',
-    'if [ "$2" = "get" ] && [ -f "$CODEMAP_TEST_MCP_OK" ]; then',
+    'if [ "$2" = "get" ]; then',
     '  printf \'{"name":"code-review-graph","enabled":true,"transport":{"type":"stdio","command":"%s","args":["serve"],"cwd":null}}\\n\' "$CODEMAP_TEST_CRG_COMMAND"',
     '  exit 0',
     'fi',
-    'if [ "$2" = "get" ]; then exit 1; fi',
-    'if [ "$2" = "remove" ]; then exit 1; fi',
-    'if [ "$2" = "add" ]; then touch "$CODEMAP_TEST_MCP_OK"; exit 0; fi',
+    'if [ "$2" = "remove" ]; then exit 0; fi',
     'exit 1',
     '',
   ].join('\n'), 'utf8');
@@ -88,13 +84,21 @@ try {
   const bin = path.join(tmp, 'bin');
   const log = path.join(tmp, 'crg.log');
   const mcpLog = path.join(tmp, 'mcp.log');
-  const mcpOk = path.join(tmp, 'mcp.ok');
   mkdirp(repo);
   sh(['init'], repo);
   writeFakeCrg(bin);
   writeFakeCodex(bin);
   mkdirp(data);
   const managed = crgRuntimePaths({ runtimeDir: path.join(data, 'crg-runtime') });
+  const legacyManagedCommand = path.join(
+    home,
+    'plugins',
+    'data',
+    'codemap-boost-codex-codex-toolshop',
+    'crg-runtime',
+    process.platform === 'win32' ? 'Scripts' : 'bin',
+    process.platform === 'win32' ? 'code-review-graph.exe' : 'code-review-graph'
+  );
   mkdirp(path.dirname(managed.command));
   fs.writeFileSync(managed.command, '', 'utf8');
   fs.writeFileSync(path.join(data, '.codemap-bootstrap-failed'), '旧版本失败状态\n', 'utf8');
@@ -108,9 +112,8 @@ try {
       PLUGIN_DATA: data,
       CODEMAP_TEST_LOG: log,
       CODEMAP_TEST_MCP_LOG: mcpLog,
-      CODEMAP_TEST_MCP_OK: mcpOk,
-      CODEMAP_TEST_CRG_COMMAND: managed.command,
-      CODEMAP_TEST_CRG_JSON_COMMAND: managed.command.replace(/\\/g, '\\\\'),
+      CODEMAP_TEST_CRG_COMMAND: legacyManagedCommand,
+      CODEMAP_TEST_CRG_JSON_COMMAND: legacyManagedCommand.replace(/\\/g, '\\\\'),
       CODEMAP_BOOST_ASSUME_CRG: '1',
       PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
     },
@@ -126,10 +129,8 @@ try {
   const mcpCalls = fs.readFileSync(mcpLog, 'utf8');
   assert.ok(mcpCalls.includes('mcp get code-review-graph --json'), 'setup checks the existing MCP config');
   const normalizedMcpCalls = mcpCalls.replace(/"/g, '');
-  assert.ok(
-    normalizedMcpCalls.includes(`mcp add code-review-graph -- ${managed.command} serve`),
-    `setup registers the plugin-owned runtime\nMCP calls:\n${mcpCalls}`
-  );
+  assert.ok(normalizedMcpCalls.includes('mcp remove code-review-graph'), 'setup removes the legacy global override');
+  assert.doesNotMatch(normalizedMcpCalls, /mcp add code-review-graph/, 'setup relies on the plugin-bundled MCP instead of creating global config');
   assert.ok(!fs.existsSync(log), 'setup without --build does not start graph build');
 
   const brokenData = path.join(tmp, 'broken-plugin-data');

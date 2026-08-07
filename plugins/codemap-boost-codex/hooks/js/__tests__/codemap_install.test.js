@@ -8,11 +8,11 @@ const path = require('path');
 const {
   cleanLegacyCrgGitHook,
   cleanLegacyCrgHooks,
-  ensureCrgMcp,
-  isCrgMcpConfigHealthy,
+  isLegacyUvxCrgMcpConfig,
+  isPluginManagedLegacyCrgMcpConfig,
   parseMcpJson,
   readBootstrapFailure,
-  registerCrgMcp,
+  removeLegacyCrgMcp,
   startAutoBootstrap,
   startCrgBuild,
   startCrgUpdate,
@@ -38,8 +38,8 @@ const healthyUvx = {
   },
 };
 const managedCommand = process.platform === 'win32'
-  ? 'C:\\codex data\\crg-runtime\\Scripts\\code-review-graph.exe'
-  : '/codex data/crg-runtime/bin/code-review-graph';
+  ? 'C:\\Users\\tester\\.codex\\plugins\\data\\codemap-boost-codex-codex-toolshop\\crg-runtime\\Scripts\\code-review-graph.exe'
+  : '/home/tester/.codex/plugins/data/codemap-boost-codex-codex-toolshop/crg-runtime/bin/code-review-graph';
 const healthyManaged = {
   name: 'code-review-graph',
   enabled: true,
@@ -50,6 +50,38 @@ const healthyManaged = {
     cwd: null,
   },
 };
+
+{
+  assert.strictEqual(isLegacyUvxCrgMcpConfig(healthyUvx), true, 'old uvx registration is diagnosed');
+  assert.strictEqual(isPluginManagedLegacyCrgMcpConfig(healthyUvx), false, 'ownership-ambiguous uvx registration is preserved');
+  assert.strictEqual(isPluginManagedLegacyCrgMcpConfig(healthyManaged), true, 'old plugin-managed absolute registration is migrated');
+  assert.strictEqual(isPluginManagedLegacyCrgMcpConfig({
+    enabled: true,
+    transport: {
+      type: 'stdio',
+      command: process.platform === 'win32' ? 'C:\\tools\\code-review-graph.exe' : '/opt/tools/code-review-graph',
+      args: ['serve'],
+      cwd: null,
+    },
+  }), false, 'unrelated user-managed CRG registration is preserved');
+}
+
+{
+  const calls = [];
+  const result = removeLegacyCrgMcp({
+    spawnSync: (cmd, args) => {
+      calls.push([cmd, args]);
+      if (args[1] === 'get') return { status: 0, stdout: JSON.stringify(healthyManaged), stderr: '' };
+      if (args[1] === 'remove') return { status: 0, stdout: '', stderr: '' };
+      return { status: 1, stdout: '', stderr: '' };
+    },
+  });
+  assert.deepStrictEqual(result, { ok: true, changed: true });
+  assert.deepStrictEqual(calls, [
+    ['codex', ['mcp', 'get', 'code-review-graph', '--json']],
+    ['codex', ['mcp', 'remove', 'code-review-graph']],
+  ]);
+}
 
 {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-background-command-'));
@@ -121,78 +153,6 @@ const healthyManaged = {
 {
   const parsed = parseMcpJson('\u001b[32mINFO mcp config:\u001b[0m ' + JSON.stringify(healthyUvx));
   assert.deepStrictEqual(parsed, healthyUvx, 'MCP JSON parser accepts ANSI and prefixed output');
-  assert.strictEqual(isCrgMcpConfigHealthy(parsed, { command: 'uvx', args: ['code-review-graph', 'serve'] }), true);
-}
-
-function exerciseRepair(config, options = {}) {
-  const calls = [];
-  let getCalls = 0;
-  const result = ensureCrgMcp({
-    spawnSync: (cmd, args) => {
-      calls.push([cmd, args]);
-      if (args[1] === 'get') {
-        getCalls += 1;
-        if (getCalls > 1) {
-          return options.finalGetResult || { status: 0, stdout: JSON.stringify(healthyManaged) };
-        }
-        return options.getResult || { status: 0, stdout: JSON.stringify(config) };
-      }
-      if (args[1] === 'remove') return options.removeResult || { status: 0, stdout: '' };
-      if (args[1] === 'add') return options.addResult || { status: 0, stdout: '' };
-      return { status: 1, stdout: '', error: new Error('unexpected command') };
-    },
-    canUseCrg: () => true,
-    crgCommand: () => managedCommand,
-    markerPath: options.markerPath,
-  });
-  return { calls, result };
-}
-
-{
-  const flat = {
-    enabled: true,
-    transport: 'stdio',
-    command: 'uvx',
-    args: ['code-review-graph', 'serve'],
-    cwd: null,
-  };
-  assert.strictEqual(isCrgMcpConfigHealthy(flat, { command: 'uvx', args: ['code-review-graph', 'serve'] }), true);
-}
-
-{
-  const healthy = exerciseRepair(healthyManaged);
-  assert.strictEqual(healthy.result.ok, true, 'healthy MCP config is accepted');
-  assert.deepStrictEqual(healthy.calls, [['codex', ['mcp', 'get', 'code-review-graph', '--json']]], 'healthy config is not rewritten');
-}
-
-for (const config of [
-  null,
-  healthyUvx,
-  { ...healthyManaged, enabled: false },
-  { ...healthyManaged, transport: { ...healthyManaged.transport, cwd: 'D:\\old-repo' } },
-  { ...healthyManaged, transport: { ...healthyManaged.transport, command: 'python', args: ['-m', 'code_review_graph'] } },
-]) {
-  const repaired = exerciseRepair(config);
-  assert.strictEqual(repaired.result.ok, true, 'invalid MCP config is repaired');
-  assert.deepStrictEqual(repaired.calls[1], ['codex', ['mcp', 'remove', 'code-review-graph']]);
-  assert.deepStrictEqual(repaired.calls[2], ['codex', ['mcp', 'add', 'code-review-graph', '--', managedCommand, 'serve']]);
-}
-
-{
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-register-failed-'));
-  const marker = path.join(tmp, '.crg-codex-register-failed');
-  try {
-    const failed = exerciseRepair(null, {
-      markerPath: marker,
-      addResult: { status: 1, stdout: 'unable to write mcp config', error: new Error('add failed') },
-    });
-    assert.strictEqual(failed.result.ok, false, 'failed MCP repair is reported');
-    assert.ok(fs.existsSync(marker), 'failed MCP repair writes a marker');
-    assert.match(failed.result.diagnostic, /codex mcp add/);
-    assert.match(failed.result.diagnostic, /新开|new task/i);
-  } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
-  }
 }
 
 {
@@ -276,35 +236,6 @@ for (const config of [
     assert.strictEqual(cleaned.hooks.PostToolUse[1].hooks[0].command, 'echo keep-user && code-review-graph update --skip-flows || true');
     assert.strictEqual(cleanLegacyCrgHooks(home), false, 'cleanup is idempotent');
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
-  }
-}
-
-{
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-register-crg-'));
-  const oldPluginData = process.env.PLUGIN_DATA;
-  try {
-    const data = path.join(tmp, 'data');
-    mkdirp(data);
-
-    process.env.PLUGIN_DATA = data;
-
-    const calls = [];
-    assert.strictEqual(registerCrgMcp({
-      canUseCrg: () => true,
-      crgCommand: () => managedCommand,
-      spawnSync: (cmd, args, options) => {
-        calls.push({ cmd, args, options });
-        return { status: 0, stdout: JSON.stringify(healthyManaged), stderr: '' };
-      },
-    }), true);
-    assert.strictEqual(calls.length, 1);
-    assert.strictEqual(calls[0].cmd, 'codex');
-    assert.deepStrictEqual(calls[0].args, ['mcp', 'get', 'code-review-graph', '--json']);
-    assert.strictEqual(calls[0].options.stdio[1], 'pipe');
-  } finally {
-    if (oldPluginData === undefined) delete process.env.PLUGIN_DATA;
-    else process.env.PLUGIN_DATA = oldPluginData;
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }

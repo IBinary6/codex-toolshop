@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "code-review-graph": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "scripts/mcp-server.cjs"
+      ],
+      "cwd": ".",
+      "startup_timeout_sec": 600
+    }
+  }
+}

@@ -41,6 +41,15 @@ function findMarketplace(start) {
 const plugin = JSON.parse(fs.readFileSync(path.join(pluginRoot, '.codex-plugin', 'plugin.json'), 'utf8'));
 assert.strictEqual(plugin.name, 'codemap-boost-codex');
 assert.strictEqual(Object.hasOwn(plugin, 'hooks'), false, 'plugin manifest omits unsupported hooks field');
+assert.strictEqual(plugin.mcpServers, './.mcp.json', 'plugin declares its bundled MCP server');
+
+const mcp = JSON.parse(fs.readFileSync(path.join(pluginRoot, '.mcp.json'), 'utf8'));
+const crgServer = mcp.mcpServers && mcp.mcpServers['code-review-graph'];
+assert.ok(crgServer, 'plugin bundles the code-review-graph MCP server');
+assert.strictEqual(crgServer.command, 'node');
+assert.deepStrictEqual(crgServer.args, ['scripts/mcp-server.cjs']);
+assert.strictEqual(crgServer.cwd, '.', 'relative launcher path is resolved from the installed plugin root');
+assert.ok(crgServer.startup_timeout_sec >= 300, 'first-use runtime installation needs an explicit startup timeout');
 
 const hooks = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'hooks', 'hooks.json'), 'utf8'));
 const legacyHooks = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'hooks', 'codex-hooks.json'), 'utf8'));

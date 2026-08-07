@@ -24,7 +24,6 @@ const LOCK_BOOT_MS = 5000;
 const LOCK_STALE_MS = 4 * 60 * 60 * 1000;
 const BOOTSTRAP_LOCK_STALE_MS = 30 * 60 * 1000;
 const REFRESH_WAIT_MS = 10 * 60 * 1000;
-const CRG_MCP_REGISTER_FAILED_MARKER = '.crg-codex-register-failed';
 const SOURCE_EXTENSIONS = new Set([
   '.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx',
   '.cs', '.go', '.java', '.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx',
@@ -37,7 +36,7 @@ const AGENTS_BLOCK = `${BLOCK_START}
 
 本机已启用 CodeMap Boost。涉及代码结构、符号、调用关系、引用关系、影响面或代码审查上下文时，优先使用 code-review-graph MCP 工具；图刷新由 CodeMap Boost hooks 统一负责：
 
-- SessionStart、结构类 UserPromptSubmit 和源码修改后的 PostToolUse 会同步维护图谱；每次图谱 MCP 读取前仍有 PreToolUse barrier 兜底。
+- SessionStart、结构类 UserPromptSubmit 和源码修改后的 PostToolUse 会同步维护图谱；每次图谱 MCP 读取前仍有 PreToolUse barrier 兜底，并把当前 Git 根目录注入 CRG 的 repo_root。
 - 不要为了“先刷新”从主代理或子代理重复调用 \`mcp__code_review_graph__build_or_update_graph_tool\`。仅在 hook 明确报告刷新失败、用户要求强制重建或执行 setup/诊断时显式调用。
 - 调度插件只负责选择合适的搜索或执行代理；CodeMap Boost 负责图刷新和检索规则。子代理启动时只注入规则，不重复 build/update。
 - 如果当前任务的工具列表中不存在 \`mcp__code_review_graph__\`，必须明确报告该任务未加载 MCP，并使用合适的降级检索；不得声称已经查询图谱。
@@ -362,14 +361,6 @@ function startCrgBuild(cwd, options = {}) {
   return true;
 }
 
-function bootstrapWithCrg(cwd) {
-  enableCodeMap();
-  if (!registerCrgMcp()) return false;
-  ensureAgentsBlock();
-  ensureGitInfoExclude(cwd);
-  return startCrgBuild(cwd);
-}
-
 function writeBootstrapDiagnostic(diagnostic) {
   try {
     const target = markerPath(BOOTSTRAP_FAILED_MARKER);
@@ -409,8 +400,8 @@ function startAutoBootstrap(cwd, options = {}) {
     try {
       try { fs.writeFileSync(${JSON.stringify(lockFile)}, String(process.pid)); } catch (_) {}
       if (ensureCrg()) {
-        const mcp = codemap.ensureCrgMcp({ cwd: ${JSON.stringify(root)} });
-        if (mcp.ok) {
+        const migration = codemap.removeLegacyCrgMcp({ cwd: ${JSON.stringify(root)} });
+        if (migration.ok) {
           codemap.enableCodeMap();
           try { fs.rmSync(markerPath(${JSON.stringify(BOOTSTRAP_FAILED_MARKER)}), { force: true }); } catch (_) {}
           codemap.cleanLegacyCrgHooks();
@@ -419,7 +410,7 @@ function startAutoBootstrap(cwd, options = {}) {
           codemap.ensureGitInfoExclude(${JSON.stringify(root)});
           codemap.startCrgBuild(${JSON.stringify(root)});
         } else {
-          try { fs.writeFileSync(markerPath(${JSON.stringify(BOOTSTRAP_FAILED_MARKER)}), mcp.diagnostic || '1'); } catch (_) {}
+          try { fs.writeFileSync(markerPath(${JSON.stringify(BOOTSTRAP_FAILED_MARKER)}), migration.diagnostic || '1'); } catch (_) {}
         }
       } else {
         const diagnostic = codemap.readBootstrapFailure();
@@ -515,41 +506,74 @@ function mcpTransport(config) {
   return config;
 }
 
-function isCrgMcpConfigHealthy(config, expected = {}) {
+/**
+ * 判断同名全局 MCP 是否为所有权不明确的旧式 uvx 启动方式。
+ * @example isLegacyUvxCrgMcpConfig({ command: 'uvx', args: ['code-review-graph', 'serve'] })
+ */
+function isLegacyUvxCrgMcpConfig(config) {
   if (!config || typeof config !== 'object') return false;
   const transport = mcpTransport(config);
   const type = typeof config.transport === 'string'
     ? config.transport
-    : (transport.type || config.type || config.transport_type || '');
-  const command = transport.command || config.command;
+    : (transport.type || config.type || config.transport_type || 'stdio');
+  if (String(type).toLowerCase() !== 'stdio') return false;
+  const command = String(transport.command || config.command || '');
   const args = transport.args || config.args;
-  const cwd = Object.hasOwn(transport, 'cwd') ? transport.cwd : config.cwd;
-  const wantedCommand = expected.command || 'uvx';
-  const wantedArgs = expected.args || ['code-review-graph', 'serve'];
-  return config.enabled === true
-    && String(type).toLowerCase() === 'stdio'
-    && command === wantedCommand
-    && Array.isArray(args)
-    && JSON.stringify(args) === JSON.stringify(wantedArgs)
-    && cwd === null;
+  if (!Array.isArray(args)) return false;
+  const normalizedArgs = JSON.stringify(args);
+  return path.basename(command).toLowerCase() === 'uvx'
+    && normalizedArgs === JSON.stringify(['code-review-graph', 'serve']);
 }
 
-function mcpMarkerFile(options = {}) {
-  return options.markerPath || markerPath(CRG_MCP_REGISTER_FAILED_MARKER);
+/**
+ * 判断同名全局 MCP 是否能由路径证明属于旧版插件私有运行时。
+ * @example isPluginManagedLegacyCrgMcpConfig({ command: '/home/me/.codex/plugins/data/codemap-boost-codex-shop/crg-runtime/bin/code-review-graph', args: ['serve'] })
+ */
+function isPluginManagedLegacyCrgMcpConfig(config) {
+  if (!config || typeof config !== 'object') return false;
+  const transport = mcpTransport(config);
+  const type = typeof config.transport === 'string'
+    ? config.transport
+    : (transport.type || config.type || config.transport_type || 'stdio');
+  if (String(type).toLowerCase() !== 'stdio') return false;
+  const command = String(transport.command || config.command || '').replace(/\\/g, '/');
+  const args = transport.args || config.args;
+  if (!Array.isArray(args)) return false;
+  return /\/plugins\/data\/codemap-boost-codex(?:-[^/]+)?\/crg-runtime\/(?:Scripts|bin)\/code-review-graph(?:\.exe)?$/i.test(command)
+    && JSON.stringify(args) === JSON.stringify(['serve']);
 }
 
-function writeCrgMcpFailure(options, diagnostic) {
-  const target = mcpMarkerFile(options);
-  try {
-    ensureDir(path.dirname(target));
-    fs.writeFileSync(target, `${diagnostic}\n`, 'utf8');
-  } catch (_) {
-    try { writeMarker(CRG_MCP_REGISTER_FAILED_MARKER); } catch (_) {}
+/**
+ * 判断当前 MCP 配置是否来自插件自带的跨平台启动器。
+ * @example isNativeCrgMcpConfig({ command: 'node', args: ['scripts/mcp-server.cjs'], cwd: '.', startup_timeout_sec: 600 }, { allowRelativeCwd: true })
+ */
+function isNativeCrgMcpConfig(config, options = {}) {
+  if (!config || typeof config !== 'object') return false;
+  if (config.enabled === false && !options.allowDisabled) return false;
+  const transport = mcpTransport(config);
+  const type = typeof config.transport === 'string'
+    ? config.transport
+    : (transport.type || config.type || config.transport_type || 'stdio');
+  const command = String(transport.command || config.command || '');
+  const args = transport.args || config.args;
+  const cwd = String(transport.cwd ?? config.cwd ?? '');
+  const timeout = Number(config.startup_timeout_sec ?? config.startupTimeoutSec);
+  let cwdOk = false;
+  if (options.allowRelativeCwd) cwdOk = cwd === '.';
+  else if (options.expectedCwd && cwd) {
+    const actual = path.resolve(cwd);
+    const expected = path.resolve(options.expectedCwd);
+    cwdOk = process.platform === 'win32'
+      ? actual.toLowerCase() === expected.toLowerCase()
+      : actual === expected;
   }
-}
-
-function readCrgMcpFailure(options = {}) {
-  try { return fs.readFileSync(mcpMarkerFile(options), 'utf8').trim(); } catch (_) { return ''; }
+  return String(type).toLowerCase() === 'stdio'
+    && ['node', 'node.exe'].includes(path.basename(command).toLowerCase())
+    && Array.isArray(args)
+    && JSON.stringify(args) === JSON.stringify(['scripts/mcp-server.cjs'])
+    && cwdOk
+    && Number.isFinite(timeout)
+    && timeout >= 300;
 }
 
 function readBootstrapFailure() {
@@ -559,7 +583,7 @@ function readBootstrapFailure() {
       if (diagnostic && diagnostic !== '1') return diagnostic;
     } catch (_) {}
   }
-  return readCrgMcpFailure();
+  return '';
 }
 
 function runCodexMcp(args, options = {}) {
@@ -583,62 +607,24 @@ function runCodexMcp(args, options = {}) {
   }
 }
 
-function expectedCrgMcp(options = {}) {
-  return { command: crgCommand(options), args: ['serve'] };
-}
-
-function ensureCrgMcp(options = {}) {
-  const canUse = options.canUseCrg || canUseCrg;
-  try {
-    if (!canUse()) {
-      const diagnostic = '插件私有 code-review-graph 运行环境不可用或 parser 健康检查失败，无法配置 Codex MCP。'
-        + '请重新运行 setup 重建隔离环境，不要使用 pip --user 修补。';
-      writeCrgMcpFailure(options, diagnostic);
-      return { ok: false, changed: false, diagnostic };
-    }
-  } catch (_) {
-    const diagnostic = '无法确认插件私有 code-review-graph 运行环境是否健康。请重新运行 setup 重建隔离环境。';
-    writeCrgMcpFailure(options, diagnostic);
-    return { ok: false, changed: false, diagnostic };
-  }
-
-  const expected = expectedCrgMcp(options);
+/**
+ * 删除可由私有运行时路径证明归属插件的旧版全局注册。
+ * @example removeLegacyCrgMcp({ cwd: process.cwd() })
+ */
+function removeLegacyCrgMcp(options = {}) {
   const getResult = runCodexMcp(['mcp', 'get', 'code-review-graph', '--json'], options);
-  const config = parseMcpJson(`${getResult && getResult.stdout ? getResult.stdout : ''}\n${getResult && getResult.stderr ? getResult.stderr : ''}`);
-  if (isCrgMcpConfigHealthy(config, expected)) {
-    try { fs.rmSync(mcpMarkerFile(options), { force: true }); } catch (_) {}
-    return { ok: true, changed: false, config, expected };
+  const output = `${getResult && getResult.stdout ? getResult.stdout : ''}\n${getResult && getResult.stderr ? getResult.stderr : ''}`;
+  const config = parseMcpJson(output);
+  if (!isPluginManagedLegacyCrgMcpConfig(config)) return { ok: true, changed: false };
+  const removeResult = runCodexMcp(['mcp', 'remove', 'code-review-graph'], options);
+  if (removeResult && !removeResult.error && removeResult.status === 0) {
+    return { ok: true, changed: true };
   }
-
-  // 首次运行时服务不存在会令 remove 返回非零，这是正常状态，不能阻断后续 add。
-  runCodexMcp(['mcp', 'remove', 'code-review-graph'], options);
-  const addArgs = ['mcp', 'add', 'code-review-graph', '--', expected.command, ...expected.args];
-  const addResult = runCodexMcp(addArgs, options);
-  if (addResult && !addResult.error && addResult.status === 0) {
-    const verifyResult = runCodexMcp(['mcp', 'get', 'code-review-graph', '--json'], options);
-    const verified = parseMcpJson(`${verifyResult && verifyResult.stdout ? verifyResult.stdout : ''}\n${verifyResult && verifyResult.stderr ? verifyResult.stderr : ''}`);
-    if (isCrgMcpConfigHealthy(verified, expected)) {
-      try { fs.rmSync(mcpMarkerFile(options), { force: true }); } catch (_) {}
-      return { ok: true, changed: true, config: verified, expected, addArgs };
-    }
-    const diagnostic = 'code-review-graph MCP add 命令已返回成功，但读取配置验证失败。请执行 `codex mcp get code-review-graph --json` 检查后重试。';
-    writeCrgMcpFailure(options, diagnostic);
-    return { ok: false, changed: false, config: verified, expected, addArgs, diagnostic };
-  }
-
-  const codexMissing = getResult && getResult.error
-    && (getResult.error.code === 'ENOENT' || /not found/i.test(String(getResult.error.message || '')));
-  const diagnostic = codexMissing
-    ? '找不到 codex CLI，无法注册 code-review-graph MCP。请安装 Codex CLI 后重新运行 setup。'
-    : '无法注册 code-review-graph MCP。请执行 `codex mcp add code-review-graph -- '
-      + `${expected.command} ${expected.args.join(' ')}`
-      + '`；修复后请新开一个 Codex 任务（当前已启动任务不会动态注入新的 MCP）。';
-  writeCrgMcpFailure(options, diagnostic);
-  return { ok: false, changed: false, config, expected, addArgs, diagnostic };
-}
-
-function registerCrgMcp(options = {}) {
-  return ensureCrgMcp(options).ok;
+  return {
+    ok: false,
+    changed: false,
+    diagnostic: '无法移除旧版 code-review-graph 全局注册；它会遮蔽插件原生 MCP。请运行 setup 自动修复。',
+  };
 }
 
 const CONTEXT = [
@@ -749,7 +735,6 @@ module.exports = {
   CONTEXT,
   ENABLED_MARKER,
   BOOTSTRAP_FAILED_MARKER,
-  CRG_MCP_REGISTER_FAILED_MARKER,
   agentsPath,
   ensureAgentsBlock,
   ensureGitignore,
@@ -758,7 +743,6 @@ module.exports = {
   canUseCrg,
   isCodeMapEnabled,
   enableCodeMap,
-  bootstrapWithCrg,
   startAutoBootstrap,
   startCrgBuild,
   startCrgUpdate,
@@ -766,12 +750,12 @@ module.exports = {
   listLinkedWorktrees,
   refreshLinkedWorktreesSync,
   parseMcpJson,
-  isCrgMcpConfigHealthy,
+  isLegacyUvxCrgMcpConfig,
+  isPluginManagedLegacyCrgMcpConfig,
+  isNativeCrgMcpConfig,
   runCodexMcp,
-  ensureCrgMcp,
-  readCrgMcpFailure,
+  removeLegacyCrgMcp,
   readBootstrapFailure,
-  registerCrgMcp,
   cleanLegacyCrgHooks,
   cleanLegacyCrgGitHook,
   promptLooksStructural,

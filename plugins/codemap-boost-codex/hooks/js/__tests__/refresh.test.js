@@ -12,6 +12,7 @@ const {
   refreshLinkedWorktreesSync,
 } = require('../lib/codemap');
 const { bashMayChangeSources } = require('../post_tool_use');
+const { ROOT_SCOPED_CRG_TOOLS, repoRootUpdate, shouldInjectRepoRoot } = require('../pre_graph_tool');
 
 function git(cwd, args, env = process.env) {
   const result = spawnSync('git', args, {
@@ -32,6 +33,41 @@ function canonicalPath(filePath) {
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-refresh-'));
 const oldDisable = process.env.CODEMAP_BOOST_DISABLE_GRAPH;
 try {
+  assert.ok(ROOT_SCOPED_CRG_TOOLS.has('semantic_search_nodes_tool'));
+  assert.strictEqual(
+    shouldInjectRepoRoot('mcp__code_review_graph__query_graph_tool'),
+    true,
+    'project graph tools receive the task repository root instead of the plugin launcher cwd'
+  );
+  assert.strictEqual(
+    shouldInjectRepoRoot('mcp__code_review_graph__list_repos_tool'),
+    false,
+    'cross-repository registry tools keep their original schema'
+  );
+  assert.strictEqual(
+    shouldInjectRepoRoot('mcp__graphify__query_graph_tool'),
+    false,
+    'unrelated graph MCP schemas are not rewritten'
+  );
+  assert.deepStrictEqual(
+    repoRootUpdate(
+      'mcp__code_review_graph__semantic_search_nodes_tool',
+      { query: 'auth' },
+      'C:/workspace/repo'
+    ),
+    { query: 'auth', repo_root: 'C:/workspace/repo' },
+    'the graph call is rewritten to the active task repository'
+  );
+  assert.strictEqual(
+    repoRootUpdate(
+      'mcp__code_review_graph__semantic_search_nodes_tool',
+      { query: 'auth', repo_root: 'D:/explicit' },
+      'C:/workspace/repo'
+    ),
+    null,
+    'an explicit repository chosen by the caller is preserved'
+  );
+
   for (const command of ['git status', 'git diff --stat', 'rg TODO src', 'Get-Content README.md', 'npm test']) {
     assert.strictEqual(bashMayChangeSources(command), false, `${command} must not trigger a graph refresh`);
   }

@@ -6,6 +6,7 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 
 const isWindows = process.platform === 'win32';
+const PLUGIN_NAME = 'codemap-boost-codex';
 
 function codexHome() {
   return process.env.CODEX_HOME
@@ -13,9 +14,23 @@ function codexHome() {
     : path.join(os.homedir(), '.codex');
 }
 
-function pluginDataDir() {
+/**
+ * 返回与 Codex 插件存储规则一致的数据目录。
+ * @example pluginDataDir({ pluginRoot: '/home/me/.codex/plugins/cache/shop/codemap-boost-codex/1.0.0' })
+ */
+function pluginDataDir(options = {}) {
   if (process.env.PLUGIN_DATA) return path.resolve(process.env.PLUGIN_DATA);
-  return path.join(codexHome(), 'plugins', 'data', 'codemap-boost-codex');
+  const home = path.resolve(options.codexHome || codexHome());
+  const root = path.resolve(options.pluginRoot || path.join(__dirname, '..', '..', '..'));
+  const cacheRoot = path.join(home, 'plugins', 'cache');
+  const relative = path.relative(cacheRoot, root);
+  if (relative && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) {
+    const [marketplace, pluginName, version] = relative.split(path.sep);
+    if (marketplace && pluginName === PLUGIN_NAME && version) {
+      return path.join(home, 'plugins', 'data', `${pluginName}-${marketplace}`);
+    }
+  }
+  return path.join(home, 'plugins', 'data', PLUGIN_NAME);
 }
 
 function hookCwd(input) {

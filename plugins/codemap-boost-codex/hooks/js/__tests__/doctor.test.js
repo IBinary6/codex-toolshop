@@ -18,8 +18,8 @@ function writeFakeCodex(binDir) {
       'echo %*>>"%CODEMAP_TEST_MCP_LOG%"',
       'if defined CODEMAP_TEST_CODEX_BROKEN exit /b 1',
       'if "%1"=="--version" echo codex-cli 0.146.1 & exit /b 0',
-      'if "%2"=="get" if defined CODEMAP_TEST_MCP_BAD_CWD echo {"name":"code-review-graph","enabled":false,"transport":{"type":"stdio","command":"%CODEMAP_TEST_CRG_JSON_COMMAND%","args":["wrong"],"cwd":"C:\\fixed"}} & exit /b 0',
-      'if "%2"=="get" if defined CODEMAP_TEST_CRG_JSON_COMMAND echo {"name":"code-review-graph","enabled":true,"transport":{"type":"stdio","command":"%CODEMAP_TEST_CRG_JSON_COMMAND%","args":["serve"],"cwd":null}} & exit /b 0',
+      'if "%2"=="get" if defined CODEMAP_TEST_MCP_BAD_CWD echo {"name":"code-review-graph","enabled":true,"startup_timeout_sec":600,"transport":{"type":"stdio","command":"node","args":["scripts/mcp-server.cjs"],"cwd":"C:\\fixed"}} & exit /b 0',
+      'if "%2"=="get" if defined CODEMAP_TEST_CRG_JSON_COMMAND echo {"name":"code-review-graph","enabled":true,"startup_timeout_sec":600,"transport":{"type":"stdio","command":"node","args":["scripts/mcp-server.cjs"],"cwd":"%CODEMAP_TEST_PLUGIN_ROOT_JSON%"}} & exit /b 0',
       'if "%2"=="get" echo {"name":"code-review-graph","enabled":true,"transport":{"type":"stdio","command":"uvx","args":["code-review-graph","serve"],"cwd":null}} & exit /b 0',
       'exit /b 1',
       '',
@@ -33,11 +33,11 @@ function writeFakeCodex(binDir) {
     'if [ -n "$CODEMAP_TEST_CODEX_BROKEN" ]; then exit 1; fi',
     'if [ "$1" = "--version" ]; then echo "codex-cli 0.146.1"; exit 0; fi',
     'if [ "$2" = "get" ] && [ -n "$CODEMAP_TEST_MCP_BAD_CWD" ]; then',
-    '  printf \'{"name":"code-review-graph","enabled":false,"transport":{"type":"stdio","command":"%s","args":["wrong"],"cwd":"/fixed"}}\\n\' "$CODEMAP_TEST_CRG_COMMAND"',
+    '  printf \'{"name":"code-review-graph","enabled":true,"startup_timeout_sec":600,"transport":{"type":"stdio","command":"node","args":["scripts/mcp-server.cjs"],"cwd":"/fixed"}}\\n\'',
     '  exit 0',
     'fi',
     'if [ "$2" = "get" ] && [ -n "$CODEMAP_TEST_CRG_COMMAND" ]; then',
-    '  printf \'{"name":"code-review-graph","enabled":true,"transport":{"type":"stdio","command":"%s","args":["serve"],"cwd":null}}\\n\' "$CODEMAP_TEST_CRG_COMMAND"',
+    '  printf \'{"name":"code-review-graph","enabled":true,"startup_timeout_sec":600,"transport":{"type":"stdio","command":"node","args":["scripts/mcp-server.cjs"],"cwd":"%s"}}\\n\' "$CODEMAP_TEST_PLUGIN_ROOT"',
     '  exit 0',
     'fi',
     'if [ "$2" = "get" ]; then',
@@ -87,8 +87,10 @@ try {
   assert.strictEqual(result.status, 1, result.stderr);
   assert.match(result.stdout, /CodeMap Boost doctor/);
   assert.match(result.stdout, /Codex CLI:\s+PASS/);
-  assert.match(result.stdout, /MCP 注册:\s+FAIL/);
-  assert.match(result.stdout, /旧 uvx/);
+  assert.match(result.stdout, /MCP 原生配置:\s+PASS/);
+  assert.match(result.stdout, /Codex MCP 解析:\s+FAIL/);
+  assert.match(result.stdout, /同名全局覆盖:\s+FAIL/);
+  assert.match(result.stdout, /uvx.*无法确认|用户确认/);
   assert.match(result.stdout, /当前任务工具:\s+UNKNOWN/);
   assert.match(result.stdout, /只读诊断/);
   assert.deepStrictEqual(fs.existsSync(data) ? fs.readdirSync(data) : [], [], '--doctor must not write plugin data');
@@ -117,6 +119,8 @@ try {
       CODEMAP_TEST_MCP_LOG: mcpLog,
       CODEMAP_TEST_CRG_COMMAND: managedCommand,
       CODEMAP_TEST_CRG_JSON_COMMAND: managedCommand.replace(/\\/g, '\\\\'),
+      CODEMAP_TEST_PLUGIN_ROOT: pluginRoot,
+      CODEMAP_TEST_PLUGIN_ROOT_JSON: pluginRoot.replace(/\\/g, '\\\\'),
       NODE_OPTIONS: `--require=${spawnShim}`,
       PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
     },
@@ -125,7 +129,9 @@ try {
 
   assert.strictEqual(healthy.status, 0, `${healthy.stderr}\n${healthy.stdout}`);
   assert.match(healthy.stdout, /私有运行时:\s+PASS/);
-  assert.match(healthy.stdout, /MCP 注册:\s+PASS/);
+  assert.match(healthy.stdout, /MCP 原生配置:\s+PASS/);
+  assert.match(healthy.stdout, /Codex MCP 解析:\s+PASS/);
+  assert.match(healthy.stdout, /同名全局覆盖:\s+PASS/);
   assert.match(healthy.stdout, /项目图谱:\s+PASS/);
   assert.match(healthy.stdout, /最终状态:\s+READY/);
   assert.deepStrictEqual(fs.readdirSync(data, { recursive: true }).sort(), before, '--doctor stays read-only when healthy');
@@ -140,6 +146,8 @@ try {
       CODEMAP_TEST_MCP_LOG: mcpLog,
       CODEMAP_TEST_CRG_COMMAND: managedCommand,
       CODEMAP_TEST_CRG_JSON_COMMAND: managedCommand.replace(/\\/g, '\\\\'),
+      CODEMAP_TEST_PLUGIN_ROOT: pluginRoot,
+      CODEMAP_TEST_PLUGIN_ROOT_JSON: pluginRoot.replace(/\\/g, '\\\\'),
       CODEMAP_TEST_MCP_BAD_CWD: '1',
       NODE_OPTIONS: `--require=${spawnShim}`,
       PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
@@ -147,9 +155,9 @@ try {
     windowsHide: process.platform === 'win32',
   });
   assert.strictEqual(badMcp.status, 1, badMcp.stderr);
-  assert.match(badMcp.stdout, /MCP 已禁用/);
-  assert.match(badMcp.stdout, /参数应为 \["serve"\]/);
-  assert.match(badMcp.stdout, /不应设置固定 cwd/);
+  assert.match(badMcp.stdout, /同名全局覆盖:\s+FAIL/);
+  assert.match(badMcp.stdout, /Codex MCP 解析:\s+FAIL/);
+  assert.match(badMcp.stdout, /用户自定义同名 MCP/);
 
   const nonRepo = path.join(tmp, 'not-a-repo');
   fs.mkdirSync(nonRepo, { recursive: true });
@@ -163,6 +171,8 @@ try {
       CODEMAP_TEST_MCP_LOG: mcpLog,
       CODEMAP_TEST_CRG_COMMAND: managedCommand,
       CODEMAP_TEST_CRG_JSON_COMMAND: managedCommand.replace(/\\/g, '\\\\'),
+      CODEMAP_TEST_PLUGIN_ROOT: pluginRoot,
+      CODEMAP_TEST_PLUGIN_ROOT_JSON: pluginRoot.replace(/\\/g, '\\\\'),
       NODE_OPTIONS: `--require=${spawnShim}`,
       PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
     },
