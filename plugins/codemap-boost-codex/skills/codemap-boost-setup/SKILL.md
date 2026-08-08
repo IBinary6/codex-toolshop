@@ -68,7 +68,7 @@ Never repair CRG with `pip install --user`.
 
 - Keep global guidance in `$CODEX_HOME/AGENTS.md`.
 - Keep project graph output in `.code-review-graph/` and optional graphify output in `graphify-out/`.
-- Let SessionStart and PostToolUse maintain the graph; let the graph MCP PreToolUse barrier perform the final synchronous freshness check.
+- Let SessionStart maintain the graph synchronously and PostToolUse coalesce refreshes in the background; let the graph MCP PreToolUse barrier perform the final synchronous freshness check.
 - Let SubagentStart inject retrieval rules without rebuilding the graph.
 - Let routing plugins choose the worker while CodeMap Boost owns graph freshness and retrieval policy.
 - Do not let `code-review-graph install` add third-party hooks, instructions, or skills.

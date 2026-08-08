@@ -1,14 +1,14 @@
 'use strict';
 
 const { readStdinJson, hookCwd, passSilent } = require('./lib/runtime');
-const { refreshCrgSync, refreshLinkedWorktreesSync } = require('./lib/codemap');
+const { startCrgUpdate, refreshLinkedWorktreesSync } = require('./lib/codemap');
 
 function gitCommandDoesNotChangeSources(segment) {
   const match = segment.match(/^git\s+(?:-[^\s]+\s+)*([a-z-]+)(?:\s+(.*))?$/i);
   if (!match) return false;
   const subcommand = match[1].toLowerCase();
   const args = String(match[2] || '').trim();
-  if (['status', 'diff', 'log', 'show', 'rev-parse', 'ls-files', 'grep', 'cat-file',
+  if (['status', 'diff', 'log', 'show', 'rev-parse', 'rev-list', 'ls-files', 'grep', 'cat-file',
     'name-rev', 'describe', 'push', 'fetch'].includes(subcommand)) return true;
   if (subcommand === 'remote') return args === '' || args === '-v' || args === '--verbose';
   if (subcommand === 'tag') return args === '' || /^(?:-l|--list)(?:\s|$)/.test(args);
@@ -26,7 +26,7 @@ function bashMayChangeSources(command) {
   return segments.some((segment) => {
     const normalized = segment.trim();
     if (gitCommandDoesNotChangeSources(normalized)) return false;
-    if (/^(?:rg|grep|select-string|get-content|get-childitem|test-path|pwd|get-location|where\.exe)\b/i.test(normalized)) return false;
+    if (/^(?:rg|grep|select-string|get-content|get-childitem|get-item|get-process|tasklist|test-path|pwd|get-location|where\.exe)\b/i.test(normalized)) return false;
     if (/^npm\s+(?:test|run\s+(?:test|check|lint|typecheck))\b/i.test(normalized)) return false;
     return true;
   });
@@ -44,7 +44,7 @@ async function main() {
     if (/\bgit\s+(?:-[^\s]+\s+)*worktree\s+add\b/i.test(String(command || ''))) {
       refreshLinkedWorktreesSync(cwd);
     } else {
-      refreshCrgSync(cwd);
+      startCrgUpdate(cwd);
     }
   } catch (_) {}
   passSilent();

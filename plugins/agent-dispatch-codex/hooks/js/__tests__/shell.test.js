@@ -13,6 +13,9 @@ assert.deepEqual(splitCommandSegments('rg TODO&unknown-heavy-tool scan'), ['rg T
 
 assert.equal(analyzeShellCommand('git status && rg TODO src', config).safe, true);
 assert.equal(analyzeShellCommand('Get-ChildItem | Select-String TODO', config).safe, true);
+assert.equal(analyzeShellCommand('Get-Process -Id 1234', config).safe, true);
+assert.equal(analyzeShellCommand('Get-Item file.txt', config).safe, true);
+assert.equal(analyzeShellCommand('tasklist /FI "IMAGENAME eq node.exe"', config).safe, true);
 assert.equal(analyzeShellCommand('git push origin main', config).safe, true);
 assert.equal(analyzeShellCommand('git push --force origin main', config).safe, true);
 assert.equal(analyzeShellCommand('git push --mirror origin', config).safe, true);

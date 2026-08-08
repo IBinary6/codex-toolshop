@@ -93,7 +93,7 @@
       "dotnet", "ruby", "gem", "bundle",
       "gcc", "g++", "clang", "clang++", "cmake", "make", "ninja", "meson",
       "msbuild", "cl",
-      "get-childitem", "get-content", "get-location", "set-location",
+      "get-childitem", "get-content", "get-item", "get-location", "get-process", "set-location", "tasklist",
       "select-string", "where-object", "foreach-object", "test-path",
       "resolve-path", "write-output", "measure-object", "format-table"
     ],

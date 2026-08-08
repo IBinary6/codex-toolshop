@@ -14,6 +14,8 @@ const {
 const { bashMayChangeSources } = require('../post_tool_use');
 const { ROOT_SCOPED_CRG_TOOLS, repoRootUpdate, shouldInjectRepoRoot } = require('../pre_graph_tool');
 
+const postToolSource = fs.readFileSync(path.join(__dirname, '..', 'post_tool_use.js'), 'utf8');
+
 function git(cwd, args, env = process.env) {
   const result = spawnSync('git', args, {
     cwd,
@@ -68,7 +70,20 @@ try {
     'an explicit repository chosen by the caller is preserved'
   );
 
-  for (const command of ['git status', 'git diff --stat', 'rg TODO src', 'Get-Content README.md', 'npm test']) {
+  assert.ok(postToolSource.includes('startCrgUpdate'), 'PostToolUse must refresh in the background');
+  assert.ok(!postToolSource.includes('refreshCrgSync(cwd)'), 'PostToolUse must not block on a synchronous refresh');
+
+  for (const command of [
+    'git status',
+    'git diff --stat',
+    'git rev-list --left-right --count origin/main...HEAD',
+    'rg TODO src',
+    'Get-Content README.md',
+    'Get-Process -Id 1234',
+    'Get-Item file.txt',
+    'tasklist /FI "IMAGENAME eq node.exe"',
+    'npm test',
+  ]) {
     assert.strictEqual(bashMayChangeSources(command), false, `${command} must not trigger a graph refresh`);
   }
   for (const command of ['git worktree add ../wt', 'git switch feature', 'Set-Content a.cpp x', 'node generate.js', 'rg old src | Set-Content out.txt']) {
@@ -97,9 +112,13 @@ try {
   };
 
   assert.strictEqual(refreshCrgSync(repo, options), true);
-  assert.strictEqual(refreshCrgSync(repo, options), true, 'refresh is not throttled after a second edit');
+  assert.strictEqual(refreshCrgSync(repo, options), true, 'an unchanged source state is already fresh');
   assert.strictEqual(calls[0].args[0], 'update', 'existing graph performs incremental update');
-  assert.strictEqual(calls[1].args[0], 'update', 'every refresh request reaches CRG');
+  assert.strictEqual(calls.length, 1, 'an unchanged source state does not invoke CRG twice');
+
+  fs.writeFileSync(path.join(repo, 'tracked.js'), 'function trackedChanged() {}\n');
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls[1].args[0], 'update', 'a tracked source edit performs an incremental update');
 
   fs.writeFileSync(path.join(repo, 'new-source.js'), 'function added() {}\n');
   assert.strictEqual(git(repo, ['diff', '--cached', '--name-only']), '', 'real index starts clean');
@@ -107,6 +126,8 @@ try {
   assert.strictEqual(calls[2].args[0], 'build', 'untracked source forces a full build');
   assert.ok(calls[2].index, 'full build uses a temporary Git index');
   assert.ok(calls[2].files.split(/\r?\n/).includes('new-source.js'), 'temporary index includes untracked source');
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls.length, 3, 'the same untracked source state does not repeat a full build');
   assert.strictEqual(git(repo, ['diff', '--cached', '--name-only']), '', 'real index stays untouched');
 
   const worktree = path.join(tmp, 'worktree');
@@ -124,7 +145,7 @@ try {
       return { status: 0 };
     },
   }), true);
-  assert.ok(linkedCalls.some((call) => canonicalPath(call.cwd) === canonicalPath(repo)), 'main graph refreshed');
+  assert.ok(!linkedCalls.some((call) => canonicalPath(call.cwd) === canonicalPath(repo)), 'already-fresh main graph is skipped');
   assert.ok(linkedCalls.some((call) => canonicalPath(call.cwd) === canonicalPath(worktree)), 'new worktree graph refreshed');
 
   console.log('refresh.test.js PASS');

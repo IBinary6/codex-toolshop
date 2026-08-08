@@ -167,11 +167,12 @@ const healthyManaged = {
     mkdirp(path.join(repo, '.code-review-graph'));
     assert.strictEqual(startCrgUpdate(repo, options), true);
     assert.strictEqual(launches.length, 2);
-    for (const launch of launches) {
-      assert.strictEqual(launch.command, process.execPath);
-      assert.ok(launch.args[1].includes(JSON.stringify(managedCommand)), 'background refresh embeds the managed absolute CRG path');
-      assert.ok(!launch.args[1].includes("spawnSync('code-review-graph'"), 'background refresh must not use PATH CRG');
-    }
+    assert.strictEqual(launches[0].command, process.execPath);
+    assert.ok(launches[0].args[1].includes(JSON.stringify(managedCommand)), 'initial build embeds the managed absolute CRG path');
+    assert.strictEqual(launches[1].command, process.execPath);
+    assert.ok(launches[1].args[1].includes('refreshCrgUnlocked'), 'background update reuses the managed runtime resolver and refresh logic');
+    assert.ok(launches[1].args[1].includes(JSON.stringify(managedCommand)), 'background update embeds the managed absolute CRG path');
+    assert.ok(!launches[1].args[1].includes("spawnSync('code-review-graph'"), 'background refresh must not use PATH CRG');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

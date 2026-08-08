@@ -22,7 +22,9 @@ const BOOTSTRAP_FAILED_MARKER = '.codemap-bootstrap-failed';
 const LOCK_BOOT_MS = 5000;
 const LOCK_STALE_MS = 4 * 60 * 60 * 1000;
 const BOOTSTRAP_LOCK_STALE_MS = 30 * 60 * 1000;
+const REFRESH_LOCK_WAIT_MS = 2 * 60 * 1000;
 const REFRESH_WAIT_MS = 10 * 60 * 1000;
+const SOURCE_STATE_FILE = '.codemap-boost-source-state';
 const SOURCE_EXTENSIONS = new Set([
   '.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx',
   '.cs', '.go', '.java', '.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx',
@@ -35,7 +37,7 @@ const AGENTS_BLOCK = `${BLOCK_START}
 
 本机已启用 CodeMap Boost。涉及代码结构、符号、调用关系、引用关系、影响面或代码审查上下文时，优先使用 code-review-graph MCP 工具；图刷新由 CodeMap Boost hooks 统一负责：
 
-- SessionStart、结构类 UserPromptSubmit 和源码修改后的 PostToolUse 会同步维护图谱；每次图谱 MCP 读取前仍有 PreToolUse barrier 兜底，并把当前 Git 根目录注入 CRG 的 repo_root。
+- SessionStart 同步维护图谱，源码修改后的 PostToolUse 在后台合并刷新；每次图谱 MCP 读取前仍有 PreToolUse barrier 同步兜底，并把当前 Git 根目录注入 CRG 的 repo_root。
 - 不要为了“先刷新”从主代理或子代理重复调用 \`mcp__code_review_graph__build_or_update_graph_tool\`。仅在 hook 明确报告刷新失败、用户要求强制重建或执行 setup/诊断时显式调用。
 - 调度插件只负责选择合适的搜索或执行代理；CodeMap Boost 负责图刷新和检索规则。子代理启动时只注入规则，不重复 build/update。
 - 如果当前任务的工具列表中不存在 \`mcp__code_review_graph__\`，必须明确报告该任务未加载 MCP，并使用合适的降级检索；不得声称已经查询图谱。
@@ -231,6 +233,49 @@ function untrackedSourceFiles(root) {
     .filter((file) => SOURCE_EXTENSIONS.has(path.extname(file).toLowerCase()));
 }
 
+function sourceStateFingerprint(root) {
+  const head = gitResult(root, ['rev-parse', '--verify', 'HEAD']);
+  const status = gitResult(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
+  if (head.error || head.status !== 0 || status.error || status.status !== 0) return null;
+  const rawStatus = String(status.stdout || '');
+  const hash = crypto.createHash('sha256');
+  hash.update(String(head.stdout || '').trim());
+  hash.update('\0');
+  hash.update(rawStatus);
+  for (const entry of rawStatus.split('\0').filter(Boolean)) {
+    const relative = /^[ MADRCU?!]{2} /.test(entry) ? entry.slice(3) : entry;
+    if (!SOURCE_EXTENSIONS.has(path.extname(relative).toLowerCase())) continue;
+    const target = path.join(root, relative);
+    hash.update('\0');
+    hash.update(relative);
+    try {
+      hash.update(fs.readFileSync(target));
+    } catch (_) {
+      hash.update('<missing>');
+    }
+  }
+  return hash.digest('hex');
+}
+
+function sourceStatePath(root) {
+  return path.join(root, '.code-review-graph', SOURCE_STATE_FILE);
+}
+
+function readSourceState(root) {
+  try {
+    return fs.readFileSync(sourceStatePath(root), 'utf8').trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+function writeSourceState(root, state) {
+  if (!state) return;
+  try {
+    fs.writeFileSync(sourceStatePath(root), `${state}\n`, 'utf8');
+  } catch (_) {}
+}
+
 function withTemporaryGitIndex(root, callback) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-git-index-'));
   const indexFile = path.join(tempDir, 'index');
@@ -260,31 +305,38 @@ function runCrgDefault(args, options = {}) {
   return spawnSync(command, args, common);
 }
 
+function refreshCrgUnlocked(root, options = {}) {
+  ensureGitInfoExclude(root);
+  const hasGraph = fs.existsSync(path.join(root, '.code-review-graph'));
+  const sourceState = sourceStateFingerprint(root);
+  if (hasGraph && sourceState && readSourceState(root) === sourceState) return true;
+  const hasUntrackedSource = untrackedSourceFiles(root).length > 0;
+  const args = [hasGraph && !hasUntrackedSource ? 'update' : 'build', '--repo', root];
+  const runCrg = options.runCrg || runCrgDefault;
+  const invoke = (env) => {
+    const result = runCrg(args, {
+      cwd: root,
+      env,
+      stdio: 'ignore',
+      timeout: options.timeout || REFRESH_WAIT_MS,
+    });
+    const ok = !!result && !result.error && result.status === 0;
+    if (ok) writeSourceState(root, sourceState);
+    return ok;
+  };
+  return hasUntrackedSource ? withTemporaryGitIndex(root, invoke) : invoke(process.env);
+}
+
 function refreshCrgSync(cwd, options = {}) {
   if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') return false;
   const canUse = options.canUseCrg || canUseCrg;
   if (!canUse()) return false;
   const root = repoRoot(cwd);
   if (!root) return false;
-  ensureGitInfoExclude(root);
-
   const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-refresh', root));
-  if (!acquireRefreshLock(lockFile, options.waitMs || REFRESH_WAIT_MS)) return false;
+  if (!acquireRefreshLock(lockFile, options.waitMs ?? REFRESH_LOCK_WAIT_MS)) return false;
   try {
-    const hasGraph = fs.existsSync(path.join(root, '.code-review-graph'));
-    const hasUntrackedSource = untrackedSourceFiles(root).length > 0;
-    const args = [hasGraph && !hasUntrackedSource ? 'update' : 'build', '--repo', root];
-    const runCrg = options.runCrg || runCrgDefault;
-    const invoke = (env) => {
-      const result = runCrg(args, {
-        cwd: root,
-        env,
-        stdio: 'ignore',
-        timeout: options.timeout || REFRESH_WAIT_MS,
-      });
-      return !!result && !result.error && result.status === 0;
-    };
-    return hasUntrackedSource ? withTemporaryGitIndex(root, invoke) : invoke(process.env);
+    return refreshCrgUnlocked(root, options);
   } finally {
     try { fs.unlinkSync(lockFile); } catch (_) {}
   }
@@ -432,27 +484,32 @@ function startCrgUpdate(cwd, options = {}) {
   if (!root) return false;
   if (!fs.existsSync(path.join(root, '.code-review-graph'))) return false;
   const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-refresh', root));
-  if (isLockActive(lockFile)) return false;
+  const pendingFile = `${lockFile}.pending`;
+  if (isLockActive(lockFile)) {
+    try { fs.writeFileSync(pendingFile, '1', 'utf8'); } catch (_) {}
+    return true;
+  }
   if (!tryWriteLock(lockFile)) return false;
   const command = crgCommand(options);
   const code = `
     const fs = require('fs');
-    const { spawnSync } = require('child_process');
+    const codemap = require(${JSON.stringify(__filename)});
     try {
       try { fs.writeFileSync(${JSON.stringify(lockFile)}, String(process.pid)); } catch (_) {}
-      spawnSync(${JSON.stringify(command)}, ['update', '--repo', ${JSON.stringify(root)}], {
-        cwd: ${JSON.stringify(root)},
-        stdio: 'ignore',
-        windowsHide: true
-      });
+      do {
+        try { fs.rmSync(${JSON.stringify(pendingFile)}, { force: true }); } catch (_) {}
+        codemap.refreshCrgUnlocked(${JSON.stringify(root)}, { crgCommand: ${JSON.stringify(command)} });
+      } while (fs.existsSync(${JSON.stringify(pendingFile)}));
     } finally {
       try { fs.unlinkSync(${JSON.stringify(lockFile)}); } catch (_) {}
+      try { fs.rmSync(${JSON.stringify(pendingFile)}, { force: true }); } catch (_) {}
     }
   `;
   const launch = options.spawnDetached || spawnDetached;
   const child = launch(process.execPath, ['-e', code], { cwd: root });
   if (!child) {
     try { fs.unlinkSync(lockFile); } catch (_) {}
+    try { fs.rmSync(pendingFile, { force: true }); } catch (_) {}
     return false;
   }
   return true;
@@ -827,6 +884,7 @@ module.exports = {
   startAutoBootstrap,
   startCrgBuild,
   startCrgUpdate,
+  refreshCrgUnlocked,
   refreshCrgSync,
   listLinkedWorktrees,
   refreshLinkedWorktreesSync,
