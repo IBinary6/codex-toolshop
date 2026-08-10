@@ -11,6 +11,11 @@ const tpl = JSON.parse(fs.readFileSync(tplPath, 'utf-8'));
 assert.strictEqual(tpl.enabled, true, 'enabled 缺省 true');
 assert.strictEqual(tpl.mode, 'incremental', 'mode 缺省 incremental');
 assert.deepStrictEqual(tpl.checks, { clangFormat: true, copyright: true, cpplint: true, bom: true }, 'checks 四项全 true');
+assert.deepStrictEqual(
+  tpl.legacyChecks,
+  { clangFormat: false, copyright: false, cpplint: false, bom: false },
+  '已跟踪文件默认保持原编码和格式',
+);
 assert.strictEqual(tpl.copyrightInfo.company, '', 'company 缺省空串');
 assert.strictEqual(tpl.copyrightInfo.author, '', 'author 缺省空串');
 assert.strictEqual(tpl.copyrightInfo.dateFormat, 'YYYY/MM/DD HH:mm', 'dateFormat 缺省值');

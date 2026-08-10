@@ -23,7 +23,7 @@ Project settings override global defaults field by field.
   "enabled": true,
   "mode": "incremental",
   "checks": { "clangFormat": true, "copyright": true, "cpplint": true, "bom": true },
-  "legacyChecks": { "clangFormat": false, "copyright": false, "cpplint": false, "bom": true },
+  "legacyChecks": { "clangFormat": false, "copyright": false, "cpplint": false, "bom": false },
   "copyrightInfo": { "company": "", "author": "", "dateFormat": "YYYY/MM/DD HH:mm" }
 }
 ```
@@ -31,11 +31,13 @@ Project settings override global defaults field by field.
 ## Behavior
 
 - `mode: "incremental"`: new files run the full workflow; existing git-tracked files use `legacyChecks`.
-- `mode: "full"`: all C/C++ files run the full workflow.
+- `mode: "full"`: all C/C++ files run the full workflow, while tracked files still preserve their original BOM state.
 - `checks.clangFormat`: formats with Google style.
 - `checks.cpplint`: blocks hard Google C++ style violations.
 - `checks.copyright`: writes a copyright header only when `copyrightInfo.company` is non-empty.
-- `checks.bom`: normalizes UTF-8 BOM for CMake, Visual Studio, and other C/C++ projects.
+- `checks.bom`: adds UTF-8 BOM to new C/C++ files; existing tracked files keep their original BOM state.
+- Formatting and copyright updates preserve each file's original CRLF or LF line endings.
+- Commit-time cpplint checks staged source files and staged `CPPLINT.cfg`, not possibly different working-tree versions.
 
 ## Dependencies
 

@@ -6,7 +6,7 @@
 
 ## 与 Claude Code 版的语义对应
 
-两边执行同一套 C++ 规范语义：**新文件/新项目走全套，老项目老文件默认只补 BOM；提交前 cpplint 只检查不改写；CRLF/LF 不通过过滤器规避**。
+两边执行同一套 C++ 规范语义：**新文件/新项目走全套，老项目老文件保持原编码和行尾；提交前 cpplint 检查暂存区快照且不改写工作区；CRLF/LF 不通过过滤器规避**。
 
 | 语义能力 | Codex 版 | Claude Code 版 |
 | --- | --- | --- |
@@ -48,7 +48,7 @@ codex plugin add cpp-style-enforcer-codex@codex-toolshop
 核心流程继承团队新版 `cpp-style-enforcer` 规范，重点覆盖：
 
 - `clang-format` 格式化
-- UTF-8 BOM 规范化
+- 新文件 UTF-8 BOM 规范化；已跟踪文件保持原 BOM 状态
 - 版权头插入或更新
 - 内置 `cpplint.py` 检查
 - 提交前暂存区检查
@@ -99,8 +99,12 @@ hook 默认保持安静，只在需要阻止操作或提示关键问题时输出
 
 编辑阶段不会立即运行 `clang-format` 或改写 BOM，因此不会在 Codex 连续修改代码时制造中间 diff。每轮编辑完成后，`Stop` 才统一处理本轮触碰的 C/C++ 文件；如果自动规范化改变了文件或 cpplint 仍有违规，Hook 会要求 Codex 检查最终 diff、修复问题并重新验证。为避免无限续跑，已经由 Stop 自动续跑过的轮次只显示剩余问题，不再次强制续跑。提交前 Hook 始终采用只检查、不修改的策略。
 
+`PostToolUse` 全程静默，只记录路径，不向模型上下文注入内容；没有改写和违规时，`Stop` 也静默结束。自动改写报告最多显示 10 个文件路径，其余只显示数量，避免大批量修改时无界占用上下文。
+
 ## 行尾策略
 
-`cpplint` 不负责统一 LF/CRLF，本插件也不会因为运行 cpplint 改写行尾。CRLF 文件会按原字节检查并保持 CRLF；带 UTF-8 BOM 的文件仅在 cpplint 执行期间临时剥 BOM，结束后恢复原始 BOM 与行尾。
+`cpplint` 不负责统一 LF/CRLF，本插件也不会因为运行 cpplint 改写行尾。格式化和版权头步骤会按每个文件的原始行尾分别保持 CRLF 或 LF，已跟踪文件也不会被强制增加或删除 BOM。
+
+提交前检查读取 Git 暂存区 blob，并在临时目录中按仓库相对路径运行 cpplint；项目中的 `CPPLINT.cfg` 同样取自暂存区。这样即使 Visual Studio 工作区使用 CRLF、Git 暂存区因 `core.autocrlf` 使用 LF，或者暂存后工作区又有未暂存修改，检查结果仍与实际提交内容一致，工作区文件不会被临时改写。
 
 行尾统一应交给 Git 属性、项目规范、`clang-format` 或版权头步骤处理，不通过屏蔽 `whitespace/newline` 来规避；该类别仍用于真正的换行风格违规。

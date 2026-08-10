@@ -20,7 +20,7 @@ enabled (boolean, 默认 true)
 mode (string, 默认 "incremental")
   控制新老文件的处理策略。
   "incremental" — 新文件（git 未追踪）走 checks 全套；老文件（git 已追踪）只走 legacyChecks。
-  "full"        — 所有文件均走 checks 全套，忽略 legacyChecks。
+  "full"        — 所有文件均走 checks 全套，忽略 legacyChecks；已跟踪文件仍保持原 BOM 状态。
   示例：强制所有文件全套 → "mode": "full"
 
 checks (object)
@@ -28,16 +28,16 @@ checks (object)
   checks.clangFormat (boolean, 默认 true)  — 是否用 clang-format 格式化整个文件。
   checks.copyright   (boolean, 默认 true)  — 是否插入/更新版权头（需 copyrightInfo.company 非空）。
   checks.cpplint     (boolean, 默认 true)  — 是否运行 cpplint 风格检查；违规会阻塞 Codex 当前操作。
-  checks.bom         (boolean, 默认 true)  — 是否确保文件有 UTF-8 BOM。
+  checks.bom         (boolean, 默认 true)  — 是否确保新文件有 UTF-8 BOM；老文件保持原状态。
   示例：新文件跳过 cpplint → "checks": { "cpplint": false }
 
 legacyChecks (object)
-  老文件（git 已追踪，mode=incremental）时生效的检查开关，默认只跑 BOM。
+  老文件（git 已追踪，mode=incremental）时生效的检查开关，默认全部关闭。
   legacyChecks.clangFormat (boolean, 默认 false) — 老文件是否格式化（仅改动行模式）。
   legacyChecks.copyright   (boolean, 默认 false) — 老文件是否插入/更新版权头。
   legacyChecks.cpplint     (boolean, 默认 false) — 老文件是否运行 cpplint。
-  legacyChecks.bom         (boolean, 默认 true)  — 老文件是否确保 UTF-8 BOM。
-  示例：老文件也加 copyright → "legacyChecks": { "copyright": true, "bom": true }
+  legacyChecks.bom         (boolean, 默认 false) — 保留兼容；老文件始终保持原 BOM 状态。
+  示例：老文件也加 copyright → "legacyChecks": { "copyright": true, "bom": false }
 
 copyrightInfo (object)
   版权头的内容配置。company 空时不生成版权头。
@@ -67,10 +67,10 @@ copyrightInfo (object)
 常见场景
 -----------------------------------------------------------
 
-场景 1：老项目，只想对老文件补 BOM，新文件全套（默认行为，无需修改）
+场景 1：老项目，老文件保持原编码和格式，新文件全套（默认行为，无需修改）
   {
     "mode": "incremental",
-    "legacyChecks": { "clangFormat": false, "copyright": false, "cpplint": false, "bom": true }
+    "legacyChecks": { "clangFormat": false, "copyright": false, "cpplint": false, "bom": false }
   }
 
 场景 2：老项目，想对所有文件（包括老文件）都跑全套检查
@@ -78,10 +78,10 @@ copyrightInfo (object)
     "mode": "full"
   }
 
-场景 3：老项目，老文件补 BOM + copyright，但不跑 cpplint 和 clang-format
+场景 3：老项目，老文件加 copyright，但不跑 cpplint 和 clang-format
   {
     "mode": "incremental",
-    "legacyChecks": { "clangFormat": false, "copyright": true, "cpplint": false, "bom": true }
+    "legacyChecks": { "clangFormat": false, "copyright": true, "cpplint": false, "bom": false }
   }
 
 场景 4：新项目，关闭 cpplint（项目尚未达到规范）

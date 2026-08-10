@@ -2,6 +2,7 @@
   "enabled": true,
   "mode": "incremental",
   "checks": { "clangFormat": true, "copyright": true, "cpplint": true, "bom": true },
+  "legacyChecks": { "clangFormat": false, "copyright": false, "cpplint": false, "bom": false },
   "copyrightInfo": {
     "company": "",
     "author": "",

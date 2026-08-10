@@ -6,8 +6,8 @@
   "plugins": [
     {
       "name": "cpp-style-enforcer-codex",
-      "version": "0.1.8",
-      "description": "C++ style enforcement workflow for Codex with Claude-parity cpplint and LF/CRLF semantics.",
+      "version": "0.1.9",
+      "description": "C++ style enforcement workflow with tracked-file encoding preservation and staged-content cpplint checks.",
       "source": {
         "source": "local",
         "path": "./plugins/cpp-style-enforcer-codex"

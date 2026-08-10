@@ -79,13 +79,12 @@ const hasPython = spawnSync('python', ['--version'], { stdio: 'pipe' }).status =
   || spawnSync('python3', ['--version'], { stdio: 'pipe' }).status === 0;
 
 try {
-  // ---- 场景 (a)：未配置项目编辑已存在(已 git 跟踪).cpp → 旧崩溃场景现在 passSilent ----
-  // 老文件 incremental → 只补 BOM、不格式化/不 lint；绝不 exit2+JSON block。
+  // ---- 场景 (a)：已跟踪文件保持原始编码、BOM 和正文 ----
   {
     const repo = newRepo('cse-a-');
     const f = path.join(repo, 'old.cpp');
-    // 故意杂乱格式 + 无版权头：若被当成全套会被格式化/插头，断言可捕获
-    fs.writeFileSync(f, 'int  old_var( ){return 0;}\n');
+    const originalBytes = Buffer.from('int  old_var( ){return 0;}\n', 'utf8');
+    fs.writeFileSync(f, originalBytes);
     sh(['add', 'old.cpp'], repo);
     sh(['commit', '-m', 'init'], repo);
 
@@ -93,17 +92,32 @@ try {
     assert.strictEqual(post.status, 0, '场景a: 老文件编辑 exit 0（不崩溃）');
     assert.strictEqual((post.stdout || '').trim(), '', '场景a: 编辑阶段只记录、不 block');
     assert.strictEqual(stop.status, 0, '场景a: Stop 统一处理 exit 0');
-    assert.strictEqual(JSON.parse(stop.stdout).decision, 'block', '场景a: 规范化后要求最终验证');
-
-    const out = fs.readFileSync(f);
-    assert.ok(out.slice(0, 3).equals(BOM), '场景a: 老文件只补 BOM');
-    const bodyText = out.slice(3).toString('utf-8');
-    assert.ok(bodyText.includes('int  old_var( ){return 0;}'), '场景a: 老文件正文未被 clang-format');
-    assert.ok(!/Copyright/.test(bodyText), '场景a: 老文件未插版权头');
+    assert.deepStrictEqual(JSON.parse(stop.stdout), {}, '场景a: 字节未变化时 Stop 静默结束');
+    assert.ok(fs.readFileSync(f).equals(originalBytes), '场景a: 老文件编码、BOM 与正文均保持不变');
   }
 
-  // ---- 场景 (c)：与 (a) 同一契约的显式重述（老文件 incremental 只补 BOM）----
-  // 已在场景 a 覆盖：已 git 跟踪文件不格式化/不 lint，仅 BOM。此处不再重复仓库。
+  // 旧版生成的配置可能仍含 legacyChecks.bom:true，也不得改写已跟踪文件。
+  {
+    const repo = newRepo('cse-a-legacy-config-');
+    const cfgDir = path.join(repo, '.codex-cpp-style');
+    fs.mkdirSync(cfgDir, { recursive: true });
+    fs.writeFileSync(path.join(cfgDir, 'cpp-style.json'), JSON.stringify({
+      mode: 'incremental',
+      legacyChecks: { bom: true },
+    }));
+    const f = path.join(repo, 'legacy-config.cpp');
+    const originalBytes = Buffer.from('int legacy_config;\n', 'utf8');
+    fs.writeFileSync(f, originalBytes);
+    sh(['add', 'legacy-config.cpp'], repo);
+    sh(['commit', '-m', 'init'], repo);
+
+    const { stop } = runDeferred({ cwd: repo, tool_name: 'Edit', tool_input: { file_path: f } });
+    assert.deepStrictEqual(JSON.parse(stop.stdout), {}, '旧版 BOM 配置不得触发老文件改写');
+    assert.ok(fs.readFileSync(f).equals(originalBytes), '旧版配置下仍保持原始 BOM 状态');
+  }
+
+  // ---- 场景 (c)：与 (a) 同一契约的显式重述（老文件保持原编码）----
+  // 已在场景 a 覆盖，不再重复创建仓库。
 
   // ---- 场景 (d)：enabled:false → 完全 no-op（exit0 无输出 + 文件字节零改动）----
   {

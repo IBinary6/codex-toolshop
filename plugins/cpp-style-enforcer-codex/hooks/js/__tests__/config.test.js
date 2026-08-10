@@ -72,6 +72,11 @@ try {
   assert.strictEqual(cfg2.enabled, true, '损坏 JSON + 无全局 → 硬编码默认 enabled true');
   assert.strictEqual(cfg2.mode, 'incremental', '损坏 JSON → 默认 incremental');
   assert.deepStrictEqual(cfg2.checks, { clangFormat: true, copyright: true, cpplint: true, bom: true }, '损坏 JSON → checks 全默认 true');
+  assert.deepStrictEqual(
+    cfg2.legacyChecks,
+    { clangFormat: false, copyright: false, cpplint: false, bom: false },
+    '损坏 JSON → 已跟踪文件默认不改编码和格式',
+  );
 
   // ---- loadConfig：enabled:false 生效 ----
   const proj3 = mkTmp('proj3-');

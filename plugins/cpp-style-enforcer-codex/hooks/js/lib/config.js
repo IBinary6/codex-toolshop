@@ -9,7 +9,7 @@ const DEFAULT_CONFIG = {
   enabled: true,
   mode: 'incremental',
   checks: { clangFormat: true, copyright: true, cpplint: true, bom: true },
-  legacyChecks: { clangFormat: false, copyright: false, cpplint: false, bom: true },
+  legacyChecks: { clangFormat: false, copyright: false, cpplint: false, bom: false },
   copyrightInfo: { company: '', author: '', dateFormat: 'YYYY/MM/DD HH:mm' },
 };
 const PROJECT_CONFIG_DIRS = ['.codex-cpp-style', '.claude-cpp-style'];
@@ -73,13 +73,13 @@ function normalize(base, override) {
     cpplint: checksIn.cpplint !== false,
     bom: checksIn.bom !== false,
   };
-  // legacyChecks: 老文件（git 已追踪）的每项开关；默认只跑 bom，其余关闭
+  // legacyChecks: 老文件（git 已追踪）的每项开关；默认全部关闭以保持原编码和格式。
   const legacyIn = { ...DEFAULT_CONFIG.legacyChecks, ...(base && base.legacyChecks), ...(override && override.legacyChecks) };
   const legacyChecks = {
     clangFormat: legacyIn.clangFormat === true,
     copyright: legacyIn.copyright === true,
     cpplint: legacyIn.cpplint === true,
-    bom: legacyIn.bom !== false,
+    bom: legacyIn.bom === true,
   };
   const copyrightInfo = {
     ...DEFAULT_CONFIG.copyrightInfo,

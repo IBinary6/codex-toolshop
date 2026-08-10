@@ -7,6 +7,7 @@ const { readStdinJson } = require('./lib/stdin');
 const { passSilent, denyTool, diag } = require('./lib/protocol');
 const { loadConfig } = require('./lib/config');
 const { repoRoot, isNew } = require('./lib/git');
+const { createStagedSnapshot } = require('./lib/staged_snapshot');
 const { shouldHandle } = require('./lib/target');
 const { runCpplint, formatViolations } = require('./steps/cpplint');
 
@@ -167,24 +168,36 @@ async function main() {
   const suppressCopyright = !(config.copyrightInfo && config.copyrightInfo.company) || config.checks.copyright === false;
   const allViolations = [];
   const deadline = Date.now() + PRE_COMMIT_DEADLINE_MS;
-  for (const f of files) {
-    const remainingMs = deadline - Date.now();
-    if (remainingMs <= 1000) {
-      allViolations.push({
-        file: path.relative(root, f),
-        line: 0,
-        category: 'runtime/timeout',
-        message: 'pre-commit cpplint 总耗时超限，剩余文件未检查',
-      });
-      break;
+  let snapshot;
+  try {
+    snapshot = createStagedSnapshot(root, files);
+    for (const stagedFile of snapshot.files) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 1000) {
+        allViolations.push({
+          file: stagedFile.relativePath,
+          line: 0,
+          category: 'runtime/timeout',
+          message: 'pre-commit cpplint 总耗时超限，剩余文件未检查',
+        });
+        break;
+      }
+      try {
+        const v = runCpplint(stagedFile.filePath, {
+          root: snapshot.root,
+          suppressCopyright,
+          timeoutMs: Math.min(15000, remainingMs),
+        });
+        for (const item of v) allViolations.push({ ...item, file: stagedFile.relativePath });
+        if (v.some((item) => item.category === 'runtime/timeout')) break;
+      } catch (e) {
+        diag(`pre_commit cpplint 跳过 ${stagedFile.relativePath}: ${e && e.message ? e.message : e}`);
+      }
     }
-    try {
-      const v = runCpplint(f, { root, suppressCopyright, timeoutMs: Math.min(15000, remainingMs) });
-      for (const item of v) allViolations.push({ ...item, file: path.relative(root, f) });
-      if (v.some((item) => item.category === 'runtime/timeout')) break;
-    } catch (e) {
-      diag(`pre_commit cpplint 跳过 ${f}: ${e && e.message ? e.message : e}`);
-    }
+  } catch (e) {
+    return denyTool(`提交被阻止：无法创建 Git index 快照，未执行 cpplint 检查。${e && e.message ? ` ${e.message}` : ''}`);
+  } finally {
+    if (snapshot) snapshot.cleanup();
   }
 
   // 一律硬违规：暂存文件存在任何 cpplint 违规即拦截提交。

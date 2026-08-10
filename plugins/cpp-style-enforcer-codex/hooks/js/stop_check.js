@@ -9,6 +9,7 @@ const { shouldHandle } = require('./lib/target');
 const { consumePendingPaths } = require('./lib/pending_edits');
 const { loadConfig } = require('./lib/config');
 const { repoRoot, isNew } = require('./lib/git');
+const { formatChangedFiles } = require('./lib/report');
 const { ensureClangFormatConfig } = require('./lib/ensure_clang_format_config');
 const { ensureProjectConfig } = require('./lib/ensure_project_config');
 const { applyClangFormat } = require('./steps/clang_format');
@@ -66,7 +67,8 @@ async function main() {
     if (effectiveChecks.clangFormat) {
       changed = step('clang_format', () => applyClangFormat(filePath, { isNew: isNewFile, root })) === true || changed;
     }
-    if (effectiveChecks.bom) {
+    // 已跟踪文件保持原始编码；BOM 规范化只用于没有历史编码契约的新文件。
+    if (isNewFile && effectiveChecks.bom) {
       changed = step('bom', () => applyBom(filePath)) === true || changed;
     }
     if (effectiveChecks.copyright && copyrightInfo && copyrightInfo.company) {
@@ -88,7 +90,7 @@ async function main() {
   const reasons = [];
   if (changedFiles.length > 0) {
     reasons.push(`C++ Style 已在本轮编辑结束后统一规范化 ${changedFiles.length} 个文件：\n` +
-      changedFiles.map((filePath) => `  - ${filePath}`).join('\n'));
+      formatChangedFiles(changedFiles));
   }
   if (allViolations.length > 0) reasons.push(formatViolations(allViolations));
   reasons.push('请检查最终 diff，修复剩余违规，并重新运行相关验证；不要跳过闭环检查。');
