@@ -44,6 +44,18 @@ try {
   assert.match(fs.readFileSync(workerProfile, 'utf8'), /model_reasoning_effort = "max"/);
   assert.match(session.hookSpecificOutput.additionalContext, /do not leave idle agents occupying limited slots/);
 
+  const compactSession = parse(run('session_start', { hook_event_name: 'SessionStart', source: 'compact' }));
+  assert.match(compactSession.hookSpecificOutput.additionalContext, /独立且并行有收益时委派/);
+  assert.match(compactSession.hookSpecificOutput.additionalContext, /最多 3 个子代理并发/);
+  assert.match(compactSession.hookSpecificOutput.additionalContext, /CodeMap MCP 可能 deferred/);
+  assert.doesNotMatch(compactSession.hookSpecificOutput.additionalContext, /Agent Dispatch policy for the primary Codex agent/);
+
+  for (const source of ['resume', 'clear']) {
+    const fullSession = parse(run('session_start', { hook_event_name: 'SessionStart', source }));
+    assert.match(fullSession.hookSpecificOutput.additionalContext, /Agent Dispatch policy for the primary Codex agent/);
+    assert.doesNotMatch(fullSession.hookSpecificOutput.additionalContext, /独立且并行有收益时委派/);
+  }
+
   assert.equal(run('user_prompt_submit', {
     hook_event_name: 'UserPromptSubmit',
     prompt: '解释这一行',

@@ -20,7 +20,7 @@
     },
     {
       "name": "codemap-boost-codex",
-      "version": "0.1.20",
+      "version": "0.1.21",
       "description": "Install-ready CodeMap workflow for Codex with a bundled code-review-graph MCP and synchronized graph-read barriers.",
       "source": {
         "source": "local",
@@ -34,7 +34,7 @@
     },
     {
       "name": "agent-dispatch-codex",
-      "version": "0.1.9",
+      "version": "0.1.10",
       "description": "Automatic cost-aware Sol, Terra, and Luna routing with serial primary-agent Git and bounded subagent lifecycle management.",
       "source": {
         "source": "local",

@@ -28,6 +28,8 @@ The bundled configuration should resolve to:
 
 The plugin-root `cwd` is only for locating the launcher. The graph `PreToolUse` hook injects the active task's Git root as `repo_root` for CRG project tools, while preserving an explicit `repo_root` and leaving cross-repository registry tools unchanged.
 
+MCP tools may be deferred and absent from static or top-level schemas. If `mcp__code_review_graph__` is not visible in the current top-level list, do not treat that alone as proof of absence: before claiming the MCP is unavailable, inspect `ALL_TOOLS` for `mcp__code_review_graph__*` when available or make an appropriate graph-tool call. Only after that check report the MCP as unavailable and use a fallback; never claim a graph query ran without evidence.
+
 If `mcp__code_review_graph__` is absent from the current task, state that the task did not load the MCP and use a suitable fallback. Never claim a graph query ran. Check whether the task predates installation before diagnosing the plugin.
 
 ## Doctor fallback
@@ -38,7 +40,7 @@ When the user asks for diagnosis, run the read-only doctor from the target proje
 node <plugin-root>/scripts/setup.cjs --doctor
 ```
 
-Resolve `<plugin-root>` from this skill location or from `codex plugin list --json`. Doctor reports the effective Codex paths, marketplace-qualified plugin data directory, private runtime/parser health, bundled MCP timeout, same-name global overrides, project graph status, and restart guidance. If no executable standalone Codex CLI is available, the CLI-dependent checks are `UNKNOWN`/`WARN` rather than a plugin failure. Exit `0` means `READY`; exit `1` means attention is required. Never combine `--doctor` with setup flags.
+Resolve `<plugin-root>` from this skill location or from `codex plugin list --json`. Doctor reports the effective Codex paths, marketplace-qualified plugin data directory, private runtime/parser health, bundled MCP timeout, same-name global overrides, project graph status, and restart guidance. A CRG status timeout or temporarily unavailable state is reported as a retryable status, not as `NEEDS_BUILD`; a missing graph directory or explicit status failure remains a build-needed state. If no executable standalone Codex CLI is available, the CLI-dependent checks are `UNKNOWN`/`WARN` rather than a plugin failure. Exit `0` means `READY`; exit `1` means attention is required. Never combine `--doctor` with setup flags.
 
 ## Setup fallback
 

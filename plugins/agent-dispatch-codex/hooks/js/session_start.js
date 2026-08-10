@@ -23,7 +23,7 @@ function main() {
     process.stderr.write(`[agent-dispatch-codex] custom agent setup failed: ${error.message}\n`);
   }
   if (!config.modules.session_guidance) return;
-  writeHookContext('SessionStart', mainAgentGuidance(config));
+  writeHookContext('SessionStart', mainAgentGuidance(config, input && input.source === 'compact'));
 }
 
 main();

@@ -91,7 +91,7 @@ function runOk(command, args, options = {}) {
 }
 
 /**
- * 用上游同款 `python -I` 模式验证 CLI 与四类 parser。
+ * 用上游同款 `python -I -B` 模式验证 CLI 与四类 parser，避免探针写入 pycache。
  * @example probeCrgRuntime({ runtimeDir: 'C:\\plugin-data\\crg-runtime' })
  */
 function probeCrgRuntime(options = {}) {
@@ -116,9 +116,9 @@ function probeCrgRuntime(options = {}) {
       "for grammar in ('python', 'javascript', 'typescript', 'tsx'):",
       '    get_parser(grammar)',
     ].join('\n');
-    return runOk(paths.python, ['-I', '-c', parserProbe], {
+    return runOk(paths.python, ['-I', '-B', '-c', parserProbe], {
       ...probeOptions,
-      diagnosticLabel: 'managed parser -I 探针',
+      diagnosticLabel: 'managed parser -I -B 探针',
     });
   } catch (error) {
     recordDiagnostic(options, `managed runtime 健康检查异常：${errorSummary(error)}`);

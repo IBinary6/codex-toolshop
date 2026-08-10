@@ -66,6 +66,11 @@ try {
     "const childProcess = require('child_process');",
     'const originalSpawnSync = childProcess.spawnSync;',
     'childProcess.spawnSync = function patchedSpawnSync(command, args, options) {',
+    "  if (Array.isArray(args) && args[0] === 'status' && process.env.CODEMAP_TEST_STATUS_TIMEOUT) return { status: null, stdout: '', stderr: '', error: Object.assign(new Error('status timed out'), { code: 'ETIMEDOUT' }) };",
+    "  if (Array.isArray(args) && args[0] === 'status' && process.env.CODEMAP_TEST_STATUS_UNAVAILABLE) return { status: null, stdout: '', stderr: '', error: undefined };",
+    "  if (Array.isArray(args) && args[0] === 'status' && process.env.CODEMAP_TEST_STATUS_SIGNAL) return { status: null, signal: 'SIGTERM', stdout: '', stderr: '', error: undefined };",
+    "  if (Array.isArray(args) && args[0] === 'status' && process.env.CODEMAP_TEST_STATUS_ERROR) return { status: null, stdout: '', stderr: '', error: Object.assign(new Error('permission denied'), { code: 'EACCES' }) };",
+    "  if (Array.isArray(args) && args[0] === 'status' && process.env.CODEMAP_TEST_STATUS_FAILURE) return { status: 2, stdout: '', stderr: 'status failed', error: undefined };",
     "  if (String(command).includes('crg-runtime')) return { status: 0, stdout: 'ok\\n', stderr: '', error: undefined };",
     '  return originalSpawnSync.call(this, command, args, options);',
     '};',
@@ -137,6 +142,126 @@ try {
   assert.match(healthy.stdout, /项目图谱:\s+PASS/);
   assert.match(healthy.stdout, /最终状态:\s+READY/);
   assert.deepStrictEqual(fs.readdirSync(data, { recursive: true }).sort(), before, '--doctor stays read-only when healthy');
+
+  const timeoutStatus = spawnSync(process.execPath, [setup, '--doctor'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CODEX_HOME: home,
+      PLUGIN_DATA: data,
+      CODEMAP_TEST_MCP_LOG: mcpLog,
+      CODEMAP_TEST_CRG_COMMAND: managedCommand,
+      CODEMAP_TEST_CRG_JSON_COMMAND: managedCommand.replace(/\\/g, '\\\\'),
+      CODEMAP_TEST_PLUGIN_ROOT: pluginRoot,
+      CODEMAP_TEST_PLUGIN_ROOT_JSON: pluginRoot.replace(/\\/g, '\\\\'),
+      CODEMAP_TEST_STATUS_TIMEOUT: '1',
+      NODE_OPTIONS: `--require=${spawnShim}`,
+      PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
+    },
+    windowsHide: process.platform === 'win32',
+  });
+  assert.strictEqual(timeoutStatus.status, 1, `${timeoutStatus.stderr}\n${timeoutStatus.stdout}`);
+  assert.match(timeoutStatus.stdout, /项目图谱:\s+TIMEOUT/);
+  assert.match(timeoutStatus.stdout, /最终状态:\s+RETRY_STATUS/);
+  assert.match(timeoutStatus.stdout, /稍后重试|忙碌|超时/);
+  assert.doesNotMatch(timeoutStatus.stdout, /MCP 已就绪.*--build|最终状态:\s+NEEDS_BUILD/);
+  assert.deepStrictEqual(fs.readdirSync(data, { recursive: true }).sort(), before, '--doctor stays read-only on timeout');
+
+  const unavailableStatus = spawnSync(process.execPath, [setup, '--doctor'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CODEX_HOME: home,
+      PLUGIN_DATA: data,
+      CODEMAP_TEST_MCP_LOG: mcpLog,
+      CODEMAP_TEST_CRG_COMMAND: managedCommand,
+      CODEMAP_TEST_CRG_JSON_COMMAND: managedCommand.replace(/\\/g, '\\\\'),
+      CODEMAP_TEST_PLUGIN_ROOT: pluginRoot,
+      CODEMAP_TEST_PLUGIN_ROOT_JSON: pluginRoot.replace(/\\/g, '\\\\'),
+      CODEMAP_TEST_STATUS_UNAVAILABLE: '1',
+      NODE_OPTIONS: `--require=${spawnShim}`,
+      PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
+    },
+    windowsHide: process.platform === 'win32',
+  });
+  assert.strictEqual(unavailableStatus.status, 1, `${unavailableStatus.stderr}\n${unavailableStatus.stdout}`);
+  assert.match(unavailableStatus.stdout, /项目图谱:\s+UNAVAILABLE/);
+  assert.match(unavailableStatus.stdout, /最终状态:\s+RETRY_STATUS/);
+  assert.match(unavailableStatus.stdout, /状态暂不可得|稍后重试/);
+  assert.doesNotMatch(unavailableStatus.stdout, /CRG status.*超时/);
+  assert.doesNotMatch(unavailableStatus.stdout, /最终状态:\s+NEEDS_BUILD/);
+
+  const signalStatus = spawnSync(process.execPath, [setup, '--doctor'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CODEX_HOME: home,
+      PLUGIN_DATA: data,
+      CODEMAP_TEST_MCP_LOG: mcpLog,
+      CODEMAP_TEST_CRG_COMMAND: managedCommand,
+      CODEMAP_TEST_CRG_JSON_COMMAND: managedCommand.replace(/\\/g, '\\\\'),
+      CODEMAP_TEST_PLUGIN_ROOT: pluginRoot,
+      CODEMAP_TEST_PLUGIN_ROOT_JSON: pluginRoot.replace(/\\/g, '\\\\'),
+      CODEMAP_TEST_STATUS_SIGNAL: '1',
+      NODE_OPTIONS: `--require=${spawnShim}`,
+      PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
+    },
+    windowsHide: process.platform === 'win32',
+  });
+  assert.strictEqual(signalStatus.status, 1, `${signalStatus.stderr}\n${signalStatus.stdout}`);
+  assert.match(signalStatus.stdout, /项目图谱:\s+UNAVAILABLE/);
+  assert.match(signalStatus.stdout, /最终状态:\s+RETRY_STATUS/);
+  assert.doesNotMatch(signalStatus.stdout, /最终状态:\s+NEEDS_BUILD/);
+
+  const errorStatus = spawnSync(process.execPath, [setup, '--doctor'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CODEX_HOME: home,
+      PLUGIN_DATA: data,
+      CODEMAP_TEST_MCP_LOG: mcpLog,
+      CODEMAP_TEST_CRG_COMMAND: managedCommand,
+      CODEMAP_TEST_CRG_JSON_COMMAND: managedCommand.replace(/\\/g, '\\\\'),
+      CODEMAP_TEST_PLUGIN_ROOT: pluginRoot,
+      CODEMAP_TEST_PLUGIN_ROOT_JSON: pluginRoot.replace(/\\/g, '\\\\'),
+      CODEMAP_TEST_STATUS_ERROR: '1',
+      NODE_OPTIONS: `--require=${spawnShim}`,
+      PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
+    },
+    windowsHide: process.platform === 'win32',
+  });
+  assert.strictEqual(errorStatus.status, 1, `${errorStatus.stderr}\n${errorStatus.stdout}`);
+  assert.match(errorStatus.stdout, /项目图谱:\s+STATUS_ERROR/);
+  assert.match(errorStatus.stdout, /EACCES/);
+  assert.match(errorStatus.stdout, /最终状态:\s+NEEDS_REPAIR/);
+  assert.doesNotMatch(errorStatus.stdout, /最终状态:\s+(NEEDS_BUILD|RETRY_STATUS)/);
+  assert.doesNotMatch(errorStatus.stdout, /MCP 已就绪.*--build/);
+
+  const failedStatus = spawnSync(process.execPath, [setup, '--doctor'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CODEX_HOME: home,
+      PLUGIN_DATA: data,
+      CODEMAP_TEST_MCP_LOG: mcpLog,
+      CODEMAP_TEST_CRG_COMMAND: managedCommand,
+      CODEMAP_TEST_CRG_JSON_COMMAND: managedCommand.replace(/\\/g, '\\\\'),
+      CODEMAP_TEST_PLUGIN_ROOT: pluginRoot,
+      CODEMAP_TEST_PLUGIN_ROOT_JSON: pluginRoot.replace(/\\/g, '\\\\'),
+      CODEMAP_TEST_STATUS_FAILURE: '1',
+      NODE_OPTIONS: `--require=${spawnShim}`,
+      PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
+    },
+    windowsHide: process.platform === 'win32',
+  });
+  assert.strictEqual(failedStatus.status, 1, `${failedStatus.stderr}\n${failedStatus.stdout}`);
+  assert.match(failedStatus.stdout, /项目图谱:\s+MISSING_OR_EXPLICIT_FAILURE/);
+  assert.match(failedStatus.stdout, /最终状态:\s+NEEDS_BUILD/);
 
   const noCli = spawnSync(process.execPath, [setup, '--doctor'], {
     cwd: repo,

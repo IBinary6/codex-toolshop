@@ -107,10 +107,10 @@ const {
     assert.strictEqual(ok, true);
     assert.deepStrictEqual(calls[0], [paths.command, ['--version']]);
     assert.strictEqual(calls[1][0], paths.python);
-    assert.strictEqual(calls[1][1][0], '-I', 'parser probe matches CRG isolated interpreter mode');
-    assert.match(calls[1][1][2], /get_parser/);
-    assert.match(calls[1][1][2], /typescript/);
-    assert.match(calls[1][1][2], /javascript/);
+    assert.deepStrictEqual(calls[1][1].slice(0, 3), ['-I', '-B', '-c'], 'parser probe uses isolated, no-bytecode Python mode');
+    assert.match(calls[1][1][3], /get_parser/);
+    assert.match(calls[1][1][3], /typescript/);
+    assert.match(calls[1][1][3], /javascript/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

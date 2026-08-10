@@ -125,16 +125,40 @@ function runDoctor(cwd) {
   const ambiguousUvxOverride = hasGlobalOverride && isLegacyUvxCrgMcpConfig(resolvedMcp.config);
   const graphDir = root ? path.join(root, '.code-review-graph') : null;
   const graphExists = !!graphDir && fs.existsSync(graphDir);
-  let graphStatusOk = false;
+  let graphStatus = 'MISSING_OR_EXPLICIT_FAILURE';
+  let graphStatusReason = graphExists ? '图谱 status 尚未通过检查' : '尚未找到图谱目录';
+  let graphStatusErrorCode = null;
   if (runtimeOk && root && graphExists) {
-    const status = spawnSync(managed.command, ['status'], {
-      cwd: root,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 15000,
-      windowsHide: process.platform === 'win32',
-    });
-    graphStatusOk = !status.error && status.status === 0;
+    let status;
+    try {
+      status = spawnSync(managed.command, ['status'], {
+        cwd: root,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 15000,
+        windowsHide: process.platform === 'win32',
+      });
+    } catch (error) {
+      status = { status: null, error, stdout: '', stderr: '' };
+    }
+    const statusErrorCode = status && status.error && status.error.code;
+    graphStatusErrorCode = statusErrorCode || null;
+    if (status && !status.error && status.status === 0 && !status.signal) {
+      graphStatus = 'PASS';
+      graphStatusReason = 'status 检查通过';
+    } else if (statusErrorCode === 'ETIMEDOUT') {
+      graphStatus = 'TIMEOUT';
+      graphStatusReason = 'CRG status 检查超时，状态暂不可得';
+    } else if (status && status.error) {
+      graphStatus = 'STATUS_ERROR';
+      graphStatusReason = `CRG status 执行错误（${statusErrorCode || 'UNKNOWN'}）`;
+    } else if (!status || status.status == null || status.signal) {
+      graphStatus = 'UNAVAILABLE';
+      graphStatusReason = 'CRG status 状态暂不可得，稍后重试';
+    } else {
+      graphStatus = 'MISSING_OR_EXPLICIT_FAILURE';
+      graphStatusReason = `CRG status 返回失败（退出码 ${status.status}）`;
+    }
   }
 
   log('CodeMap Boost doctor（只读诊断）');
@@ -164,12 +188,14 @@ function runDoctor(cwd) {
         : '用户自定义同名 MCP 会遮蔽插件原生 MCP，需由用户决定保留或移除'
     : '未发现遮蔽配置'}`);
   log(`目标 Git 仓库:     ${root ? `PASS  ${root}` : 'WARN  当前目录不在 Git 仓库中'}`);
-  log(`项目图谱:          ${graphStatusOk ? 'PASS' : graphExists ? 'WARN  图谱存在但 status 检查失败' : 'WARN  尚未找到图谱目录'}`);
+  log(`项目图谱:          ${graphStatus}  ${graphStatusReason}`);
+  log(`CRG status:        ${graphStatus}`);
   log('当前任务工具:      UNKNOWN  CLI 无法读取已启动任务的工具快照，请在新任务中确认 mcp__code_review_graph__ 工具。');
 
-  const needsRepair = !runtimeOk || !nativeMcp.ok || (codexOk && !resolvedIsNative);
+  const needsRepair = !runtimeOk || !nativeMcp.ok || (codexOk && !resolvedIsNative) || graphStatus === 'STATUS_ERROR';
   const needsProject = !root;
-  const needsBuild = !!root && !graphStatusOk;
+  const needsRetry = !!root && (graphStatus === 'TIMEOUT' || graphStatus === 'UNAVAILABLE');
+  const needsBuild = !!root && graphStatus === 'MISSING_OR_EXPLICIT_FAILURE';
   log('建议:');
   if (!codexOk) log('  - 独立 Codex CLI 不可用；已跳过可选的有效 MCP 与旧版覆盖检查，插件原生 MCP 不依赖 CLI。');
   if (needsProject) log('  - 切换到目标 Git 仓库目录后重新运行 --doctor；不要在插件目录或普通目录构建项目图谱。');
@@ -179,10 +205,20 @@ function runDoctor(cwd) {
   if (legacyOverride) log(`  - 自动移除旧版全局覆盖：node "${path.join(__dirname, 'setup.cjs')}" --build`);
   else if (hasGlobalOverride) log('  - 检查 `codex mcp get code-review-graph --json`，确认所有权后重命名或移除同名 MCP。');
   if (!runtimeOk && codexOk) log(`  - 在目标仓库重建私有运行时：node "${path.join(__dirname, 'setup.cjs')}" --build`);
+  else if (graphStatus === 'STATUS_ERROR') log(`  - CRG status 执行失败（${graphStatusErrorCode || 'UNKNOWN'}），请先修复运行时错误后重试；不要据此重建图谱。`);
+  else if (needsRetry) log(`  - CRG status ${graphStatus === 'TIMEOUT' ? '超时' : '状态暂不可得'}，稍后重试 --doctor；不要据此重建图谱。`);
   else if (codexOk && runtimeOk && nativeMcp.ok && needsBuild) log(`  - MCP 已就绪；运行：node "${path.join(__dirname, 'setup.cjs')}" --build`);
   if (needsRepair) log('  - 修复后完整退出 Codex，并创建一个全新任务；旧任务不会动态补载 MCP 工具。');
   else log('  - 原生 MCP 状态正常；若当前任务没有图工具，请完整重启 Codex 后创建新任务。');
-  const finalStatus = needsRepair ? 'NEEDS_REPAIR' : needsProject ? 'NEEDS_PROJECT' : needsBuild ? 'NEEDS_BUILD' : 'READY';
+  const finalStatus = needsRepair
+    ? 'NEEDS_REPAIR'
+    : needsProject
+      ? 'NEEDS_PROJECT'
+      : needsRetry
+        ? 'RETRY_STATUS'
+        : needsBuild
+          ? 'NEEDS_BUILD'
+          : 'READY';
   log(`最终状态:          ${finalStatus}`);
   process.exitCode = finalStatus === 'READY' ? 0 : 1;
 }

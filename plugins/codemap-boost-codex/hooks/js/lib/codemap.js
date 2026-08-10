@@ -40,7 +40,8 @@ const AGENTS_BLOCK = `${BLOCK_START}
 - SessionStart 同步维护图谱，源码修改后的 PostToolUse 在后台合并刷新；每次图谱 MCP 读取前仍有 PreToolUse barrier 同步兜底，并把当前 Git 根目录注入 CRG 的 repo_root。
 - 不要为了“先刷新”从主代理或子代理重复调用 \`mcp__code_review_graph__build_or_update_graph_tool\`。仅在 hook 明确报告刷新失败、用户要求强制重建或执行 setup/诊断时显式调用。
 - 调度插件只负责选择合适的搜索或执行代理；CodeMap Boost 负责图刷新和检索规则。子代理启动时只注入规则，不重复 build/update。
-- 如果当前任务的工具列表中不存在 \`mcp__code_review_graph__\`，必须明确报告该任务未加载 MCP，并使用合适的降级检索；不得声称已经查询图谱。
+- MCP 工具可能以 deferred 方式注入，不会出现在静态 schema 或顶层工具列表中；顶层列表缺少 \`mcp__code_review_graph__\` 本身不能证明 MCP 未加载。
+- 在声称 MCP 未加载前，如果可用先检查 \`ALL_TOOLS\` 中是否存在 \`mcp__code_review_graph__*\`，或实际调用合适的图工具；只有确认不可用且当前任务的工具列表中不存在 \`mcp__code_review_graph__\` 后，才明确报告该任务未加载 MCP 并使用合适的降级检索，不得声称已经查询图谱。
 - 任务已经明确涉及影响面、代码审查、调用链、引用关系或跨模块定位时，直接调用对应的 \`semantic_search_nodes_tool\`、\`query_graph_tool\`、\`get_impact_radius_tool\` 或 review-context 工具。
 - 任务不明确或需要快速路由时，最多调用一次 \`mcp__code_review_graph__get_minimal_context_tool\` 获取概览；不要反复调用 minimal 试探。
 - 如果概览信息不足（缺少有效实体、文件、调用关系或下一步工具），立即升级到更完整的工具或使用 \`detail_level="standard"\`，不要再次调用 minimal。
@@ -767,7 +768,8 @@ function removeLegacyCrgMcp(options = {}) {
 
 const CONTEXT = [
   'CodeMap Boost owns graph freshness: SessionStart, structural prompts, source-changing tools, and the graph MCP PreToolUse barrier synchronize the graph.',
-  'If the current tool list does not expose mcp__code_review_graph__, report that the MCP tools are unavailable in this task and use an appropriate fallback; do not claim that a graph query ran.',
+  'MCP tools may be deferred and absent from static or top-level schemas; absence from the top-level tool list alone does not prove that mcp__code_review_graph__ is unavailable.',
+  'If the current tool list does not expose mcp__code_review_graph__, do not assume it is unavailable because MCP may be deferred; inspect ALL_TOOLS for mcp__code_review_graph__* when available or make an appropriate graph-tool call. Before claiming absence, only after that check report that the MCP tools are unavailable in this task and use a fallback, and never claim that a graph query ran.',
   'Do not start a duplicate build/update from the primary agent or a spawned agent unless a hook reports refresh failure, the user requests a forced rebuild, or you are troubleshooting setup.',
   'Routing integrations select the agent; CodeMap Boost owns graph refresh and retrieval policy. SubagentStart injects these rules without refreshing again.',
   'Use adaptive retrieval: when the task is clear, call the specialized tool directly (semantic_search_nodes_tool, query_graph_tool, get_impact_radius_tool, or the relevant review-context tool).',

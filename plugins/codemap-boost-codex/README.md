@@ -47,6 +47,8 @@ codex mcp get code-review-graph --json
 
 正常结果是 stdio、`command = node`、参数为 `scripts/mcp-server.cjs`、`cwd` 位于已安装插件根目录，并显示 `startup_timeout_sec = 100`。这个 `cwd` 只负责稳定定位插件启动脚本；图查询前的 `PreToolUse` 会把当前任务的 Git 根目录补入 CRG 的 `repo_root`，避免误查插件目录。已经启动的旧任务不会动态补载新插件能力，所以“新建任务”是 Codex 的加载边界，不是额外配置步骤。
 
+MCP 工具可能以 deferred 方式注入，因此不会出现在静态 schema 或顶层工具列表中。仅因当前顶层列表没有 `mcp__code_review_graph__` 不能断言 MCP 未加载；声称不可用前，应在可用时检查 `ALL_TOOLS` 中的 `mcp__code_review_graph__*`，或实际调用合适的图工具，确认后再使用降级检索，也不要声称未执行的图查询已经完成。
+
 ## 自动启用
 
 原生 MCP 启动器是默认安装路径：它解析与 Codex hooks 相同的 marketplace-qualified 插件数据目录，维护私有运行时并启用 CodeMap。`SessionStart` 继续负责 `$CODEX_HOME/AGENTS.md` 托管块、旧版插件全局 MCP 覆盖迁移和当前 Git 仓库的 build/update。
@@ -82,7 +84,7 @@ node "<plugin-root>/scripts/setup.cjs" --doctor
 - 插件私有 CRG 运行环境及 parser 健康状态。
 - 插件原生 MCP 声明、100 秒启动超时，以及是否存在会遮蔽它的同名全局配置。
 - 当前目录对应的 Git 仓库和项目图谱 `status`。
-- 当前任务工具状态为 `UNKNOWN`：外部 CLI 无法读取已启动任务的工具快照，需在新任务中确认 `mcp__code_review_graph__*` 是否出现。
+- 当前任务工具状态为 `UNKNOWN`：外部 CLI 无法读取已启动任务的工具快照；MCP 也可能 deferred，不能仅凭静态/顶层列表判断，需在新任务中按可用性检查 `ALL_TOOLS` 或实际调用 `mcp__code_review_graph__*`。
 - 可直接执行的修复命令，以及修复后是否必须完整重启并创建新任务。
 
 诊断结果为 `READY` 时退出码为 `0`；需要修复或构建时退出码为 `1`。`--doctor` 不能与 `--build`、`--with-graphify` 或 `--skip-install` 一起使用，以保证只读。

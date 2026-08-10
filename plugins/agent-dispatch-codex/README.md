@@ -63,7 +63,7 @@ Shell 嵌套求值不属于 Git 权限。例如 `git status $(other-command)`、
 
 安装 CodeMap Boost 后，两者按职责协作：Agent Dispatch 选择最低成本且可靠的搜索代理，CodeMap Boost 负责图刷新、读取屏障和图检索策略。`dispatch_explorer` 与 `dispatch_mapper` 会优先使用可用的代码图，不自行重复执行 build/update；纯文本、注释和字符串查找才使用文本搜索。
 
-Agent Dispatch 不捆绑安装这些 MCP。Context Mode 应作为独立 Codex 插件安装，Serena 应按其 Codex setup 流程注册；未安装的工具不会因为加入前缀而被加载。若使用其他服务器名称，可通过 `mcp_prefixes_add` 增加项目或全局覆盖。
+Agent Dispatch 不捆绑安装这些 MCP。Context Mode 应作为独立 Codex 插件安装，Serena 应按其 Codex setup 流程注册；未安装的工具不会因为加入前缀而被加载。若使用其他服务器名称，可通过 `mcp_prefixes_add` 增加项目或全局覆盖。CodeMap MCP 可能以 deferred 方式注入，不出现在静态或顶层 schema；声称未加载前，应在可用时检查 `ALL_TOOLS` 中的 `mcp__code_review_graph__*` 或实际调用，不能仅凭顶层列表判断。
 
 ## 子 Agent 模型分工
 

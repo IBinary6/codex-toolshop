@@ -21,13 +21,20 @@ assert.match(mainAgentGuidance(config), /use Terra high for requested routine in
 assert.match(mainAgentGuidance(config), /do not leave idle agents occupying limited slots/);
 assert.match(mainAgentGuidance(config), /Execute all Git commands in the primary agent, one at a time/);
 assert.match(mainAgentGuidance(config), /Agent Dispatch selects the agent; CodeMap Boost owns graph refresh/);
+assert.match(mainAgentGuidance(config), /deferred.*ALL_TOOLS.*top-level list alone/);
 assert.match(mainAgentGuidance(config, true), /所有 Git 命令均由主代理串行执行/);
 assert.match(mainAgentGuidance(config, true), /Agent Dispatch 只负责选代理/);
+assert.match(mainAgentGuidance(config, true), /deferred.*ALL_TOOLS.*顶层列表判断/);
 assert.match(mainAgentGuidance(config, true), /立即停止子代理/);
 assert.match(mainAgentGuidance(config, true), /高风险审查才用 Sol xhigh/);
+assert.match(mainAgentGuidance(config, true), /独立且并行有收益时委派/);
+assert.match(mainAgentGuidance(config, true), /最多 3 个子代理并发/);
+assert.doesNotMatch(mainAgentGuidance(config, true), /必须并行委派/);
 assert.match(subagentGuidance(config), /do not spawn or delegate/i);
 assert.match(subagentGuidance(config), /every file you changed/i);
 assert.match(subagentGuidance(config), /Do not run Git commands/);
+assert.match(subagentGuidance(config), /deferred.*ALL_TOOLS.*top-level list alone/);
+assert.match(subagentGuidance(config), /Agent Dispatch selects the agent; CodeMap Boost owns graph refresh/);
 
 assert.equal(promptNeedsDispatch('请帮我审查并迁移这个多文件插件', config), true);
 assert.equal(promptNeedsDispatch('解释这一行', config), false);
