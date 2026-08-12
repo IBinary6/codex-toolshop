@@ -7,8 +7,10 @@
 import argparse
 import base64
 import json
+import os
 import sqlite3
 import sys
+import tempfile
 from pathlib import Path
 
 _PACKAGE_PARENT = str(Path(__file__).resolve().parent.parent)
@@ -219,15 +221,59 @@ def _external_records(source: Path) -> list[dict]:
         conn.close()
 
 
-def _migrate(args, db: BugDB) -> int:
-    """从独立 Claude 数据库只读迁移；默认路径已与 Claude 共享。"""
+def _copy_database(source: Path, target: Path) -> int:
+    """通过 SQLite backup 无损复制整个旧库，并原子发布到公共路径。"""
+    records = _external_records(source)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile(
+        prefix=f".{target.name}.migrating-", suffix=".tmp",
+        dir=target.parent, delete=False,
+    )
+    temporary = Path(handle.name)
+    handle.close()
+    source_connection = None
+    target_connection = None
+    try:
+        source_uri = f"{source.resolve().as_uri()}?mode=ro"
+        source_connection = sqlite3.connect(source_uri, uri=True)
+        target_connection = sqlite3.connect(str(temporary))
+        source_connection.backup(target_connection)
+        target_connection.close()
+        target_connection = None
+        source_connection.close()
+        source_connection = None
+        if target.exists():
+            temporary.unlink(missing_ok=True)
+            return -1
+        os.replace(temporary, target)
+        return len(records)
+    finally:
+        if target_connection is not None:
+            target_connection.close()
+        if source_connection is not None:
+            source_connection.close()
+        temporary.unlink(missing_ok=True)
+
+
+def _migrate(args) -> int:
+    """把旧 Claude 数据库迁移到工具中立的共享目录。"""
     source = Path(args.source).expanduser() if args.source else paths.get_legacy_claude_db_path()
-    if source.resolve() == db.path.resolve():
-        _output({"migrated": 0, "source": str(source), "target": str(db.path), "shared": True},
+    target = paths.get_db_path()
+    if source.resolve() == target.resolve():
+        _output({"migrated": 0, "source": str(source), "target": str(target), "shared": True},
                 "stats", args.format)
         return 0
+    if not target.exists():
+        copied = _copy_database(source, target)
+        if copied >= 0:
+            BugDB(target)
+            _output({"migrated": copied, "source": str(source), "target": str(target),
+                     "shared": False, "copied": True}, "stats", args.format)
+            return 0
+    db = BugDB(target)
     imported = _import_records(_external_records(source), db, deduplicate=True)
-    _output({"migrated": imported, "source": str(source), "target": str(db.path), "shared": False},
+    _output({"migrated": imported, "source": str(source), "target": str(target),
+             "shared": False, "copied": False},
             "stats", args.format)
     return 0
 
@@ -387,6 +433,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "config":
             return _config(args)
+        if args.command == "migrate":
+            return _migrate(args)
         db = BugDB()
         if args.command == "search":
             return _search(args, db)
@@ -441,8 +489,6 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "import":
             return _import(args, db)
-        if args.command == "migrate":
-            return _migrate(args, db)
         raise ValueError(f"unknown command: {args.command}")
     except RecordNotFound as error:
         sys.stderr.write(f"error: {error}\n")

@@ -1,6 +1,6 @@
 {
   "name": "bugdb-knowledge-codex",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Codex BugDB plugin with a portable Python SQLite core and Claude DB migration.",
   "license": "MIT",
   "private": true,

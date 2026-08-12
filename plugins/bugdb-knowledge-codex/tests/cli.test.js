@@ -26,6 +26,22 @@ function json(home, args) {
   return JSON.parse(run(home, [...args, '--format', 'json']).stdout);
 }
 
+function runWithEnvironment(environment, args, expected = 0) {
+  const result = spawnSync(python, [cli, ...args], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, ...environment },
+    windowsHide: process.platform === 'win32',
+    timeout: 15000,
+  });
+  assert.equal(result.status, expected, `${args.join(' ')}\n${result.stderr}`);
+  return result;
+}
+
+function jsonWithEnvironment(environment, args) {
+  return JSON.parse(runWithEnvironment(environment, [...args, '--format', 'json']).stdout);
+}
+
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'bugdb-codex-cli-'));
 const source = path.join(temp, 'source');
 const target = path.join(temp, 'target');
@@ -76,6 +92,39 @@ try {
   json(target2, ['config', 'init']);
   json(target2, ['config', 'set', 'example', 'value']);
   assert.equal(json(target2, ['config', 'get', 'example']).example, 'value');
+
+  const neutralHome = path.join(temp, 'neutral-home');
+  const legacyHome = path.join(neutralHome, '.claude', 'bugdb');
+  const commonHome = path.join(neutralHome, '.bugdb');
+  const removed = json(legacyHome, ['add', '--category', 'build',
+    '--context', 'legacy record removed before migration', '--cause', 'fixture',
+    '--content', 'fixture']);
+  json(legacyHome, ['delete', '--id', String(removed.id), '--hard']);
+  const active = json(legacyHome, ['add', '--category', 'link',
+    '--context', 'error LNK2001 from legacy shared database', '--cause', 'missing library',
+    '--content', 'link the library']);
+  const archived = json(legacyHome, ['add', '--category', 'runtime',
+    '--context', 'legacy archived access violation', '--cause', 'lifetime',
+    '--content', 'repair lifetime']);
+  json(legacyHome, ['delete', '--id', String(archived.id)]);
+
+  const neutralEnvironment = {
+    BUGDB_HOME: '',
+    CLAUDE_HOME: '',
+    HOME: neutralHome,
+    USERPROFILE: neutralHome,
+  };
+  const paths = jsonWithEnvironment(neutralEnvironment, ['config', 'path']);
+  assert.equal(path.normalize(paths.db_path), path.join(commonHome, 'bugs.db'));
+  const migration = jsonWithEnvironment(neutralEnvironment, ['migrate']);
+  assert.equal(migration.shared, false);
+  assert.equal(migration.migrated, 2);
+  assert.equal(fs.existsSync(path.join(legacyHome, 'bugs.db')), true);
+  assert.equal(fs.existsSync(path.join(commonHome, 'bugs.db')), true);
+  const migrated = jsonWithEnvironment(neutralEnvironment, ['list', '--status', 'all']);
+  assert.deepEqual(migrated.results.map((record) => record.id).sort((a, b) => a - b),
+    [active.id, archived.id]);
+  assert.equal(migrated.results.find((record) => record.id === archived.id).status, 'archived');
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }

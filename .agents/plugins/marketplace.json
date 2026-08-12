@@ -48,7 +48,7 @@
     },
     {
       "name": "bugdb-knowledge-codex",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "Shared local BugDB knowledge for Codex with automatic lookup guidance and reusable verified-fix recording.",
       "source": {
         "source": "local",

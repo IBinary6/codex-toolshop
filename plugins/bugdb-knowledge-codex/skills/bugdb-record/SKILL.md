@@ -63,6 +63,6 @@ python <plugin-root>/bugdb/cli.py search --query "<context>" --language <语言>
 
 ## 录入门槛
 
-默认数据库是 `~/.claude/bugdb/bugs.db`，与 Claude BugDB 直接共享；不要为 Codex
+默认数据库是 `~/.bugdb/bugs.db`，由 Claude Code 与 Codex 直接共享；不要为 Codex
 另建一次性副本。只有复现概率大于 50%、根因和方案明确、验证证据充分的内容才录入；
 一次性环境问题或未经验证的猜测不应录入。

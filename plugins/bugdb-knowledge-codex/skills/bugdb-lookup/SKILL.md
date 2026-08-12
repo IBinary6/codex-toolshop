@@ -23,7 +23,8 @@ python <plugin-root>/bugdb/cli.py search --query "<原始错误>" --language <�
 ```
 
 其中 `<plugin-root>` 是本 skill 所在插件目录（从 `skills/bugdb-lookup/SKILL.md` 向上两级）。
-Codex 默认直接使用 `~/.claude/bugdb/bugs.db`，因此已有 Claude 记录无需复制即可查询。
+Codex 与 Claude Code 默认直接使用 `~/.bugdb/bugs.db`。旧版
+`~/.claude/bugdb/bugs.db` 只作为迁移源，不再作为任何 Agent 的默认目录。
 
 ### 2. 解读并验证
 

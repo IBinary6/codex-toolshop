@@ -1,7 +1,7 @@
-"""Codex BugDB 路径解析。
+"""工具中立的共享 BugDB 路径解析。
 
-Codex 端默认直接打开 Claude BugDB 的兼容路径，避免迁移后产生第二份
-知识库。``BUGDB_HOME`` 仍可用于测试或显式指定另一个共享数据库。
+Claude Code 与 Codex 默认都使用 ``~/.bugdb``；``BUGDB_HOME`` 仍可用于
+测试或显式指定另一份数据库。旧 Claude 目录只作为迁移源，不再作为默认值。
 """
 
 import json
@@ -12,7 +12,7 @@ _config_cache: dict | None = None
 
 
 def get_bugdb_home() -> Path:
-    """返回 Codex BugDB 数据目录。
+    """返回共享 BugDB 数据目录。
 
     Example:
         ``BUGDB_HOME=/tmp/bugs`` 时返回 ``/tmp/bugs``。
@@ -20,10 +20,7 @@ def get_bugdb_home() -> Path:
     override = os.environ.get("BUGDB_HOME", "").strip()
     if override:
         return Path(override).expanduser()
-    claude_home = os.environ.get("CLAUDE_HOME", "").strip()
-    if claude_home:
-        return Path(claude_home).expanduser() / "bugdb"
-    return Path.home() / ".claude" / "bugdb"
+    return Path.home() / ".bugdb"
 
 
 def get_config_file() -> Path:

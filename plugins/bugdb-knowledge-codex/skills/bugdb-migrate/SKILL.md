@@ -11,8 +11,8 @@ description: 将 Claude BugDB 的 SQLite 或 JSON 导出安全迁移到 Codex Bu
 python <plugin-root>/bugdb/cli.py config path --format text
 ```
 
-Codex 默认直接打开 `~/.claude/bugdb/bugs.db`。如果当前 Claude 数据库就是这个路径，
-无需执行复制，运行下面的命令只会报告 `shared=true`：
+Codex 与 Claude Code 默认打开工具中立的 `~/.bugdb/bugs.db`。从旧版
+`~/.claude/bugdb/bugs.db` 迁移时执行：
 
 ```text
 python <plugin-root>/bugdb/cli.py migrate --format text
@@ -24,6 +24,6 @@ python <plugin-root>/bugdb/cli.py migrate --format text
 python <plugin-root>/bugdb/cli.py migrate --source "<claude-bugs.db>" --format text
 ```
 
-迁移代码以只读模式打开 source，支持 Claude `bugs` v1 和 `knowledge` v3 表，写入目标
-时按 `key_pattern + context` 去重。不要删除、重写或移动 source；迁移后用 `stats` 与
-`search` 验证目标记录。
+目标库不存在时使用 SQLite backup 无损复制整个数据库，保留记录 ID、状态、FTS 和
+schema；目标库已存在时按 `key_pattern + context` 去重合并。迁移始终以只读模式打开
+source，不删除、重写或移动旧库；迁移后用 `stats` 与 `search` 验证目标记录。

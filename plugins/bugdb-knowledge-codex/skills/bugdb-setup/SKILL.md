@@ -14,5 +14,5 @@ python <plugin-root>/bugdb/cli.py config path --format text
 ```
 
 如果 Python 不可用，报告环境问题并等待用户安装；不要由插件自动修改系统 Python。
-数据库默认位于 `~/.claude/bugdb/bugs.db`，与现有 Claude BugDB 共享。数据库不存在时，
-CLI 会按兼容 schema 初始化；这不是迁移副本。
+数据库默认位于工具中立的 `~/.bugdb/bugs.db`，由 Claude Code 与 Codex 共享。若只有
+旧版 `~/.claude/bugdb/bugs.db`，先运行 `bugdb-migrate`，再验证记录数与历史查询。

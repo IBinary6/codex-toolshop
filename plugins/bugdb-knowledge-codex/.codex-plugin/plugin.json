@@ -1,6 +1,6 @@
 {
   "name": "bugdb-knowledge-codex",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "本地 Bug 知识库：Codex 可查询、保存并迁移 Claude BugDB 记录，数据保存在 SQLite + FTS5。",
   "author": {
     "name": "IBinary6"
@@ -19,7 +19,7 @@
   "interface": {
     "displayName": "BugDB Knowledge for Codex",
     "shortDescription": "查询、保存并迁移本地 Bug 修复知识。",
-    "longDescription": "在 Codex 中通过 skill 和本地 CLI 查询或保存 Bug 知识；Bash 工具输出出现常见错误时，PostToolUse hook 会静默召回历史方案；支持从 Claude BugDB SQLite 或 JSON 导出迁移，迁移读取源库时保持只读。",
+    "longDescription": "在 Codex 中通过 skill 和本地 CLI 查询或保存 Bug 知识；Bash 工具输出出现常见错误时，PostToolUse hook 会静默召回历史方案；Claude Code 与 Codex 默认共享工具中立的 ~/.bugdb 数据库，并可从旧 Claude 目录无损迁移。",
     "developerName": "IBinary6",
     "category": "Coding",
     "capabilities": [
