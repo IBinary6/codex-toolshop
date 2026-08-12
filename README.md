@@ -16,6 +16,7 @@ codex plugin marketplace add https://github.com/IBinary6/codex-toolshop.git
 codex plugin add codemap-boost-codex@codex-toolshop
 codex plugin add cpp-style-enforcer-codex@codex-toolshop
 codex plugin add agent-dispatch-codex@codex-toolshop
+codex plugin add bugdb-knowledge-codex@codex-toolshop
 codex plugin add system-proxy-codex@codex-toolshop
 ```
 
@@ -28,6 +29,7 @@ codex plugin add system-proxy-codex@codex-toolshop
 | `codemap-boost-codex` | 自动接入 `code-review-graph` 代码结构图，提供符号、调用、引用和影响面检索能力。 | 新会话自动 bootstrap、自动 build/update。涉及代码结构时优先用 `mcp__code_review_graph__*` 工具。 |
 | `cpp-style-enforcer-codex` | 自动执行团队 C++ 风格流程，包括 clang-format、版权头、BOM、cpplint 和提交前检查。 | 正常编辑即可；写入 C/C++ 文件后 hook 自动处理，`git commit` 前会检查暂存区 C++ 文件。 |
 | `agent-dispatch-codex` | 让主代理负责决策和审查，把明确、有界的执行工作交给低成本子代理。 | 新会话自动注入调度策略；子代理直接执行、报告结果，并在整合后及时释放。 |
+| `bugdb-knowledge-codex` | 让 Codex 查询并沉淀本地 BugDB，和 Claude Code 共用同一份历史知识。 | 遇到错误先查询历史方案；修复经验证后去重录入。默认复用现有 `~/.claude/bugdb/bugs.db`。 |
 | `system-proxy-codex` | 自动启用 Codex 系统代理支持，并用 Python 安全配置 `.env`。 | 默认使用系统代理；也可用 `system-proxy-setup` 自动检测或指定 `7897`、`7890` 等端口。 |
 
 ## Agent Dispatch 怎么用
@@ -76,6 +78,22 @@ code-review-graph status
 codex plugin list
 ```
 
+## BugDB 怎么用
+
+安装 `bugdb-knowledge-codex` 后，新会话会注入 BugDB 使用规则：
+
+- 用户描述或命令输出包含编译、链接、构建、运行时错误时，先用 `bugdb-lookup` 查询一次，再继续正常排查。
+- 已验证的修复、可复用工程实践或稳定工作流，会通过 `bugdb-record` 先去重再录入。
+- 默认直接复用已有的 `~/.claude/bugdb/bugs.db`，因此 Claude Code 中已经录入的历史记录无需复制即可在 Codex 中查询，后续新增记录也保持一致。
+- 需要隔离数据库时，可设置 `BUGDB_HOME`；也可以在 BugDB 配置中显式指定 `db_path`。
+
+可在 Codex 中直接说：
+
+```text
+使用 bugdb-lookup 查询这个错误的历史解决方案
+使用 bugdb-record 记录刚刚验证通过的修复
+```
+
 ## C++ Style 怎么用
 
 安装 `cpp-style-enforcer-codex` 后，新会话会准备 C++ 风格配置。之后正常让 Codex 编辑 C/C++ 文件即可：
@@ -103,6 +121,7 @@ codex plugin marketplace upgrade codex-toolshop
 codex plugin add codemap-boost-codex@codex-toolshop
 codex plugin add cpp-style-enforcer-codex@codex-toolshop
 codex plugin add agent-dispatch-codex@codex-toolshop
+codex plugin add bugdb-knowledge-codex@codex-toolshop
 ```
 
 然后重启 Codex 或新开会话。查看当前版本：
@@ -118,6 +137,7 @@ codex plugin list
 - CodeMap 完全不工作：检查是否设置了 `CODEMAP_BOOST_DISABLE_GRAPH=1` 或 `CODEMAP_BOOST_DISABLE_BOOTSTRAP=1`。
 - C++ 风格检查没有格式化：确认 `clang-format` 可用；缺失时格式化会跳过，但 cpplint 等流程仍继续。
 - Agent Dispatch 没有生效：新建任务后打开 `/hooks`，审查并信任当前插件 Hook 哈希。
+- BugDB 查不到 Claude Code 的历史记录：确认 `~/.claude/bugdb/bugs.db` 仍存在，并检查是否设置了覆盖路径的 `BUGDB_HOME`。
 
 ## 协议
 

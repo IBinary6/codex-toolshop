@@ -1,0 +1,13 @@
+{
+  "name": "bugdb-knowledge-codex",
+  "version": "0.1.0",
+  "description": "Codex BugDB plugin with a portable Python SQLite core and Claude DB migration.",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "check:syntax": "node --check scripts/run-hook.cjs && node --check hooks/js/bugdb_check.js && node --check hooks/js/bugdb_python_check.js && node --check hooks/js/user_prompt_submit.js && python -m compileall -q bugdb tests",
+    "check": "node scripts/check-plugin.cjs",
+    "test:unit": "node scripts/run-tests.cjs",
+    "test": "npm run check:syntax && npm run check && npm run test:unit"
+  }
+}

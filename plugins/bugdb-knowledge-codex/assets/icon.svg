@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="BugDB">
+  <rect width="64" height="64" rx="14" fill="#2563EB"/>
+  <path d="M20 24h24v18a8 8 0 0 1-8 8h-8a8 8 0 0 1-8-8V24Z" fill="#fff"/>
+  <path d="M16 29h-6m7 8H9m8 8h-6m37-16h6m-7 8h8m-9 8h6M24 20c0-4 3-7 8-7s8 3 8 7M24 26v11m16-11v11" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="27" cy="31" r="2" fill="#2563EB"/>
+  <circle cx="37" cy="31" r="2" fill="#2563EB"/>
+</svg>
