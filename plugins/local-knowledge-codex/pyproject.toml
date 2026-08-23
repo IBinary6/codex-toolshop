@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "local-knowledge-codex"
+version = "0.2.0"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+knowledge-codex = "local_knowledge.cli:main"
+bugdb-codex = "bugdb.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["bugdb", "local_knowledge"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -16,7 +16,7 @@ codex plugin marketplace add https://github.com/IBinary6/codex-toolshop.git
 codex plugin add codemap-boost-codex@codex-toolshop
 codex plugin add cpp-style-enforcer-codex@codex-toolshop
 codex plugin add agent-dispatch-codex@codex-toolshop
-codex plugin add bugdb-knowledge-codex@codex-toolshop
+codex plugin add local-knowledge-codex@codex-toolshop
 codex plugin add system-proxy-codex@codex-toolshop
 ```
 
@@ -29,7 +29,7 @@ codex plugin add system-proxy-codex@codex-toolshop
 | `codemap-boost-codex` | 自动接入 `code-review-graph` 代码结构图，提供符号、调用、引用和影响面检索能力。 | 新会话自动 bootstrap、自动 build/update。涉及代码结构时优先用 `mcp__code_review_graph__*` 工具。 |
 | `cpp-style-enforcer-codex` | 自动执行团队 C++ 风格流程，包括 clang-format、版权头、BOM、cpplint 和提交前检查。 | 正常编辑即可；写入 C/C++ 文件后 hook 自动处理，`git commit` 前会检查暂存区 C++ 文件。 |
 | `agent-dispatch-codex` | 让主代理负责决策和审查，把明确、有界的执行工作交给低成本子代理。 | 新会话自动注入调度策略；子代理直接执行、报告结果，并在整合后及时释放。 |
-| `bugdb-knowledge-codex` | 让 Codex 查询并沉淀本地 BugDB，和 Claude Code 共用同一份历史知识。 | 遇到错误先查询历史方案；修复经验证后去重录入。默认共享工具中立的 `~/.bugdb/bugs.db`。 |
+| `local-knowledge-codex` | 为 Codex 提供本地索引知识，覆盖错误方案、用户偏好、事实、决策和工作流。 | 会话开始加载常驻偏好，提问或工具失败时按作用域和相关性召回；用户明确要求或方案验证后再保存。 |
 | `system-proxy-codex` | 自动启用 Codex 系统代理支持，并用 Python 安全配置 `.env`。 | 默认使用系统代理；也可用 `system-proxy-setup` 自动检测或指定 `7897`、`7890` 等端口。 |
 
 ## Agent Dispatch 怎么用
@@ -78,22 +78,29 @@ code-review-graph status
 codex plugin list
 ```
 
-## BugDB 怎么用
+## Local Knowledge 怎么用
 
-安装 `bugdb-knowledge-codex` 后，新会话会注入 BugDB 使用规则：
+安装 `local-knowledge-codex` 后，新会话会加载本地知识规则：
 
-- 用户描述或命令输出包含编译、链接、构建、运行时错误时，先用 `bugdb-lookup` 查询一次，再继续正常排查。
-- 已验证的修复、可复用工程实践或稳定工作流，会通过 `bugdb-record` 先去重再录入。
-- 默认使用工具中立的 `~/.bugdb/bugs.db`，Claude Code 与 Codex 后续新增的记录实时落入同一数据库。
-- 从旧版升级时，用 `bugdb-migrate` 将 `~/.claude/bugdb/bugs.db` 无损复制到公共目录；旧库会保留。
-- 需要隔离数据库时，可设置 `BUGDB_HOME`；也可以在 BugDB 配置中显式指定 `db_path`。
+- `pinned` 用户偏好会在会话开始按当前工作区加载。
+- 普通问题会自动召回相关的偏好、事实、决策和工作流；需要显式查询时使用 `local-knowledge-recall`，无命中时不注入邻区内容。
+- 工具提供明确失败状态且确实失败时，才会自动查找历史错误方案；成功或状态未知的输出不会因包含示例错误文本而误触发。
+- 用户明确说“记住、保存、以后默认”等，或错误方案已经验证时，由 `local-knowledge-save` 选择类型、作用域、召回策略和线索后写入。
+- 仓库和工作区知识按规范化绝对路径隔离；从仓库子目录工作时会继承对应的仓库/工作区知识，不会串到相邻目录。
+- 密码、令牌、API key、私钥等凭据默认拒绝保存；`confidential` 内容只允许显式召回。
+- 新的通用知识写入独立的 `knowledge_items` 表；新召回层继续读取历史错误记录，旧客户端不会因 `preference`、`fact` 等新类型而崩溃。
+
+为保留既有数据，默认 SQLite 文件仍是 `~/.bugdb/bugs.db`。新配置优先使用 `LOCAL_KNOWLEDGE_HOME`，旧 `BUGDB_HOME` 继续兼容。旧记录仍在独立目录时使用 `local-knowledge-migrate`，迁移不会删除来源文件。
 
 可在 Codex 中直接说：
 
 ```text
-使用 bugdb-lookup 查询这个错误的历史解决方案
-使用 bugdb-record 记录刚刚验证通过的修复
+使用 local-knowledge-recall 查询这个错误的历史解决方案
+请记住我的偏好：以后默认使用中文回答
+使用 local-knowledge-save 保存刚刚验证通过的修复
 ```
+
+插件 ID 已从旧名称改为 `local-knowledge-codex`。旧 ID 不会自动变成新 ID；升级时应先在插件管理中停用或移除旧插件，再安装新插件。数据库文件无需改名或复制。
 
 ## C++ Style 怎么用
 
@@ -122,7 +129,7 @@ codex plugin marketplace upgrade codex-toolshop
 codex plugin add codemap-boost-codex@codex-toolshop
 codex plugin add cpp-style-enforcer-codex@codex-toolshop
 codex plugin add agent-dispatch-codex@codex-toolshop
-codex plugin add bugdb-knowledge-codex@codex-toolshop
+codex plugin add local-knowledge-codex@codex-toolshop
 ```
 
 然后重启 Codex 或新开会话。查看当前版本：
@@ -138,7 +145,7 @@ codex plugin list
 - CodeMap 完全不工作：检查是否设置了 `CODEMAP_BOOST_DISABLE_GRAPH=1` 或 `CODEMAP_BOOST_DISABLE_BOOTSTRAP=1`。
 - C++ 风格检查没有格式化：确认 `clang-format` 可用；缺失时格式化会跳过，但 cpplint 等流程仍继续。
 - Agent Dispatch 没有生效：新建任务后打开 `/hooks`，审查并信任当前插件 Hook 哈希。
-- BugDB 查不到历史记录：确认 `~/.bugdb/bugs.db` 存在；旧版数据仍在 `~/.claude/bugdb/bugs.db` 时运行 `bugdb-migrate`，并检查是否设置了覆盖路径的 `BUGDB_HOME`。
+- Local Knowledge 查不到历史记录：先运行 `local-knowledge-setup`；确认 `~/.bugdb/bugs.db` 存在，并检查 `LOCAL_KNOWLEDGE_HOME` 或旧兼容变量 `BUGDB_HOME` 是否覆盖了路径。旧版数据仍在独立目录时运行 `local-knowledge-migrate`。
 
 ## 协议
 

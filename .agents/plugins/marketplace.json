@@ -47,18 +47,18 @@
       "category": "Coding"
     },
     {
-      "name": "bugdb-knowledge-codex",
-      "version": "0.1.1",
-      "description": "Shared local BugDB knowledge for Codex with automatic lookup guidance and reusable verified-fix recording.",
+      "name": "local-knowledge-codex",
+      "version": "0.2.0",
+      "description": "Local indexed knowledge for Codex with relevant recall of fixes, preferences, facts, decisions, and workflows.",
       "source": {
         "source": "local",
-        "path": "./plugins/bugdb-knowledge-codex"
+        "path": "./plugins/local-knowledge-codex"
       },
       "policy": {
         "installation": "AVAILABLE",
         "authentication": "ON_INSTALL"
       },
-      "category": "Coding"
+      "category": "Productivity"
     },
     {
       "name": "system-proxy-codex",
