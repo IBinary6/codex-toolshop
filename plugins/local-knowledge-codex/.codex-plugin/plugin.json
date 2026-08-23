@@ -1,6 +1,6 @@
 {
   "name": "local-knowledge-codex",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Codex 本地知识库：索引错误解决方案、用户偏好、事实、决策与工作流，并在相关时召回。",
   "author": {
     "name": "IBinary6"

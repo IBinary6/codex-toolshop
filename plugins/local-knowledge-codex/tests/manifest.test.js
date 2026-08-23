@@ -6,19 +6,17 @@ const path = require('path');
 
 const root = path.resolve(__dirname, '..');
 const readJson = (relative) => JSON.parse(fs.readFileSync(path.join(root, relative), 'utf8'));
+const marketplacePath = path.resolve(root, '..', '..', '.agents', 'plugins', 'marketplace.json');
 
 const plugin = readJson('.codex-plugin/plugin.json');
 const packageJson = readJson('package.json');
 const pyproject = fs.readFileSync(path.join(root, 'pyproject.toml'), 'utf8');
-const marketplace = JSON.parse(fs.readFileSync(
-  path.resolve(root, '..', '..', '.agents', 'plugins', 'marketplace.json'), 'utf8'));
 const hooks = readJson('hooks/hooks.json');
 const legacy = readJson('hooks/codex-hooks.json');
 
 assert.equal(plugin.name, packageJson.name);
 assert.equal(plugin.name, 'local-knowledge-codex');
-assert.equal(path.basename(root), plugin.name);
-assert.equal(plugin.version, '0.2.0');
+assert.match(plugin.version, /^\d+\.\d+\.\d+$/);
 assert.equal(plugin.version, packageJson.version);
 assert.equal(plugin.interface.displayName, 'Local Knowledge for Codex');
 assert.doesNotMatch(JSON.stringify(plugin), /bugdb/i);
@@ -46,9 +44,16 @@ for (const skill of [
 assert.match(pyproject, /knowledge-codex\s*=\s*"local_knowledge\.cli:main"/);
 assert.match(pyproject, /bugdb-codex\s*=\s*"bugdb\.cli:main"/);
 assert.ok(fs.existsSync(path.join(root, 'local_knowledge', 'cli.py')));
-const marketplaceEntry = marketplace.plugins.find((entry) => entry.name === plugin.name);
-assert.ok(marketplaceEntry, 'marketplace must publish the renamed plugin');
-assert.equal(marketplaceEntry.version, plugin.version);
-assert.equal(marketplaceEntry.source.path, './plugins/local-knowledge-codex');
-assert.equal(marketplace.plugins.some((entry) => entry.name === 'bugdb-knowledge-codex'), false);
+if (fs.existsSync(marketplacePath)) {
+  assert.equal(path.basename(root), plugin.name);
+  const marketplace = JSON.parse(fs.readFileSync(marketplacePath, 'utf8'));
+  const marketplaceEntry = marketplace.plugins.find((entry) => entry.name === plugin.name);
+  assert.ok(marketplaceEntry, 'marketplace must publish the renamed plugin');
+  assert.equal(marketplaceEntry.version, plugin.version);
+  assert.equal(marketplaceEntry.source.path, './plugins/local-knowledge-codex');
+  assert.equal(marketplace.plugins.some((entry) => entry.name === 'bugdb-knowledge-codex'), false);
+} else {
+  assert.equal(path.basename(root), plugin.version);
+  assert.equal(path.basename(path.dirname(root)), plugin.name);
+}
 console.log('manifest.test.js PASS');
