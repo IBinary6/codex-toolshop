@@ -146,7 +146,14 @@ function routePrompt(prompt, config) {
   );
 
   if (highRisk) return { category: 'high-risk-review', route: 'high-risk-review', shouldDispatch: true };
-  if (hard) return { category: 'hard-task', route: 'hard-task', shouldDispatch: true };
+  if (hard) {
+    return {
+      category: 'hard-task',
+      route: 'hard-task',
+      shouldDispatch: true,
+      requiresPlanner: nonTrivialPlan,
+    };
+  }
   if (nonTrivialPlan) return { category: 'plan', route: 'plan', shouldDispatch: true };
   if (exactNarrowLookup(text)) {
     return {
@@ -197,10 +204,13 @@ function promptGuidance(prompt, config) {
     case 'high-risk-review':
       return `任务路由：高风险审查。${roleFallback(config, ['dispatch_deep_reviewer', 'dispatch_reviewer'])}`;
     case 'hard-task': {
-      const planner = firstEnabled(config, ['dispatch_planner']);
       const worker = firstEnabled(config, ['dispatch_hard_worker', 'dispatch_worker']);
-      const plannerLabel = planner ? profileLabel(config, planner) : '主代理';
       const workerLabel = worker ? profileLabel(config, worker) : '主代理';
+      if (!route.requiresPlanner) {
+        return `任务路由：困难实现/复杂调试。主代理先固定范围和验收标准；${roleFallback(config, ['dispatch_hard_worker', 'dispatch_worker'])} 实现完成后由主代理验收并整合。不要仅因任务困难启动规划角色。`;
+      }
+      const planner = firstEnabled(config, ['dispatch_planner']);
+      const plannerLabel = planner ? profileLabel(config, planner) : '主代理';
       const fallback = [];
       if (planner) fallback.push('主代理');
       if (worker === 'dispatch_hard_worker' && profileEnabled(config, 'dispatch_worker')) {
@@ -209,7 +219,7 @@ function promptGuidance(prompt, config) {
       const availability = planner || worker
         ? `角色仅在启用且账号/工作区可用时使用，模型不可用时按账号策略回退到 ${Array.from(new Set(fallback.concat('主代理'))).join(' 或 ')}。`
         : '没有启用的匹配角色，由主代理完成。';
-      return `任务路由：困难任务/复杂调试。必须串行两阶段：1) ${plannerLabel} 制定计划；停止并整合；2) ${workerLabel} 执行实现。非必要不并行。${availability}`;
+      return `任务路由：需要专门规划的困难任务。必须串行两阶段：1) ${plannerLabel} 制定计划；停止并整合；2) ${workerLabel} 执行实现。非必要不并行。${availability} 实现完成后由主代理验收并整合。`;
     }
     case 'plan':
       return `任务路由：非琐碎计划/架构。${roleFallback(config, ['dispatch_planner'])}`;
@@ -218,7 +228,7 @@ function promptGuidance(prompt, config) {
     case 'bounded-search':
       return `任务路由：跨文件/调用链搜索。${roleFallback(config, ['dispatch_explorer'])} 若 CodeMap Boost 可用，优先图查询；图刷新由 CodeMap Boost 负责，不要重复 build/update。精确单符号/单文件快速查找由主代理直接完成。`;
     case 'implementation':
-      return `任务路由：常规实现。${roleFallback(config, ['dispatch_worker'])}`;
+      return `任务路由：常规实现。${roleFallback(config, ['dispatch_worker'])} 实现完成后由主代理验收并整合。`;
     case 'review':
       return `任务路由：常规审查。${roleFallback(config, ['dispatch_reviewer'])}`;
     case 'generic':
@@ -299,7 +309,12 @@ function toolNudge(input, config) {
     const command = input.tool_input && input.tool_input.command;
     const analysis = analyzeShellCommand(command, config);
     if (analysis.safe) return '';
-    return `Agent Dispatch：当前命令需要调度判断（${analysis.reason}）。主代理应把可独立工作委派给子代理；已启动的子代理直接执行分配任务。`;
+    if (analysis.route === 'primary-risk') {
+      const reviewer = firstEnabled(config, ['dispatch_deep_reviewer', 'dispatch_reviewer']);
+      const acceptance = reviewer ? profileLabel(config, reviewer) : '主代理';
+      return `Agent Dispatch：检测到注册表写入或状态变更（${analysis.reason}）。由主代理核对目标、授权与回滚边界后执行；不要仅因命令本身升级执行模型。需要独立高风险验收时再使用 ${acceptance}。`;
+    }
+    return `Agent Dispatch：当前命令需要调度判断（${analysis.reason}），但单条命令不足以选择更高模型。主代理沿用本轮任务路由，明确有界的实现步骤优先使用 dispatch_worker，广泛扫描才使用 dispatch_mapper，独立验收使用 dispatch_reviewer；已启动的子代理直接执行分配任务。`;
   }
   return '';
 }

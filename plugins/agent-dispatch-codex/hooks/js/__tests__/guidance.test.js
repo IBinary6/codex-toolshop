@@ -52,11 +52,15 @@ assert.doesNotMatch(highRisk, /dispatch_worker/);
 assert.match(promptGuidance('请查找这个文件并审查安全漏洞', config), /dispatch_deep_reviewer/);
 
 const hard = promptGuidance('请实现一个困难且复杂的功能，并排查复杂调试问题', config);
-assert.match(hard, /dispatch_planner/);
-assert.match(hard, /停止并整合/);
 assert.match(hard, /dispatch_hard_worker/);
-assert.match(hard, /非必要不并行/);
-assert.ok(hard.indexOf('dispatch_planner') < hard.indexOf('dispatch_hard_worker'));
+assert.match(hard, /主代理.*验收/);
+assert.doesNotMatch(hard, /dispatch_planner|gpt-5\.6-sol/);
+
+const plannedHard = promptGuidance('请先制定跨模块架构计划，然后实现困难的复杂调试任务', config);
+assert.match(plannedHard, /dispatch_planner/);
+assert.match(plannedHard, /dispatch_hard_worker/);
+assert.match(plannedHard, /停止并整合/);
+assert.ok(plannedHard.indexOf('dispatch_planner') < plannedHard.indexOf('dispatch_hard_worker'));
 
 assert.match(promptGuidance('请设计新的架构和接口方案', config), /dispatch_planner/);
 assert.match(promptGuidance('请设计新的架构和接口方案', config), /gpt-5\.6-sol\/xhigh/);
@@ -65,6 +69,8 @@ assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', config
 assert.match(promptGuidance('请搜索多个文件中的调用链和影响面', config), /dispatch_explorer/);
 assert.match(promptGuidance('请搜索多个文件中的调用链和影响面', config), /不要重复 build\/update/);
 assert.match(promptGuidance('请实现这个常规功能', config), /dispatch_worker/);
+assert.match(promptGuidance('请实现这个常规功能', config), /主代理.*验收/);
+assert.doesNotMatch(promptGuidance('请实现这个常规功能', config), /dispatch_reviewer|dispatch_deep_reviewer/);
 assert.match(promptGuidance('请审查这段代码的正确性', config), /dispatch_reviewer/);
 assert.match(promptGuidance('review this code for correctness', config), /dispatch_reviewer/);
 assert.match(promptGuidance('请审查这段代码的正确性', config), /gpt-5\.6-terra\/high/);
@@ -92,6 +98,9 @@ assert.equal(toolNudge({ tool_name: 'Bash', tool_input: { command: 'git status' 
 assert.equal(toolNudge({ tool_name: 'Bash', tool_input: { command: 'git branch -D temp' } }, config), '');
 assert.equal(toolNudge({ tool_name: 'Bash', tool_input: { command: 'git push origin --delete temp' } }, config), '');
 assert.equal(toolNudge({ tool_name: 'Bash', tool_input: { command: 'git log > out.txt' } }, config), '');
+assert.equal(toolNudge({ tool_name: 'Bash', tool_input: { command: 'reg query HKCU\\Software\\AgentDispatch' } }, config), '');
+assert.equal(toolNudge({ tool_name: 'Bash', tool_input: { command: "bash -lc 'reg query HKCU\\Software\\AgentDispatch'" } }, config), '');
+assert.match(toolNudge({ tool_name: 'Bash', tool_input: { command: 'reg add HKCU\\Software\\AgentDispatch /v Enabled /t REG_DWORD /d 1 /f' } }, config), /注册表写入/);
 assert.match(toolNudge({ tool_name: 'Bash', tool_input: { command: 'git status $(unknown-heavy-tool)' } }, config), /需要调度判断/);
 assert.match(toolNudge({ tool_name: 'Bash', tool_input: { command: 'git status && unknown-heavy-tool scan' } }, config), /需要调度判断/);
 assert.match(toolNudge({ tool_name: 'Bash', tool_input: { command: 'echo ok;rm -rf .' } }, config), /需要调度判断/);

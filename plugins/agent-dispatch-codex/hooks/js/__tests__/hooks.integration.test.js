@@ -73,9 +73,17 @@ try {
     hook_event_name: 'UserPromptSubmit',
     prompt: '请实现一个困难且复杂的功能，并排查复杂调试问题',
   }));
-  assert.match(hardPrompt.hookSpecificOutput.additionalContext, /dispatch_planner/);
   assert.match(hardPrompt.hookSpecificOutput.additionalContext, /dispatch_hard_worker/);
-  assert.match(hardPrompt.hookSpecificOutput.additionalContext, /停止并整合/);
+  assert.match(hardPrompt.hookSpecificOutput.additionalContext, /主代理.*验收/);
+  assert.doesNotMatch(hardPrompt.hookSpecificOutput.additionalContext, /dispatch_planner|gpt-5\.6-sol/);
+
+  const plannedHardPrompt = parse(run('user_prompt_submit', {
+    hook_event_name: 'UserPromptSubmit',
+    prompt: '请先制定跨模块架构计划，然后实现困难的复杂调试任务',
+  }));
+  assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /dispatch_planner/);
+  assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /dispatch_hard_worker/);
+  assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /停止并整合/);
 
   const searchPrompt = parse(run('user_prompt_submit', {
     hook_event_name: 'UserPromptSubmit',
@@ -108,6 +116,32 @@ try {
     tool_name: 'Bash',
     tool_input: { command: 'git push origin --delete temp' },
   }), '');
+  assert.equal(run('pre_tool_use', {
+    hook_event_name: 'PreToolUse',
+    tool_name: 'Bash',
+    tool_input: { command: 'reg query HKCU\\Software\\AgentDispatch' },
+  }), '');
+  assert.equal(run('pre_tool_use', {
+    hook_event_name: 'PreToolUse',
+    tool_name: 'Bash',
+    tool_input: { command: "bash -lc 'reg query HKCU\\Software\\AgentDispatch'" },
+  }), '');
+  const registryWrite = parse(run('pre_tool_use', {
+    hook_event_name: 'PreToolUse',
+    tool_name: 'Bash',
+    tool_input: { command: 'reg add HKCU\\Software\\AgentDispatch /v Enabled /t REG_DWORD /d 1 /f' },
+  }));
+  assert.match(registryWrite.hookSpecificOutput.additionalContext, /注册表写入/);
+  assert.match(registryWrite.hookSpecificOutput.additionalContext, /主代理/);
+  assert.doesNotMatch(registryWrite.hookSpecificOutput.additionalContext, /command is not lightweight/);
+  const wrappedRegistryWrite = parse(run('pre_tool_use', {
+    hook_event_name: 'PreToolUse',
+    tool_name: 'Bash',
+    tool_input: {
+      command: "bash -lc 'reg add HKCU\\Software\\AgentDispatch /v Enabled /t REG_DWORD /d 1 /f'",
+    },
+  }));
+  assert.match(wrappedRegistryWrite.hookSpecificOutput.additionalContext, /注册表写入/);
   const nudge = parse(run('pre_tool_use', {
     hook_event_name: 'PreToolUse',
     tool_name: 'mcp__heavy_remote__scan',

@@ -8,6 +8,8 @@ const TWO_CHAR_OPERATORS = new Set([
 ]);
 const ONE_CHAR_OPERATORS = new Set([';', '|', '&', '>', '<']);
 const OUTPUT_REDIRECTS = new Set(['>', '>>', '<<', '&>', '>|', '<>', '>&']);
+const COMMAND_SHELLS = new Set(['bash', 'sh', 'zsh']);
+const READ_ONLY_REG_ACTIONS = new Set(['', '/?', '-?', 'compare', 'query']);
 
 const ENV_OPTIONS_WITH_VALUE = new Set([
   '-a', '--argv0', '-u', '--unset', '-C', '--chdir',
@@ -565,7 +567,26 @@ function segmentHead(segment) {
   return { head: normalizeHead(tokens[0]), tokens };
 }
 
-function analyzeShellCommand(command, config) {
+function commandShellPayload(parsed) {
+  if (!COMMAND_SHELLS.has(parsed.head)) return null;
+  for (let index = 1; index < parsed.tokens.length; index += 1) {
+    const option = unquoteToken(parsed.tokens[index]);
+    if (!option.startsWith('-')) return null;
+    if (option === '--') continue;
+    if (/^-[A-Za-z]*c[A-Za-z]*$/.test(option)) {
+      const payload = parsed.tokens[index + 1];
+      return payload === undefined ? '' : unquoteToken(payload);
+    }
+  }
+  return null;
+}
+
+function regAction(parsed) {
+  if (parsed.head !== 'reg') return null;
+  return unquoteToken(parsed.tokens[1] || '').trim().toLowerCase();
+}
+
+function analyzeShellCommand(command, config, depth = 0) {
   if (typeof command !== 'string' || !command.trim()) {
     return { safe: false, reason: 'empty shell command', heads: [] };
   }
@@ -603,6 +624,26 @@ function analyzeShellCommand(command, config) {
     }
     if (segment.some((token) => OUTPUT_REDIRECTS.has(token))) {
       return { safe: false, reason: 'shell redirection can write files', heads };
+    }
+    const nestedCommand = commandShellPayload(parsed);
+    if (nestedCommand !== null) {
+      if (!nestedCommand || depth >= 4) {
+        return { safe: false, reason: 'command shell payload requires dispatch review', heads };
+      }
+      const nested = analyzeShellCommand(nestedCommand, config, depth + 1);
+      heads.push(...nested.heads);
+      if (!nested.safe) return { ...nested, heads };
+      continue;
+    }
+    const registryAction = regAction(parsed);
+    if (registryAction !== null) {
+      if (READ_ONLY_REG_ACTIONS.has(registryAction)) continue;
+      return {
+        safe: false,
+        route: 'primary-risk',
+        reason: `registry write or state-changing command: reg ${registryAction}`,
+        heads,
+      };
     }
     if (!allowedHeads.has(parsed.head)) {
       return { safe: false, reason: `command is not lightweight: ${parsed.head}`, heads };

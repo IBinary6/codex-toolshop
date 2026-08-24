@@ -16,6 +16,11 @@ assert.equal(analyzeShellCommand('Get-ChildItem | Select-String TODO', config).s
 assert.equal(analyzeShellCommand('Get-Process -Id 1234', config).safe, true);
 assert.equal(analyzeShellCommand('Get-Item file.txt', config).safe, true);
 assert.equal(analyzeShellCommand('tasklist /FI "IMAGENAME eq node.exe"', config).safe, true);
+assert.equal(analyzeShellCommand('reg query HKCU\\Software\\AgentDispatch', config).safe, true);
+assert.equal(analyzeShellCommand('reg compare HKCU\\Software\\A HKCU\\Software\\B', config).safe, true);
+assert.equal(analyzeShellCommand("bash -lc 'reg query HKCU\\Software\\AgentDispatch'", config).safe, true);
+assert.equal(analyzeShellCommand('reg add HKCU\\Software\\AgentDispatch /f', config).route, 'primary-risk');
+assert.equal(analyzeShellCommand("bash -lc 'reg add HKCU\\Software\\AgentDispatch /f'", config).route, 'primary-risk');
 assert.equal(analyzeShellCommand('git push origin main', config).safe, true);
 assert.equal(analyzeShellCommand('git push --force origin main', config).safe, true);
 assert.equal(analyzeShellCommand('git push --mirror origin', config).safe, true);

@@ -1,6 +1,6 @@
 {
   "name": "agent-dispatch-codex",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Automatic cost-aware Sol, Terra, and Luna routing for Codex subagent workflows.",
   "license": "MIT",
   "private": true,
