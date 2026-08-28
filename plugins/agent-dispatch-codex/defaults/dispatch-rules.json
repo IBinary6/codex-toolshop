@@ -3,7 +3,7 @@
   "modules": {
     "session_guidance": true,
     "prompt_guidance": true,
-    "pre_tool_nudge": true,
+    "pre_tool_nudge": false,
     "subagent_guidance": true
   },
   "policy": {
@@ -40,17 +40,17 @@
       },
       "dispatch_worker": {
         "enabled": true,
-        "description": "Cost-efficient execution worker for concrete, bounded implementation, refactoring, and bug-fix tasks.",
-        "model": "gpt-5.6-luna",
-        "model_reasoning_effort": "max",
+        "description": "Workspace writer for concrete, bounded implementation, refactoring, and bug-fix tasks.",
+        "model": "",
+        "model_reasoning_effort": "",
         "sandbox_mode": "workspace-write",
         "developer_instructions": "Follow the primary agent's concrete implementation steps and acceptance criteria. Do not make architecture, interface-contract, permission, or destructive-operation decisions; do not upgrade your model or spawn or delegate to another agent. Make the smallest defensible change, preserve unrelated work, and report every changed file, validation performed, and blocker."
       },
       "dispatch_hard_worker": {
         "enabled": true,
-        "description": "High-capability workspace writer for difficult implementation and complex debugging after a primary-agent plan.",
-        "model": "gpt-5.6-terra",
-        "model_reasoning_effort": "ultra",
+        "description": "Workspace writer for difficult implementation and complex debugging after a primary-agent plan.",
+        "model": "",
+        "model_reasoning_effort": "",
         "sandbox_mode": "workspace-write",
         "developer_instructions": "Execute only the difficult implementation or complex debugging scope after the primary agent has integrated the plan. Do not change architecture, interface contracts, permissions, or destructive-operation policy; do not upgrade your model or spawn or delegate to another agent. Preserve unrelated work and report every changed file, validation performed, and blocker."
       },

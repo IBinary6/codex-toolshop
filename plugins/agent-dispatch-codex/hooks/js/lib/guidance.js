@@ -109,6 +109,27 @@ function roleFallback(config, names) {
   return `必须启动 ${profileLabel(config, selected)} 子代理；仅在角色已启用且账号/工作区可用时使用，模型不可用时按账号策略回退到 ${fallback}。`;
 }
 
+/**
+ * 生成可写执行角色的动态选择边界，不在 Hook 中固定具体模型或推理强度。
+ *
+ * @example
+ * dynamicWriterGuidance(config);
+ */
+function dynamicWriterGuidance(config) {
+  const profiles = config && config.agent_profiles && config.agent_profiles.profiles;
+  const hasWritableProfile = config
+    && config.agent_profiles
+    && config.agent_profiles.enabled !== false
+    && profiles
+    && Object.values(profiles).some((profile) => profile
+      && profile.enabled !== false
+      && profile.sandbox_mode === 'workspace-write');
+  if (!hasWritableProfile) {
+    return '当前没有启用的可写执行角色，由主代理直接完成。';
+  }
+  return '主代理依据任务复杂度、上下文范围、风险、账号/工作区可用性和用户显式偏好，自主选择可写执行角色、模型和推理强度；显式指定优先。';
+}
+
 function exactNarrowLookup(text) {
   return includesAny(text, LOOKUP_TERMS)
     && includesAny(text, SINGLE_LOOKUP_TERMS)
@@ -204,22 +225,16 @@ function promptGuidance(prompt, config) {
     case 'high-risk-review':
       return `任务路由：高风险审查。${roleFallback(config, ['dispatch_deep_reviewer', 'dispatch_reviewer'])}`;
     case 'hard-task': {
-      const worker = firstEnabled(config, ['dispatch_hard_worker', 'dispatch_worker']);
-      const workerLabel = worker ? profileLabel(config, worker) : '主代理';
+      const writer = dynamicWriterGuidance(config);
       if (!route.requiresPlanner) {
-        return `任务路由：困难实现/复杂调试。主代理先固定范围和验收标准；${roleFallback(config, ['dispatch_hard_worker', 'dispatch_worker'])} 实现完成后由主代理验收并整合。不要仅因任务困难启动规划角色。`;
+        return `任务路由：困难实现/复杂调试。主代理先固定范围和验收标准；${writer} 实现完成后由主代理验收并整合。不要仅因任务困难启动规划角色。`;
       }
       const planner = firstEnabled(config, ['dispatch_planner']);
       const plannerLabel = planner ? profileLabel(config, planner) : '主代理';
-      const fallback = [];
-      if (planner) fallback.push('主代理');
-      if (worker === 'dispatch_hard_worker' && profileEnabled(config, 'dispatch_worker')) {
-        fallback.push('dispatch_worker');
-      }
-      const availability = planner || worker
-        ? `角色仅在启用且账号/工作区可用时使用，模型不可用时按账号策略回退到 ${Array.from(new Set(fallback.concat('主代理'))).join(' 或 ')}。`
-        : '没有启用的匹配角色，由主代理完成。';
-      return `任务路由：需要专门规划的困难任务。必须串行两阶段：1) ${plannerLabel} 制定计划；停止并整合；2) ${workerLabel} 执行实现。非必要不并行。${availability} 实现完成后由主代理验收并整合。`;
+      const planningAvailability = planner
+        ? '规划角色仅在启用且账号/工作区可用时使用，模型不可用时按账号策略回退到主代理。'
+        : '没有启用的规划角色，由主代理完成规划。';
+      return `任务路由：需要专门规划的困难任务。必须串行两阶段：1) ${plannerLabel} 制定计划；停止并整合；2) ${writer} 非必要不并行。${planningAvailability} 实现完成后由主代理验收并整合。`;
     }
     case 'plan':
       return `任务路由：非琐碎计划/架构。${roleFallback(config, ['dispatch_planner'])}`;
@@ -228,12 +243,12 @@ function promptGuidance(prompt, config) {
     case 'bounded-search':
       return `任务路由：跨文件/调用链搜索。${roleFallback(config, ['dispatch_explorer'])} 若 CodeMap Boost 可用，优先图查询；图刷新由 CodeMap Boost 负责，不要重复 build/update。精确单符号/单文件快速查找由主代理直接完成。`;
     case 'implementation':
-      return `任务路由：常规实现。${roleFallback(config, ['dispatch_worker'])} 实现完成后由主代理验收并整合。`;
+      return `任务路由：常规实现。${dynamicWriterGuidance(config)} 实现完成后由主代理验收并整合。`;
     case 'review':
       return `任务路由：常规审查。${roleFallback(config, ['dispatch_reviewer'])}`;
     case 'generic':
     default:
-      return '任务路由：未命中专门类别；由主代理判断边界并直接处理，琐碎编辑不启动 max/ultra 角色。';
+      return '任务路由：未命中专门类别；由主代理判断边界并直接处理，琐碎编辑默认不启动子代理。';
   }
 }
 
@@ -243,8 +258,8 @@ function mainAgentGuidance(config, compact = false) {
   if (compact) {
     const lines = [
       'Agent Dispatch：你是主代理。需求澄清、架构/接口决策、任务拆分、结果审查和最终整合由主代理负责；',
-      '明确、有界的编码、重构和修 bug 优先交给低成本执行子代理，即使步骤串行也可委派；琐碎读取、小改和强耦合步骤直接完成。',
-      '按最低可靠档位路由：有界搜索用 Luna，广泛扫描/常规审查用 Terra；非琐碎计划或高风险审查才用 Sol xhigh；困难实现才用 Terra ultra。',
+      '明确、有界的编码、重构和修 bug 可交给可写执行子代理，即使步骤串行也可委派；琐碎读取、小改和强耦合步骤直接完成。',
+      '按任务范围、复杂度、上下文、风险和账号可用性选择合适角色；编码执行角色、模型和推理强度由主代理动态决定，显式用户偏好优先。',
       '代码搜索若可用 CodeMap Boost，应优先用图；Agent Dispatch 只负责选代理，图刷新和检索规则由 CodeMap Boost 负责，不要重复 build/update。CodeMap MCP 可能 deferred，不在静态/顶层 schema；声称未加载前可用时检查 ALL_TOOLS 中的 mcp__code_review_graph__* 或实际调用，不能仅凭顶层列表判断。',
       `独立且并行有收益时委派；最多 ${maxParallel} 个子代理并发。所有 Git 命令均由主代理串行执行，不委派、不并行拆分。`,
       '普通结果由主代理自行审查；用户明确要求独立审查时用 Terra high，高风险审查才用 Sol xhigh。',
@@ -256,8 +271,8 @@ function mainAgentGuidance(config, compact = false) {
   const lines = [
     'Agent Dispatch policy for the primary Codex agent:',
     '- Keep requirements clarification, architecture and interface decisions, task decomposition, result review, and final integration in the primary agent.',
-    '- Prefer a cost-efficient execution agent for concrete, bounded implementation, refactoring, and bug-fix work once the steps and acceptance criteria are clear, even when that work is sequential.',
-    '- Route at the lowest reliable tier: Luna for bounded search and clear development; Terra for broad mapping and routine independent review; Sol xhigh only for non-trivial planning or high-risk review; Terra ultra only for difficult execution after a plan.',
+    '- Prefer a workspace-write execution agent for concrete, bounded implementation, refactoring, and bug-fix work once the steps and acceptance criteria are clear, even when that work is sequential.',
+    '- Choose roles, models, and reasoning strength from task scope, complexity, context, risk, account/workspace availability, and explicit user preference; keep the established search, planning, and review boundaries.',
     '- For code search, prefer CodeMap Boost graph tools when available. Agent Dispatch selects the agent; CodeMap Boost owns graph refresh and retrieval policy, so do not duplicate build/update. Its MCP tools may be deferred and absent from static or top-level schemas; before claiming unavailable, inspect ALL_TOOLS for mcp__code_review_graph__* when available or make an actual call, rather than relying on the top-level list alone.',
     '- Delegate independent bounded subtasks in parallel when useful.',
     `- Use no more than ${maxParallel} subagents concurrently unless the user explicitly requests more.`,
@@ -314,7 +329,7 @@ function toolNudge(input, config) {
       const acceptance = reviewer ? profileLabel(config, reviewer) : '主代理';
       return `Agent Dispatch：检测到注册表写入或状态变更（${analysis.reason}）。由主代理核对目标、授权与回滚边界后执行；不要仅因命令本身升级执行模型。需要独立高风险验收时再使用 ${acceptance}。`;
     }
-    return `Agent Dispatch：当前命令需要调度判断（${analysis.reason}），但单条命令不足以选择更高模型。主代理沿用本轮任务路由，明确有界的实现步骤优先使用 dispatch_worker，广泛扫描才使用 dispatch_mapper，独立验收使用 dispatch_reviewer；已启动的子代理直接执行分配任务。`;
+    return '';
   }
   return '';
 }

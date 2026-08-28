@@ -13,10 +13,18 @@ const {
 
 const config = loadDefaults();
 
+assert.equal(config.modules.session_guidance, true);
+assert.equal(config.modules.prompt_guidance, true);
+assert.equal(config.modules.pre_tool_nudge, false);
+assert.equal(config.modules.subagent_guidance, true);
 assert.match(mainAgentGuidance(config), /Keep requirements clarification, architecture and interface decisions/);
 assert.match(mainAgentGuidance(config), /even when that work is sequential/);
 assert.match(mainAgentGuidance(config), /no more than 3 subagents/);
-assert.match(mainAgentGuidance(config), /dispatch_worker \(gpt-5\.6-luna, max\)/);
+assert.match(mainAgentGuidance(config), /dispatch_worker \(inherit, inherit\)/);
+assert.match(mainAgentGuidance(config), /Choose roles, models, and reasoning strength/);
+assert.doesNotMatch(mainAgentGuidance(config), /cost-efficient execution agent/);
+assert.doesNotMatch(mainAgentGuidance(config), /clear development.*Luna/);
+assert.doesNotMatch(mainAgentGuidance(config), /difficult execution.*Terra ultra/);
 assert.match(mainAgentGuidance(config), /use Terra high for requested routine independent review and Sol xhigh only for high-risk review/);
 assert.match(mainAgentGuidance(config), /do not leave idle agents occupying limited slots/);
 assert.match(mainAgentGuidance(config), /Execute all Git commands in the primary agent, one at a time/);
@@ -52,15 +60,17 @@ assert.doesNotMatch(highRisk, /dispatch_worker/);
 assert.match(promptGuidance('请查找这个文件并审查安全漏洞', config), /dispatch_deep_reviewer/);
 
 const hard = promptGuidance('请实现一个困难且复杂的功能，并排查复杂调试问题', config);
-assert.match(hard, /dispatch_hard_worker/);
+assert.match(hard, /可写执行角色/);
+assert.match(hard, /复杂度、上下文范围、风险/);
 assert.match(hard, /主代理.*验收/);
-assert.doesNotMatch(hard, /dispatch_planner|gpt-5\.6-sol/);
+assert.doesNotMatch(hard, /dispatch_worker|dispatch_hard_worker|gpt-5\.6-(luna|terra)|\/(?:max|ultra)/);
 
 const plannedHard = promptGuidance('请先制定跨模块架构计划，然后实现困难的复杂调试任务', config);
 assert.match(plannedHard, /dispatch_planner/);
-assert.match(plannedHard, /dispatch_hard_worker/);
+assert.match(plannedHard, /可写执行角色/);
+assert.match(plannedHard, /模型和推理强度/);
 assert.match(plannedHard, /停止并整合/);
-assert.ok(plannedHard.indexOf('dispatch_planner') < plannedHard.indexOf('dispatch_hard_worker'));
+assert.doesNotMatch(plannedHard, /dispatch_worker|dispatch_hard_worker|gpt-5\.6-(luna|terra)|\/(?:max|ultra)/);
 
 assert.match(promptGuidance('请设计新的架构和接口方案', config), /dispatch_planner/);
 assert.match(promptGuidance('请设计新的架构和接口方案', config), /gpt-5\.6-sol\/xhigh/);
@@ -68,9 +78,12 @@ assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', config
 assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', config), /图刷新由 CodeMap Boost 负责/);
 assert.match(promptGuidance('请搜索多个文件中的调用链和影响面', config), /dispatch_explorer/);
 assert.match(promptGuidance('请搜索多个文件中的调用链和影响面', config), /不要重复 build\/update/);
-assert.match(promptGuidance('请实现这个常规功能', config), /dispatch_worker/);
+const implementation = promptGuidance('请实现这个常规功能', config);
+assert.match(implementation, /可写执行角色/);
+assert.match(implementation, /模型和推理强度/);
 assert.match(promptGuidance('请实现这个常规功能', config), /主代理.*验收/);
-assert.doesNotMatch(promptGuidance('请实现这个常规功能', config), /dispatch_reviewer|dispatch_deep_reviewer/);
+assert.doesNotMatch(implementation, /dispatch_worker|dispatch_hard_worker|gpt-5\.6-(luna|terra)|\/(?:max|ultra)/);
+assert.doesNotMatch(implementation, /dispatch_reviewer|dispatch_deep_reviewer/);
 assert.match(promptGuidance('请审查这段代码的正确性', config), /dispatch_reviewer/);
 assert.match(promptGuidance('review this code for correctness', config), /dispatch_reviewer/);
 assert.match(promptGuidance('请审查这段代码的正确性', config), /gpt-5\.6-terra\/high/);
@@ -80,12 +93,12 @@ disabled.agent_profiles.profiles.dispatch_deep_reviewer.enabled = false;
 disabled.agent_profiles.profiles.dispatch_reviewer.enabled = false;
 disabled.agent_profiles.profiles.dispatch_mapper.enabled = false;
 disabled.agent_profiles.profiles.dispatch_worker.enabled = false;
+disabled.agent_profiles.profiles.dispatch_hard_worker.enabled = false;
 assert.doesNotMatch(promptGuidance('请审查安全权限风险', disabled), /dispatch_deep_reviewer|dispatch_reviewer/);
 assert.match(promptGuidance('请审查安全权限风险', disabled), /主代理/);
 assert.doesNotMatch(promptGuidance('请扫描整个仓库的跨模块调用链', disabled), /dispatch_mapper/);
 assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', disabled), /dispatch_explorer/);
-assert.doesNotMatch(promptGuidance('请实现这个常规功能', disabled), /dispatch_worker/);
-assert.match(promptGuidance('请实现这个常规功能', disabled), /主代理/);
+assert.match(promptGuidance('请实现这个常规功能', disabled), /当前没有启用的可写执行角色，由主代理直接完成/);
 
 assert.equal(toolNudge({ tool_name: 'apply_patch', tool_input: {} }, config), '');
 assert.equal(toolNudge({ tool_name: 'mcp__code_review_graph__get_minimal_context_tool', tool_input: {} }, config), '');
@@ -101,6 +114,19 @@ assert.equal(toolNudge({ tool_name: 'Bash', tool_input: { command: 'git log > ou
 assert.equal(toolNudge({ tool_name: 'Bash', tool_input: { command: 'reg query HKCU\\Software\\AgentDispatch' } }, config), '');
 assert.equal(toolNudge({ tool_name: 'Bash', tool_input: { command: "bash -lc 'reg query HKCU\\Software\\AgentDispatch'" } }, config), '');
 assert.match(toolNudge({ tool_name: 'Bash', tool_input: { command: 'reg add HKCU\\Software\\AgentDispatch /v Enabled /t REG_DWORD /d 1 /f' } }, config), /注册表写入/);
-assert.match(toolNudge({ tool_name: 'Bash', tool_input: { command: 'git status $(unknown-heavy-tool)' } }, config), /需要调度判断/);
-assert.match(toolNudge({ tool_name: 'Bash', tool_input: { command: 'git status && unknown-heavy-tool scan' } }, config), /需要调度判断/);
-assert.match(toolNudge({ tool_name: 'Bash', tool_input: { command: 'echo ok;rm -rf .' } }, config), /需要调度判断/);
+for (const command of [
+  'printf ok',
+  'echo ok',
+  'sed -n 1,20p file.txt',
+  'for x in a; do echo "$x"; done',
+  'while false; do echo never; done',
+  'if true; then echo ok; fi',
+  'unknown-heavy-tool scan',
+  'git status $(unknown-heavy-tool)',
+  'git status && unknown-heavy-tool scan',
+  'echo ok;rm -rf .',
+  'git log > out.txt',
+  "bash -lc 'echo nested'",
+]) {
+  assert.equal(toolNudge({ tool_name: 'Bash', tool_input: { command } }, config), '');
+}

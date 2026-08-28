@@ -40,8 +40,8 @@ try {
   assert.ok(fs.existsSync(path.join(repo, '.agent-dispatch-codex', 'config.json')));
   const workerProfile = path.join(repo, '.codex', 'agents', 'dispatch_worker.toml');
   assert.ok(fs.existsSync(workerProfile));
-  assert.match(fs.readFileSync(workerProfile, 'utf8'), /model = "gpt-5\.6-luna"/);
-  assert.match(fs.readFileSync(workerProfile, 'utf8'), /model_reasoning_effort = "max"/);
+  assert.doesNotMatch(fs.readFileSync(workerProfile, 'utf8'), /^model = /m);
+  assert.doesNotMatch(fs.readFileSync(workerProfile, 'utf8'), /^model_reasoning_effort = /m);
   assert.match(session.hookSpecificOutput.additionalContext, /do not leave idle agents occupying limited slots/);
 
   const compactSession = parse(run('session_start', { hook_event_name: 'SessionStart', source: 'compact' }));
@@ -73,17 +73,19 @@ try {
     hook_event_name: 'UserPromptSubmit',
     prompt: '请实现一个困难且复杂的功能，并排查复杂调试问题',
   }));
-  assert.match(hardPrompt.hookSpecificOutput.additionalContext, /dispatch_hard_worker/);
+  assert.match(hardPrompt.hookSpecificOutput.additionalContext, /可写执行角色/);
+  assert.match(hardPrompt.hookSpecificOutput.additionalContext, /模型和推理强度/);
   assert.match(hardPrompt.hookSpecificOutput.additionalContext, /主代理.*验收/);
-  assert.doesNotMatch(hardPrompt.hookSpecificOutput.additionalContext, /dispatch_planner|gpt-5\.6-sol/);
+  assert.doesNotMatch(hardPrompt.hookSpecificOutput.additionalContext, /dispatch_worker|dispatch_hard_worker|gpt-5\.6-(luna|terra)|\/(?:max|ultra)/);
 
   const plannedHardPrompt = parse(run('user_prompt_submit', {
     hook_event_name: 'UserPromptSubmit',
     prompt: '请先制定跨模块架构计划，然后实现困难的复杂调试任务',
   }));
   assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /dispatch_planner/);
-  assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /dispatch_hard_worker/);
+  assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /可写执行角色/);
   assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /停止并整合/);
+  assert.doesNotMatch(plannedHardPrompt.hookSpecificOutput.additionalContext, /dispatch_worker|dispatch_hard_worker|gpt-5\.6-(luna|terra)|\/(?:max|ultra)/);
 
   const searchPrompt = parse(run('user_prompt_submit', {
     hook_event_name: 'UserPromptSubmit',
@@ -116,6 +118,23 @@ try {
     tool_name: 'Bash',
     tool_input: { command: 'git push origin --delete temp' },
   }), '');
+  for (const command of [
+    'printf ok',
+    'echo ok',
+    'sed -n 1,20p file.txt',
+    'for x in a; do echo "$x"; done',
+    'while false; do echo never; done',
+    'if true; then echo ok; fi',
+    'unknown-heavy-tool scan',
+    'echo ok;rm -rf .',
+    'bash -lc \'echo nested\'',
+  ]) {
+    assert.equal(run('pre_tool_use', {
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Bash',
+      tool_input: { command },
+    }), '');
+  }
   assert.equal(run('pre_tool_use', {
     hook_event_name: 'PreToolUse',
     tool_name: 'Bash',
@@ -126,6 +145,14 @@ try {
     tool_name: 'Bash',
     tool_input: { command: "bash -lc 'reg query HKCU\\Software\\AgentDispatch'" },
   }), '');
+  assert.equal(run('pre_tool_use', {
+    hook_event_name: 'PreToolUse',
+    tool_name: 'Bash',
+    tool_input: { command: 'reg add HKCU\\Software\\AgentDispatch /v Enabled /t REG_DWORD /d 1 /f' },
+  }), '');
+  fs.writeFileSync(path.join(data, 'config.json'), JSON.stringify({
+    modules: { pre_tool_nudge: true },
+  }));
   const registryWrite = parse(run('pre_tool_use', {
     hook_event_name: 'PreToolUse',
     tool_name: 'Bash',

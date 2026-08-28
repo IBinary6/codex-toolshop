@@ -28,7 +28,7 @@ codex plugin add system-proxy-codex@codex-toolshop
 | --- | --- | --- |
 | `codemap-boost-codex` | 自动接入 `code-review-graph` 代码结构图，提供符号、调用、引用和影响面检索能力。 | 新会话自动 bootstrap、自动 build/update。涉及代码结构时优先用 `mcp__code_review_graph__*` 工具。 |
 | `cpp-style-enforcer-codex` | 自动执行团队 C++ 风格流程，包括 clang-format、版权头、BOM、cpplint 和提交前检查。 | 正常编辑即可；写入 C/C++ 文件后 hook 自动处理，`git commit` 前会检查暂存区 C++ 文件。 |
-| `agent-dispatch-codex` | 让主代理负责决策和审查，把明确、有界的执行工作交给低成本子代理。 | 新会话自动注入调度策略；子代理直接执行、报告结果，并在整合后及时释放。 |
+| `agent-dispatch-codex` | 让主代理负责决策和审查，并按任务为明确、有界的执行工作选择可写子代理及模型档位。 | 新会话自动注入调度策略；子代理直接执行、报告结果，并在整合后及时释放。 |
 | `local-knowledge-codex` | 为 Codex 提供本地索引知识，覆盖错误方案、用户偏好、事实、决策和工作流。 | 会话开始加载常驻偏好，提问或工具失败时按作用域和相关性召回；用户明确要求或方案验证后再保存。 |
 | `system-proxy-codex` | 自动启用 Codex 系统代理支持，并用 Python 安全配置 `.env`。 | 默认使用系统代理；也可用 `system-proxy-setup` 自动检测或指定 `7897`、`7890` 等端口。 |
 
@@ -37,12 +37,13 @@ codex plugin add system-proxy-codex@codex-toolshop
 安装 `agent-dispatch-codex` 后，新会话会自动加载调度策略：
 
 - 主代理保留需求澄清、架构/接口决策、任务拆分、结果审查和最终整合。
-- 明确、有界的编码、重构和修复优先交给 `gpt-5.6-luna` 执行子代理，即使该步骤需要串行完成。
-- 可独立、可并行且有明确边界的子任务必须并行委派。
+- 明确、有界的编码、重构和修复可交给可写执行子代理，即使该步骤需要串行完成；角色、模型和推理强度由主代理按复杂度、上下文、风险、可用性和用户显式偏好选择。
+- 可独立、可并行且有明确边界的子任务在确有收益时并行委派。
 - 简单读取、小范围修改或强耦合步骤继续由主代理完成，避免为了委派而委派。
 - 子代理收到独立指令后直接执行，不递归分派，并在结果中列出修改文件和验证命令。
 - 子代理结果已整合、阻塞或不再需要时立即停止，避免空闲智能体占用有限名额。
-- 路由按任务升级：Luna 处理有界搜索和明确开发，Terra 处理广泛扫描、常规审查和困难实现，Sol 只用于非琐碎计划或高风险审查。
+- 搜索、规划和审查继续按职责选择专门角色；两个写代码角色默认继承主任务模型，不再固定为 Luna/max 或 Terra/ultra。
+- 普通 Bash/agent 工具命令默认不产生 `PreToolUse` 路由提示；单条命令不再触发重复的模型建议。
 - 安装后无需手动运行 setup；新建任务会自动生成项目 Agent 并注入路由。`agent-dispatch-setup` 只用于查看或覆盖配置。
 - PowerShell 和 Git Bash 都受支持；集成终端 Shell 的选择不会改变 Hook 的 Node.js 运行逻辑。
 - 全局配置保存在插件 `PLUGIN_DATA/config.json`，项目配置保存在 `.agent-dispatch-codex/config.json`。

@@ -33,7 +33,7 @@ Supported module switches:
 
 - `modules.session_guidance`
 - `modules.prompt_guidance`
-- `modules.pre_tool_nudge`
+- `modules.pre_tool_nudge` (disabled by default)
 - `modules.subagent_guidance`
 
 Supported policy values:
@@ -64,7 +64,7 @@ Supported list overrides:
 
 ## Important boundaries
 
-- Codex `PreToolUse` cannot reliably identify whether a Bash, `apply_patch`, or MCP call came from the primary agent or a subagent. Do not convert the soft nudge into a blanket deny rule.
+- Codex `PreToolUse` cannot reliably identify whether a Bash, `apply_patch`, or MCP call came from the primary agent or a subagent. The nudge is disabled by default; when explicitly enabled, keep ordinary Bash calls silent and do not convert the remaining soft nudge into a blanket deny rule.
 - Git commands bypass Agent Dispatch classification, including destructive Git subcommands. This is an orchestration rule only; it does not replace the Codex sandbox, user authorization, Hook trust, or Git safety checks.
 - Continue classifying non-Git segments in a compound shell command even when another segment is Git.
 - Nested shell evaluation, process substitution, script blocks, block comments, and cross-shell ambiguous escapes are not Git CLI operations and continue to require dispatch review even when the outer segment starts with `git`.
@@ -74,6 +74,6 @@ Supported list overrides:
 - Project configuration is excluded through `.git/info/exclude`; do not edit the project's tracked `.gitignore` unless the user explicitly asks.
 - Generated custom-agent files are excluded individually through `.git/info/exclude`. Do not exclude the whole `.codex/` directory.
 - An empty `model` omits the field so the child inherits the parent choice. Model availability is still controlled by the user's account and workspace policy.
-- The plugin does not change the primary conversation model. It creates narrow project agents for bounded search, broad mapping, non-trivial planning, routine development, difficult execution, normal review, and high-risk review. Prompt routing must use the lowest suitable role and reserve `xhigh` or `ultra` for the categories that explicitly require them.
+- The plugin does not change the primary conversation model. It creates narrow project agents for bounded search, broad mapping, non-trivial planning, routine development, difficult execution, normal review, and high-risk review. Search, planning, and review keep their specialized boundaries; writable roles inherit the primary task model by default, and the primary agent chooses their role, model, and reasoning strength from task complexity, context, risk, availability, and explicit user preference. Do not force all coding through one writer profile or a fixed Luna/max or Terra/ultra tier.
 - A generated profile does not consume a runtime slot. Only a spawned agent thread does. Stop or close active/completed threads as soon as their result is integrated.
 - After Hook definitions change, the user must open a new task and trust the new Hook hash in `/hooks`.

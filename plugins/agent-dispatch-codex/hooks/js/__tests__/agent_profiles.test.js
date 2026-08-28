@@ -25,8 +25,8 @@ try {
   const worker = path.join(root, '.codex', 'agents', 'dispatch_worker.toml');
   const content = fs.readFileSync(worker, 'utf8');
   assert.ok(content.startsWith(MANAGED_HEADER));
-  assert.match(content, /model = "gpt-5\.6-luna"/);
-  assert.match(content, /model_reasoning_effort = "max"/);
+  assert.doesNotMatch(content, /^model = /m);
+  assert.doesNotMatch(content, /^model_reasoning_effort = /m);
   assert.match(content, /sandbox_mode = "workspace-write"/);
   assert.match(content, /Do not run Git commands/);
   assert.equal((content.match(/Do not run Git commands/g) || []).length, 1);
@@ -44,15 +44,23 @@ try {
     dispatch_explorer: ['gpt-5.6-luna', 'medium', 'read-only'],
     dispatch_mapper: ['gpt-5.6-terra', 'medium', 'read-only'],
     dispatch_planner: ['gpt-5.6-sol', 'xhigh', 'read-only'],
-    dispatch_worker: ['gpt-5.6-luna', 'max', 'workspace-write'],
-    dispatch_hard_worker: ['gpt-5.6-terra', 'ultra', 'workspace-write'],
+    dispatch_worker: ['', '', 'workspace-write'],
+    dispatch_hard_worker: ['', '', 'workspace-write'],
     dispatch_reviewer: ['gpt-5.6-terra', 'high', 'read-only'],
     dispatch_deep_reviewer: ['gpt-5.6-sol', 'xhigh', 'read-only'],
   };
   for (const [name, [model, effort, sandbox]] of Object.entries(expectedProfiles)) {
     const profile = fs.readFileSync(path.join(root, '.codex', 'agents', `${name}.toml`), 'utf8');
-    assert.match(profile, new RegExp(`model = "${model.replace('.', '\\.')}`));
-    assert.match(profile, new RegExp(`model_reasoning_effort = "${effort}"`));
+    if (model) {
+      assert.match(profile, new RegExp(`model = "${model.replace('.', '\\.')}`));
+    } else {
+      assert.doesNotMatch(profile, /^model = /m);
+    }
+    if (effort) {
+      assert.match(profile, new RegExp(`model_reasoning_effort = "${effort}"`));
+    } else {
+      assert.doesNotMatch(profile, /^model_reasoning_effort = /m);
+    }
     assert.match(profile, new RegExp(`sandbox_mode = "${sandbox}"`));
     assert.equal((profile.match(/Do not run Git commands/g) || []).length, 1);
   }
