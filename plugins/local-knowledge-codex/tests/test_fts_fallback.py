@@ -3,6 +3,7 @@
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest import mock
 
@@ -110,7 +111,7 @@ class FtsFallbackTests(unittest.TestCase):
         """已有 FTS 表和触发器必须原样保留，不受能力探测重建影响。"""
         original = KnowledgeBase(self.db_path)
         before = original.stats()["schema"]
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
             before_sql = conn.execute(
                 "SELECT name, type, sql FROM sqlite_master "
                 "WHERE name LIKE 'knowledge_items_fts%' ORDER BY name"
@@ -121,7 +122,7 @@ class FtsFallbackTests(unittest.TestCase):
 
         create.assert_not_called()
         self.assertEqual(reopened.stats()["schema"], before)
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
             after_sql = conn.execute(
                 "SELECT name, type, sql FROM sqlite_master "
                 "WHERE name LIKE 'knowledge_items_fts%' ORDER BY name"
@@ -136,7 +137,7 @@ class FtsFallbackTests(unittest.TestCase):
             kind="fact",
             canonical_key="storage.legacy_tokenizer",
         )
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
             sql = conn.execute(
                 "SELECT sql FROM sqlite_master WHERE name='knowledge_items_fts'"
             ).fetchone()[0]
@@ -177,7 +178,7 @@ class FtsFallbackTests(unittest.TestCase):
             kind="fact",
             canonical_key="storage.rebuild_equal_count",
         )
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
             for trigger in storage._FTS_TRIGGER_NAMES:
                 conn.execute(f"DROP TRIGGER {trigger}")
             conn.execute(
@@ -286,7 +287,7 @@ class FtsFallbackTests(unittest.TestCase):
             kind="fact",
             canonical_key="storage.short.target",
         )
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
             conn.execute(
                 "UPDATE knowledge_items SET updated_at=? WHERE id=?",
                 ("2000-01-01T00:00:00+00:00", target["id"]),
