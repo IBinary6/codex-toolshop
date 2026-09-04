@@ -25,6 +25,7 @@ function main() {
 
   assert(plugin.name === 'system-proxy-codex', 'plugin name is wrong');
   assert(plugin.version === pkg.version, 'package version must match plugin version');
+  assert(pkg.engines && pkg.engines.node === '>=18', 'package must declare the supported Node runtime');
   assert(entry && entry.version === plugin.version, 'marketplace version must match plugin version');
   assert(entry.source.path === './plugins/system-proxy-codex', 'marketplace source is wrong');
   assert(plugin.skills === './skills/', 'skills directory must be declared');
@@ -38,6 +39,14 @@ function main() {
   assert(!/[A-Za-z]:[\\/]/.test(hookText), 'hook must not contain absolute Windows paths');
   assert(!fs.existsSync(path.join(root, 'scripts', 'setup-system-proxy.ps1')), 'PowerShell setup scripts are not allowed');
   const bootstrap = fs.readFileSync(path.join(repoRoot, 'scripts', 'install_system_proxy_codex.py'), 'utf8');
+  const expectedReleaseRef = `system-proxy-codex-v${plugin.version}`;
+  assert(bootstrap.includes(`RELEASE_REF = "${expectedReleaseRef}"`),
+    'bootstrap release ref must match the plugin version');
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+  const releaseRefs = [...readme.matchAll(/system-proxy-codex-v\d+\.\d+\.\d+/g)]
+    .map((match) => match[0]);
+  assert(releaseRefs.length > 0 && releaseRefs.every((ref) => ref === expectedReleaseRef),
+    'README release refs must match the plugin version');
   for (const name of ['setup_proxy.py', 'session_start.py', 'install_system_proxy_codex.py']) {
     const digest = crypto.createHash('sha256').update(fs.readFileSync(path.join(root, 'scripts', name))).digest('hex');
     assert(bootstrap.includes(`"${name}": "${digest}"`), `bootstrap hash is stale for ${name}`);

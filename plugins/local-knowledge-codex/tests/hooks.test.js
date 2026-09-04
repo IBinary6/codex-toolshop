@@ -5,10 +5,26 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { spawnPythonSync } = require('./python-runtime');
 
 const root = path.resolve(__dirname, '..');
 const runner = path.join(root, 'scripts', 'run-hook.cjs');
-const python = process.env.BUGDB_TEST_PYTHON || 'python';
+const { HOOK_TIMEOUT_MS } = require(runner);
+const { PYTHON_DETECTION_TIMEOUT_MS } = require('../scripts/python-launcher.cjs');
+const { CLI_TIMEOUT_MS } = require('../hooks/js/local_knowledge_cli');
+
+const hookManifest = JSON.parse(fs.readFileSync(path.join(root, 'hooks', 'hooks.json'), 'utf8'));
+const hostTimeoutMs = {
+  session_start: hookManifest.hooks.SessionStart[0].hooks[0].timeout * 1000,
+  post_tool_use: hookManifest.hooks.PostToolUse[0].hooks[0].timeout * 1000,
+  user_prompt_submit: hookManifest.hooks.UserPromptSubmit[0].hooks[0].timeout * 1000,
+};
+for (const [hook, timeout] of Object.entries(HOOK_TIMEOUT_MS)) {
+  assert.ok(timeout < hostTimeoutMs[hook], `${hook} runner must finish before host timeout`);
+}
+assert.ok(CLI_TIMEOUT_MS < HOOK_TIMEOUT_MS.post_tool_use);
+assert.ok(CLI_TIMEOUT_MS < HOOK_TIMEOUT_MS.user_prompt_submit);
+assert.ok(PYTHON_DETECTION_TIMEOUT_MS + CLI_TIMEOUT_MS < HOOK_TIMEOUT_MS.session_start);
 
 function run(hook, input, extra = {}) {
   const result = spawnSync(process.execPath, [runner, hook], {
@@ -31,7 +47,7 @@ assert.match(JSON.parse(missingPython).hookSpecificOutput.additionalContext,
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'bugdb-codex-hook-'));
 try {
-  const hookEnv = { LOCAL_KNOWLEDGE_HOME: temp, BUGDB_PYTHON: python };
+  const hookEnv = { LOCAL_KNOWLEDGE_HOME: temp };
   const lookup = run('user_prompt_submit', {
     hook_event_name: 'UserPromptSubmit',
     prompt: '请先看看 error LNK2001 unresolved external symbol。',
@@ -58,7 +74,7 @@ try {
     prompt: '请解释这段代码的作用。',
   }, hookEnv), '');
 
-  const remember = spawnSync(python, [path.join(root, 'local_knowledge', 'cli.py'),
+  const remember = spawnPythonSync([path.join(root, 'local_knowledge', 'cli.py'),
     '--format', 'json', 'remember', '--kind', 'preference',
     '--title', '回复语言', '--content', '用户希望默认使用中文回答。',
     '--cues', '回复语言,中文回答', '--canonical-key', 'assistant.response_language',
@@ -85,7 +101,7 @@ try {
   assert.match(sessionContext, /LOCAL_KNOWLEDGE_RECALL/);
   assert.match(sessionContext, /默认使用中文回答/);
 
-  const add = spawnSync(python, [path.join(root, 'bugdb', 'cli.py'), 'add',
+  const add = spawnPythonSync([path.join(root, 'bugdb', 'cli.py'), 'add',
     '--category', 'link', '--context', 'error LNK2019 unresolved external symbol Foo',
     '--cause', 'missing library', '--content', 'link the required library',
     '--language', 'c++', '--format', 'json'], {

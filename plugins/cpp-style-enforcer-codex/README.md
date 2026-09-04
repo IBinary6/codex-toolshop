@@ -86,12 +86,21 @@ PLUGIN_DATA
 - `clang-format` 可选；缺失时格式化步骤静默跳过，其他检查继续
 - `iconv-lite` 可选；缺失时 GBK 文件会跳过转码/BOM 处理，避免损坏原文件
 
-hook 运行期只检测依赖，不执行 `npm install` 或 `pip install`。如需补齐可选依赖，请在常规终端中预先安装，例如：
+hook 运行期只检测依赖，不执行 `npm install` 或 `pip install`。Python 启动器会验证解释器确实为 Python 3；Windows 同时支持标准的 `py -3` 启动方式。
+
+macOS 可在常规终端中执行：
 
 ```bash
-python -m pip install clang-format==18.1.8
-npm install iconv-lite@0.6.3
+python3 -m pip install clang-format==18.1.8
 ```
+
+Windows 可在常规终端中执行：
+
+```text
+py -3 -m pip install clang-format==18.1.8
+```
+
+`iconv-lite` 必须由插件包或 Codex 注入的插件数据目录提供；不要在任意工作目录执行 `npm install`，否则 hook 无法解析该依赖。缺失时 GBK 转码/BOM 处理会安全跳过。
 
 hook 默认保持安静，只在需要阻止操作或提示关键问题时输出 Codex hook 决策。
 

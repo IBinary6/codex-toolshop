@@ -1,6 +1,6 @@
 {
   "name": "system-proxy-codex",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Enable Codex system-proxy support automatically and configure proxy environment variables safely with Python.",
   "author": {
     "name": "IBinary6",

@@ -20,10 +20,12 @@ Codex 版会把 grep 注入这类 Claude 专属能力改写到 `AGENTS.md`、`Us
 
 ## 安装即用
 
-前置环境只要求：可用的 `codex` CLI、Git，以及以下依赖安装器之一：
+前置环境要求：
 
-- 推荐 `uv`；插件会用它创建固定 Python 3.12 的私有 venv。
-- 无 `uv` 时使用支持 `venv` 的 Python，依次尝试 3.12、3.11 和当前 Python。
+- Codex 桌面宿主必须能直接从自己的 `PATH` 解析 `node`。插件不会硬编码 Homebrew、nvm 或 Windows 安装目录；终端里可用不代表桌面宿主一定继承了同一份 `PATH`。
+- Node.js 版本必须为 18 或更高版本，并且需要可用的 Git。
+- 独立 `codex` CLI 仅用于旧版全局 MCP 覆盖迁移与 doctor 的可选检查，不是插件原生 MCP 启动的前提。
+- 依赖安装器推荐使用 `uv`，插件会用它创建固定 Python 3.12 的私有 venv；无 `uv` 时使用支持 `venv` 的 Python，依次尝试 3.12、3.11 和当前 Python。
 
 不要求用户预先安装 `code-review-graph`，也不要求安装后再运行 setup。正常安装只有两条命令：
 
@@ -37,7 +39,7 @@ codex plugin add codemap-boost-codex@codex-toolshop
 
 安装后创建一个新的 Codex 任务。插件自带的 `.mcp.json` 会在任务加载 MCP 时直接启动跨平台 Node 入口；入口会在 Codex 插件数据目录中创建或修复隔离的 CRG venv，然后启动 `code-review-graph serve`。首次安装不依赖 SessionStart 事后注册 MCP，因此主代理和自动子代理能在同一新任务中获得图工具。
 
-插件原生 MCP 明确设置 `startup_timeout_sec = 100`，给首次创建 venv、安装依赖和 CRG 冷启动留出时间，同时避免异常启动长时间占用任务。多个任务同时首次启动时通过安装锁串行化，不会并发重建同一个 venv。
+插件原生 MCP 明确设置 `startup_timeout_sec = 600`。启动器把其中 570 秒作为共享绝对预算，安装锁等待、venv 创建、依赖安装与健康探针都只能使用剩余时间；最后 30 秒留给 MCP 子进程启动。单条安装命令仍以 5 分钟为上限，等待安装锁仍以 9 分钟为上限，但二者不会再各自重新获得完整超时。多个任务同时首次启动时通过安装锁串行化，不会并发重建同一个 venv。
 
 可以用下面的命令验证 Codex 已解析插件原生 MCP：
 
@@ -45,7 +47,7 @@ codex plugin add codemap-boost-codex@codex-toolshop
 codex mcp get code-review-graph --json
 ```
 
-正常结果是 stdio、`command = node`、参数为 `scripts/mcp-server.cjs`、`cwd` 位于已安装插件根目录，并显示 `startup_timeout_sec = 100`。这个 `cwd` 只负责稳定定位插件启动脚本；图查询前的 `PreToolUse` 会把当前任务的 Git 根目录补入 CRG 的 `repo_root`，避免误查插件目录。已经启动的旧任务不会动态补载新插件能力，所以“新建任务”是 Codex 的加载边界，不是额外配置步骤。
+正常结果是 stdio、`command = node`、参数为 `scripts/mcp-server.cjs`、`cwd` 位于已安装插件根目录，并显示 `startup_timeout_sec = 600`。这个 `cwd` 只负责稳定定位插件启动脚本；图查询前的 `PreToolUse` 会把当前任务的 Git 根目录补入 CRG 的 `repo_root`，避免误查插件目录。已经启动的旧任务不会动态补载新插件能力，所以“新建任务”是 Codex 的加载边界，不是额外配置步骤。
 
 MCP 工具可能以 deferred 方式注入，因此不会出现在静态 schema 或顶层工具列表中。仅因当前顶层列表没有 `mcp__code_review_graph__` 不能断言 MCP 未加载；声称不可用前，应在可用时检查 `ALL_TOOLS` 中的 `mcp__code_review_graph__*`，或实际调用合适的图工具，确认后再使用降级检索，也不要声称未执行的图查询已经完成。
 
@@ -80,9 +82,10 @@ node "<plugin-root>/scripts/setup.cjs" --doctor
 
 `--doctor` 是只读诊断，不安装依赖、不执行 MCP add/remove、不构建图谱，也不修改 `AGENTS.md`、`.gitignore` 或插件 marker。它会分别报告：
 
+- 当前 Node.js 版本是否满足 `>=18.0.0`；这项检查基于实际启动 doctor 的 Node，不猜测 Homebrew、nvm 或其他安装位置。
 - 可执行的独立 Codex CLI 路径、版本、`CODEX_HOME` 和插件数据目录；CLI 不可用时标记为 `WARN`，不把可选检查误报成插件损坏。
 - 插件私有 CRG 运行环境及 parser 健康状态。
-- 插件原生 MCP 声明、100 秒启动超时，以及是否存在会遮蔽它的同名全局配置。
+- 插件原生 MCP 声明、600 秒启动超时，以及是否存在会遮蔽它的同名全局配置。
 - 当前目录对应的 Git 仓库和项目图谱 `status`。
 - 当前任务工具状态为 `UNKNOWN`：外部 CLI 无法读取已启动任务的工具快照；MCP 也可能 deferred，不能仅凭静态/顶层列表判断，需在新任务中按可用性检查 `ALL_TOOLS` 或实际调用 `mcp__code_review_graph__*`。
 - 可直接执行的修复命令，以及修复后是否必须完整重启并创建新任务。
@@ -98,15 +101,24 @@ setup 内部执行的等价流程如下，仅用于排障；正常安装不要�
 ```bash
 uv venv --python 3.12 "<plugin-data>/crg-runtime"
 uv pip install --python "<plugin-data>/crg-runtime/<python>" --upgrade "code-review-graph[all]"
-# 没有 uv 时：
-python -m venv "<plugin-data>/crg-runtime"
+
+# 没有 uv 时，macOS 使用 python3：
+python3 -m venv "<plugin-data>/crg-runtime"
 "<plugin-data>/crg-runtime/<python>" -m pip install --upgrade "code-review-graph[all]"
+
+# Windows 使用 Python Launcher：
+py -3 -m venv "<plugin-data>/crg-runtime"
+"<plugin-data>\crg-runtime\Scripts\python.exe" -m pip install --upgrade "code-review-graph[all]"
 ```
 
 `graphify` 是可选能力；需要时再安装：
 
 ```bash
-python -m pip install "graphifyy[all]"
+# macOS
+python3 -m pip install "graphifyy[all]"
+
+# Windows
+py -3 -m pip install "graphifyy[all]"
 ```
 
 ## 它会做什么

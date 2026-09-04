@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { pythonCandidates, resolvePythonCandidates } = require('./python');
 
 const isWindows = process.platform === 'win32';
 const ICONV_LITE_SPEC = 'iconv-lite@0.6.3';
@@ -47,22 +48,6 @@ function writeMarker(p) {
   } catch (_) {}
 }
 
-function splitArgs(value) {
-  return String(value || '').trim().split(/\s+/).filter(Boolean);
-}
-
-function pythonCandidates() {
-  if (process.env.CPP_STYLE_PYTHON) {
-    return [{ cmd: process.env.CPP_STYLE_PYTHON, args: splitArgs(process.env.CPP_STYLE_PYTHON_ARGS) }];
-  }
-  const candidates = [
-    { cmd: 'python', args: [] },
-    { cmd: 'python3', args: [] },
-  ];
-  if (isWindows) candidates.push({ cmd: 'py', args: ['-3.11'] });
-  return candidates;
-}
-
 /**
  * 安装 iconv-lite 到持久数据目录 PLUGIN_DATA（而非插件根）。
  * 原因：marketplace bundle 通道会剥离打包的 node_modules，且插件目录每次更新整体替换、
@@ -89,7 +74,7 @@ function npmInstall() {
 
 /** 默认：pip 安装 clang-format（靠 python，跨平台最稳） */
 function pipInstallClangFormat() {
-  for (const py of pythonCandidates()) {
+  for (const py of resolvePythonCandidates()) {
     try {
       const r = spawnSync(
         py.cmd,
@@ -117,13 +102,13 @@ function probeClangFormat(desc) {
 }
 
 /**
- * 默认：拿 python(/python3) 的 Scripts 目录里 clang-format 可执行的绝对路径候选。
+ * 默认：拿已验证 Python 3 启动器的 Scripts 目录里 clang-format 可执行的绝对路径候选。
  * pip 安装的入口脚本常落在此目录，可能不在 PATH。失败静默返回 []。
  * @returns {Array<{cmd:string, args:string[]}>}
  */
 function scriptsDirCandidates() {
   const out = [];
-  for (const py of pythonCandidates()) {
+  for (const py of resolvePythonCandidates()) {
     let dir = null;
     try {
       const r = spawnSync(py.cmd, [...py.args, '-c', "import sysconfig; print(sysconfig.get_path('scripts'))"],
@@ -141,22 +126,24 @@ function scriptsDirCandidates() {
 
 /**
  * 默认：按顺序找出可用的 clang-format 调用方式，返回调用描述 {cmd, args}，找不到返回 null。
- * 顺序：1) PATH 的 clang-format  2) pip 包模块入口 python -m clang_format(python/python3)
+ * 顺序：1) PATH 的 clang-format  2) pip 包模块入口 python -m clang_format（仅 Python 3）
  *      3) python Scripts 目录下的 clang-format 可执行。
  *
  * @param {object} [opts]
  * @param {function({cmd:string,args:string[]}):boolean} [opts.probe] 注入探测函数（测试用）
  * @param {function():Array<{cmd:string,args:string[]}>} [opts.scriptsDirs] 注入 Scripts 候选生成（测试用）
+ * @param {function():Array<{cmd:string,args:string[]}>} [opts.pythons] 注入已验证的 Python 3 候选（测试用）
  * @returns {{cmd:string, args:string[]}|null}
  */
 function detectClangFormat(opts) {
   const o = opts || {};
   const probe = o.probe || probeClangFormat;
   const scriptsDirs = o.scriptsDirs || scriptsDirCandidates;
+  const pythons = o.pythons || resolvePythonCandidates;
 
   const candidates = [
     { cmd: 'clang-format', args: [] },
-    ...pythonCandidates().map((py) => ({ cmd: py.cmd, args: [...py.args, '-m', 'clang_format'] })),
+    ...pythons().map((py) => ({ cmd: py.cmd, args: [...py.args, '-m', 'clang_format'] })),
   ];
   for (const desc of candidates) {
     try { if (probe(desc)) return desc; } catch (_) {}

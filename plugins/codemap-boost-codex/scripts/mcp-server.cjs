@@ -3,12 +3,21 @@
 const { spawn } = require('child_process');
 const { crgRuntimePaths, ensureCrg } = require('../hooks/js/lib/bootstrap');
 const { enableCodeMap, readBootstrapFailure } = require('../hooks/js/lib/codemap');
+const { nodeRuntimeStatus } = require('../hooks/js/lib/runtime');
 
 /**
  * 确保插件私有 CRG 可用，并返回要启动的 MCP 命令。
  * @example prepareMcpServer().command
  */
 function prepareMcpServer(options = {}) {
+  const checkNode = options.nodeRuntimeStatus || nodeRuntimeStatus;
+  const nodeStatus = checkNode();
+  if (!nodeStatus.ok) {
+    return {
+      ok: false,
+      diagnostic: `Node.js ${nodeStatus.version || '未知'} 不受支持；需要 ${nodeStatus.requirement}。`,
+    };
+  }
   const ensure = options.ensureCrg || ensureCrg;
   const runtimePaths = options.crgRuntimePaths || crgRuntimePaths;
   const enable = options.enableCodeMap || enableCodeMap;

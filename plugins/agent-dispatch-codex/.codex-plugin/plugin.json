@@ -1,6 +1,6 @@
 {
   "name": "agent-dispatch-codex",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "Codex-native role-aware task routing with task-selected writer models, automatic hooks, and serial primary-agent Git.",
   "author": {
     "name": "IBinary6"

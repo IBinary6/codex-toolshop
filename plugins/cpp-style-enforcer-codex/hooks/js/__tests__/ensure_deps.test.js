@@ -99,6 +99,7 @@ const pluginRoot = path.join(__dirname, '..', '..', '..');
   const desc = detectClangFormat({
     probe: (d) => d.cmd === 'python' && d.args[0] === '-m' && d.args[1] === 'clang_format',
     scriptsDirs: () => [],
+    pythons: () => [{ cmd: 'python', args: [] }],
   });
   assert.deepStrictEqual(desc, { cmd: 'python', args: ['-m', 'clang_format'] },
     'PATH 无 + python -m clang_format 可用 → 返回 python 模块调用描述');

@@ -10,7 +10,7 @@ def load_tests(loader, tests, ignore):
     """把三个公共模块的文档示例加入 unittest 发现流程。
 
     Example:
-        ``python -m unittest discover -s tests -p "test_*.py"`` 会调用本函数。
+        ``npm run test:python`` 会通过插件内 Python launcher 调用本函数。
     """
     del loader, ignore
     tests.addTests(doctest.DocTestSuite(models))

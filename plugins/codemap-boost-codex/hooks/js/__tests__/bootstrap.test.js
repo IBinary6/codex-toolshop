@@ -5,6 +5,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
+  INSTALL_COMMAND_TIMEOUT_MS,
+  INSTALL_LOCK_WAIT_MS,
+  MCP_BOOTSTRAP_BUDGET_MS,
+  MCP_BOOTSTRAP_RESERVE_MS,
+  MCP_STARTUP_TIMEOUT_SEC,
   acquireInstallLock,
   crgRuntimePaths,
   ensureCli,
@@ -14,6 +19,81 @@ const {
   pythonCandidates,
   releaseInstallLock,
 } = require('../lib/bootstrap');
+
+{
+  assert.strictEqual(MCP_STARTUP_TIMEOUT_SEC, 600);
+  assert.strictEqual(
+    MCP_BOOTSTRAP_BUDGET_MS + MCP_BOOTSTRAP_RESERVE_MS,
+    MCP_STARTUP_TIMEOUT_SEC * 1000,
+    'bootstrap work and MCP launch reserve must share one startup budget'
+  );
+  assert.ok(
+    MCP_STARTUP_TIMEOUT_SEC * 1000 > INSTALL_COMMAND_TIMEOUT_MS,
+    'the MCP startup budget must exceed a first-run install command timeout'
+  );
+  assert.ok(
+    MCP_STARTUP_TIMEOUT_SEC * 1000 > INSTALL_LOCK_WAIT_MS,
+    'a waiter must leave time for the installed runtime to be probed and served'
+  );
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-managed-deadline-'));
+  let runtimeExists = false;
+  let now = 1000;
+  const timeouts = [];
+  try {
+    const ok = installManagedCrg('code-review-graph[all]', {
+      runtimeDir: tmp,
+      deadlineMs: 1450,
+      now: () => now,
+      uvProbe: () => true,
+      pathExists: () => runtimeExists,
+      spawnSync: (command, args, options) => {
+        timeouts.push(options.timeout);
+        if (command === 'uv' && args[0] === 'venv') runtimeExists = true;
+        now += 250;
+        return { status: 0 };
+      },
+      probeRuntime: () => true,
+    });
+    assert.strictEqual(ok, true);
+    assert.deepStrictEqual(timeouts, [450, 200],
+      'sequential install commands must consume one absolute deadline');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-managed-budget-propagation-'));
+  let healthy = false;
+  let lockDeadline = null;
+  let installDeadline = null;
+  try {
+    const ok = ensureCrg({
+      runtimeDir: path.join(tmp, 'runtime'),
+      markerPath: path.join(tmp, '.crg-install-failed'),
+      now: () => 5000,
+      probeRuntime: () => healthy,
+      acquireInstallLock: (_file, options) => {
+        lockDeadline = options.deadlineMs;
+        return 'token';
+      },
+      releaseInstallLock: () => {},
+      installRuntime: (_pkg, options) => {
+        installDeadline = options.deadlineMs;
+        healthy = true;
+        return true;
+      },
+    });
+    assert.strictEqual(ok, true);
+    assert.strictEqual(lockDeadline, 5000 + MCP_BOOTSTRAP_BUDGET_MS);
+    assert.strictEqual(installDeadline, lockDeadline);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
 
 {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-stale-install-lock-'));
@@ -89,6 +169,20 @@ const {
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
+}
+
+{
+  const windowsRoot = 'C:\\Users\\tester\\AppData\\Local\\CodeMap Boost\\crg-runtime';
+  const windowsPaths = crgRuntimePaths({ runtimeDir: windowsRoot, platform: 'win32' });
+  assert.strictEqual(windowsPaths.dir, windowsRoot);
+  assert.strictEqual(windowsPaths.python, `${windowsRoot}\\Scripts\\python.exe`);
+  assert.strictEqual(windowsPaths.command, `${windowsRoot}\\Scripts\\code-review-graph.exe`);
+
+  const macRoot = '/Users/tester/Library/Application Support/CodeMap Boost/crg-runtime';
+  const macPaths = crgRuntimePaths({ runtimeDir: macRoot, platform: 'darwin' });
+  assert.strictEqual(macPaths.dir, macRoot);
+  assert.strictEqual(macPaths.python, `${macRoot}/bin/python`);
+  assert.strictEqual(macPaths.command, `${macRoot}/bin/code-review-graph`);
 }
 
 {
@@ -282,11 +376,16 @@ const {
 }
 
 {
-  const candidates = pythonCandidates().map(([command]) => command);
+  const candidates = pythonCandidates({ platform: 'darwin' }).map(([command]) => command);
   assert.ok(candidates.includes('python3.12'), 'fallback probes an explicit Python 3.12 executable');
   assert.ok(candidates.includes('python3.11'), 'fallback probes an explicit Python 3.11 executable');
   assert.ok(candidates.indexOf('python3.12') < candidates.indexOf('python'), 'fallback prefers Python 3.12 before generic Python');
   assert.ok(candidates.indexOf('python3.11') < candidates.indexOf('python3'), 'fallback prefers Python 3.11 before generic Python 3');
+  assert.ok(!candidates.includes('py'), 'macOS does not probe the Windows py launcher');
+
+  const windowsCandidates = pythonCandidates({ platform: 'win32' });
+  assert.deepStrictEqual(windowsCandidates[0], ['py', ['-3.12']], 'Windows prefers the py launcher for Python 3.12');
+  assert.ok(windowsCandidates.some(([command, args]) => command === 'py' && args[0] === '-3'));
 }
 
 console.log('bootstrap.test.js PASS');

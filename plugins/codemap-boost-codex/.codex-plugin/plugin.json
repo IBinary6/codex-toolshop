@@ -1,6 +1,6 @@
 {
   "name": "codemap-boost-codex",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "Install-ready CodeMap workflow for Codex using a bundled code-review-graph MCP, synchronized graph refresh barriers, and AGENTS.md instructions.",
   "author": {
     "name": "IBinary6"

@@ -27,7 +27,13 @@ const {
   runCodexMcp,
   startCrgBuild,
 } = require('../hooks/js/lib/codemap');
-const { codexHome, markerPath, pluginDataDir, repoRoot } = require('../hooks/js/lib/runtime');
+const {
+  codexHome,
+  markerPath,
+  nodeRuntimeStatus,
+  pluginDataDir,
+  repoRoot,
+} = require('../hooks/js/lib/runtime');
 
 const args = new Set(process.argv.slice(2));
 
@@ -95,6 +101,7 @@ function readNativeMcpConfig() {
  */
 function runDoctor(cwd) {
   const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  const nodeStatus = nodeRuntimeStatus();
   const home = codexHome();
   const data = pluginDataDir();
   const managed = crgRuntimePaths();
@@ -163,6 +170,7 @@ function runDoctor(cwd) {
 
   log('CodeMap Boost doctor（只读诊断）');
   log(`插件版本:          ${packageJson.version}`);
+  log(`Node.js:           ${nodeStatus.ok ? 'PASS' : 'FAIL'}  ${nodeStatus.version}（要求 ${nodeStatus.requirement}）`);
   log(`Codex CLI:         ${codexOk ? 'PASS' : 'WARN'}  ${codexPath || '未找到可执行的独立 CLI'}${versionText ? ` (${versionText})` : ''}`);
   log(`CODEX_HOME:        ${home}`);
   log(`插件数据目录:      ${data}`);
@@ -192,11 +200,12 @@ function runDoctor(cwd) {
   log(`CRG status:        ${graphStatus}`);
   log('当前任务工具:      UNKNOWN  CLI 无法读取已启动任务的工具快照，请在新任务中确认 mcp__code_review_graph__ 工具。');
 
-  const needsRepair = !runtimeOk || !nativeMcp.ok || (codexOk && !resolvedIsNative) || graphStatus === 'STATUS_ERROR';
+  const needsRepair = !nodeStatus.ok || !runtimeOk || !nativeMcp.ok || (codexOk && !resolvedIsNative) || graphStatus === 'STATUS_ERROR';
   const needsProject = !root;
   const needsRetry = !!root && (graphStatus === 'TIMEOUT' || graphStatus === 'UNAVAILABLE');
   const needsBuild = !!root && graphStatus === 'MISSING_OR_EXPLICIT_FAILURE';
   log('建议:');
+  if (!nodeStatus.ok) log(`  - 安装 Node.js ${nodeStatus.requirement}，并确保 Codex 桌面宿主可直接解析 node；插件不会猜测 Homebrew 或 nvm 路径。`);
   if (!codexOk) log('  - 独立 Codex CLI 不可用；已跳过可选的有效 MCP 与旧版覆盖检查，插件原生 MCP 不依赖 CLI。');
   if (needsProject) log('  - 切换到目标 Git 仓库目录后重新运行 --doctor；不要在插件目录或普通目录构建项目图谱。');
   if (!nativeMcp.ok) log('  - 插件原生 MCP 声明损坏；请更新或重新安装 codemap-boost-codex。');
@@ -237,6 +246,13 @@ function main() {
       return;
     }
     runDoctor(process.cwd());
+    return;
+  }
+
+  const nodeStatus = nodeRuntimeStatus();
+  if (!nodeStatus.ok) {
+    warn(`[codemap-boost-codex] Node.js ${nodeStatus.version || '未知'} 不受支持；需要 ${nodeStatus.requirement}。`);
+    process.exitCode = 2;
     return;
   }
 

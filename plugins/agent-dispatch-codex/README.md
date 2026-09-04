@@ -41,13 +41,14 @@ Profile 文件本身不会占用智能体名额；只有实际 spawn 出来的�
 
 ## Shell 兼容
 
-插件 Hook 本身由 Node.js 执行，不依赖集成终端选择。工具提示解析同时支持：
+插件支持 Windows 和 macOS，要求 Node.js 18 或更高版本。Hook 本身由 Node.js 执行，不依赖集成终端选择。工具提示解析同时支持：
 
+- macOS `zsh`/`bash` 的 `&&`、`||`、`;`、管道和重定向；
 - Git Bash 的 `&&`、`||`、`;`、管道和重定向；
 - PowerShell 的 `;`、管道、常用只读 cmdlet 和 Windows 可执行文件后缀；
 - 无空格分隔写法，例如 `npm test&&rm -rf .` 和 `echo ok>file`。
 
-Git Bash 只影响新开的集成终端标签页，不会把 Hook 与 Codex agent 的 Windows 命令宿主混在一起。
+集成终端的 shell 选择只影响新开的终端标签页，不会改变 Hook 的 Node.js 运行逻辑。
 
 ## Git 串行边界
 

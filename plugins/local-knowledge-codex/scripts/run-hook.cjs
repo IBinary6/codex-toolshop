@@ -9,6 +9,11 @@ const HOOKS = {
   post_tool_use: path.join('hooks', 'js', 'local_knowledge_check.js'),
   user_prompt_submit: path.join('hooks', 'js', 'local_knowledge_prompt.js'),
 };
+const HOOK_TIMEOUT_MS = Object.freeze({
+  session_start: 9000,
+  post_tool_use: 4500,
+  user_prompt_submit: 4500,
+});
 
 function pluginRoot() {
   /** 返回当前插件根目录。 */
@@ -28,7 +33,7 @@ function main() {
     input,
     stdio: ['pipe', 'inherit', 'inherit'],
     windowsHide: process.platform === 'win32',
-    timeout: 5000,
+    timeout: HOOK_TIMEOUT_MS[process.argv[2]],
   });
   if (child.error) {
     // Hook 失败不可阻塞主流程；诊断留给显式 CLI 验证。
@@ -36,4 +41,6 @@ function main() {
   }
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { HOOK_TIMEOUT_MS };

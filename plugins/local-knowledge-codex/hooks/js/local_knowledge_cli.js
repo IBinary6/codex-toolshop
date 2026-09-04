@@ -2,67 +2,47 @@
 
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { resolvePython } = require('../../scripts/python-launcher.cjs');
 
-const MIN_MAJOR = 3;
-const MIN_MINOR = 11;
+const CLI_TIMEOUT_MS = 4000;
+let cachedPython = null;
 
 function pluginRoot() {
   /** 返回插件根目录，优先使用宿主注入的绝对路径。 */
   return path.resolve(process.env.PLUGIN_ROOT || path.join(__dirname, '..', '..'));
 }
 
-function pythonCandidates() {
-  /** 返回可尝试的 Python 命令，并兼容旧环境变量。 */
-  const configured = process.env.LOCAL_KNOWLEDGE_PYTHON || process.env.BUGDB_PYTHON;
-  if (configured) return [{ command: configured, args: [] }];
-  return process.platform === 'win32'
-    ? [{ command: 'python', args: [] }, { command: 'python3', args: [] }, { command: 'py', args: ['-3'] }]
-    : [{ command: 'python3', args: [] }, { command: 'python', args: [] }];
+function detectPython(options = {}) {
+  /** 使用插件统一解析器检测 Python 3.11+，不修改宿主环境。 */
+  const shouldCache = Object.keys(options).length === 0;
+  if (shouldCache && cachedPython) return cachedPython;
+  const detected = resolvePython(options);
+  if (shouldCache) cachedPython = detected;
+  return detected;
 }
 
-function detectPython() {
-  /** 检测 Python 3.11+；不安装依赖，也不修改宿主环境。 */
-  for (const candidate of pythonCandidates()) {
-    const result = spawnSync(candidate.command, [...candidate.args, '-c',
-      'import sys; print("%d.%d.%d" % sys.version_info[:3])'], {
+function runCli(args, timeout = CLI_TIMEOUT_MS) {
+  /** 在总预算内检测并执行 CLI；失败时返回 null 以保持 hook 静默降级。 */
+  const cli = path.join(pluginRoot(), 'local_knowledge', 'cli.py');
+  const startedAt = Date.now();
+  const runtime = detectPython();
+  if (!runtime.ok) return null;
+  const remaining = timeout - (Date.now() - startedAt);
+  if (remaining <= 0) return null;
+  const result = spawnSync(runtime.command,
+    [...runtime.args, cli, '--format', 'json', ...args], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
       windowsHide: process.platform === 'win32',
-      timeout: 3000,
+      timeout: remaining,
+      env: {
+        ...process.env,
+        PYTHONUTF8: '1',
+        PYTHONIOENCODING: 'utf-8',
+      },
     });
-    if (result.error || result.status !== 0) continue;
-    const match = String(result.stdout || '').trim().match(/^(\d+)\.(\d+)\.(\d+)$/);
-    if (!match) continue;
-    const major = Number(match[1]);
-    const minor = Number(match[2]);
-    return {
-      ok: major > MIN_MAJOR || (major === MIN_MAJOR && minor >= MIN_MINOR),
-      version: match[0],
-    };
-  }
-  return { ok: false, version: null };
-}
-
-function runCli(args, timeout = 4500) {
-  /** 执行中性知识库 CLI 并解析 JSON；失败时返回 null 以保持 hook 静默降级。 */
-  const cli = path.join(pluginRoot(), 'local_knowledge', 'cli.py');
-  for (const candidate of pythonCandidates()) {
-    const result = spawnSync(candidate.command,
-      [...candidate.args, cli, '--format', 'json', ...args], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-        windowsHide: process.platform === 'win32',
-        timeout,
-        env: {
-          ...process.env,
-          PYTHONUTF8: '1',
-          PYTHONIOENCODING: 'utf-8',
-        },
-      });
-    if (result.error || result.status !== 0 || !result.stdout) continue;
-    try { return JSON.parse(result.stdout); } catch (_) {}
-  }
-  return null;
+  if (result.error || result.status !== 0 || !result.stdout) return null;
+  try { return JSON.parse(result.stdout); } catch (_) { return null; }
 }
 
 function workspaceScopeArgs() {
@@ -97,6 +77,7 @@ function renderRecall(items, occasion) {
 }
 
 module.exports = {
+  CLI_TIMEOUT_MS,
   detectPython,
   renderRecall,
   resultItems,

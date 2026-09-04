@@ -76,6 +76,47 @@ class ResolveProxySettingsTest(unittest.TestCase):
 
 
 class PlatformDetectionTest(unittest.TestCase):
+    def test_windows_proxy_override_is_converted_to_no_proxy(self):
+        """验证 Windows bypass 列表会转换为安全的 NO_PROXY 条目。"""
+
+        bypass = setup_proxy.parse_windows_proxy_override(
+            "<local>;*.corp.example;10.0.0.8;printer;10.*"
+        )
+
+        self.assertIn(".corp.example", bypass)
+        self.assertIn("10.0.0.8", bypass)
+        self.assertIn("printer", bypass)
+        self.assertNotIn("<local>", bypass)
+        self.assertNotIn("10.*", bypass)
+
+    def test_windows_detection_reads_proxy_override(self):
+        """验证 Windows 注册表探测会同时读取 ProxyOverride。"""
+
+        class FakeKey:
+            """提供 winreg 上下文管理器所需的最小接口。"""
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+        fake_winreg = mock.Mock()
+        fake_winreg.HKEY_CURRENT_USER = object()
+        fake_winreg.OpenKey.return_value = FakeKey()
+        values = {
+            "ProxyEnable": (1, 0),
+            "ProxyServer": ("127.0.0.1:7890", 0),
+            "ProxyOverride": ("*.corp.example;printer", 0),
+        }
+        fake_winreg.QueryValueEx.side_effect = lambda _, name: values[name]
+
+        with mock.patch.dict(os.sys.modules, {"winreg": fake_winreg}):
+            settings = setup_proxy.detect_windows_proxy()
+
+        self.assertIn(".corp.example", settings.no_proxy)
+        self.assertIn("printer", settings.no_proxy)
+
     def test_windows_single_proxy_uses_uniform_endpoint(self):
         """验证 Windows 单地址代理会生成通用代理。"""
 

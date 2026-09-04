@@ -38,12 +38,7 @@ description: 将用户明确要求记住的偏好或信息，以及已验证且�
 ## 保存
 
 ```text
-python <plugin-root>/local_knowledge/cli.py --format json remember \
-  --kind <bug|preference|fact|note|decision|workflow> \
-  --title "<简短标题>" --content "<完整知识>" \
-  --cues "<线索1>,<线索2>" --tags "<标签1>,<标签2>" \
-  --canonical-key "<稳定键>" --scope-kind <global|workspace|repository> \
-  --scope-key "<作用域标识>" --recall-policy <pinned|on_match|manual>
+node "<plugin-root>/scripts/python-launcher.cjs" "<plugin-root>/local_knowledge/cli.py" --format json remember --kind <bug|preference|fact|note|decision|workflow> --title "<简短标题>" --content "<完整知识>" --cues "<线索1>,<线索2>" --tags "<标签1>,<标签2>" --canonical-key "<稳定键>" --scope-kind <global|workspace|repository> --scope-key "<作用域标识>" --recall-policy <pinned|on_match|manual>
 ```
 
 `<plugin-root>` 是本 skill 所在插件目录（从当前 `SKILL.md` 向上两级）。全局作用域的 `scope-key` 留空；工作区或仓库作用域使用当前绝对路径。
@@ -55,9 +50,7 @@ python <plugin-root>/local_knowledge/cli.py --format json remember \
 保存后立即用未来真实会出现的查询验证：
 
 ```text
-python <plugin-root>/local_knowledge/cli.py --format json recall \
-  --query "<未来查询>" --scope-kind <作用域> --scope-key "<作用域标识>" \
-  --occasion prompt --limit 5
+node "<plugin-root>/scripts/python-launcher.cjs" "<plugin-root>/local_knowledge/cli.py" --format json recall --query "<未来查询>" --scope-kind <作用域> --scope-key "<作用域标识>" --occasion prompt --limit 5
 ```
 
 `on_match` 或 `pinned` 必须先按上述普通提示场景验证自动召回，不能用 `--explicit` 掩盖错误的召回策略；只有 `manual` 或 `confidential` 记录才改用 `--explicit` 验证。确认返回的 `id`、`kind`、`scope_kind`、`scope_key`、`recall_policy` 和正文正确。无法召回时报告索引、作用域、策略或线索问题，不能把写入视为完整成功。

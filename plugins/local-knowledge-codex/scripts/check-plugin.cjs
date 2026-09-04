@@ -24,6 +24,8 @@ function main() {
   assert(manifest.name === 'local-knowledge-codex', 'plugin name is wrong');
   assert(packageJson.name === manifest.name, 'package name must match plugin name');
   assert(packageJson.version === manifest.version, 'package version must match plugin version');
+  assert(packageJson.engines && packageJson.engines.node === '>=18',
+    'plugin must declare Node.js 18+');
   assert(pyprojectVersion && pyprojectVersion[1] === manifest.version,
     'pyproject version must match plugin version');
   assert(/^\d+\.\d+\.\d+$/.test(manifest.version), 'plugin version must be plain patch semver');
@@ -61,7 +63,8 @@ function main() {
   for (const relative of [
     'bugdb/cli.py', 'bugdb/db.py', 'bugdb/search.py',
     'local_knowledge/cli.py', 'local_knowledge/storage.py',
-    'scripts/run-hook.cjs', 'hooks/js/local_knowledge_cli.js',
+    'scripts/run-hook.cjs', 'scripts/python-launcher.cjs',
+    'hooks/js/local_knowledge_cli.js',
     'hooks/js/local_knowledge_check.js', 'hooks/js/local_knowledge_prompt.js',
     'hooks/js/local_knowledge_session.js',
   ]) {

@@ -3,6 +3,8 @@
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
+const { MCP_STARTUP_TIMEOUT_SEC } = require('../lib/bootstrap');
+const { MINIMUM_NODE_MAJOR } = require('../lib/runtime');
 
 const pluginRoot = path.join(__dirname, '..', '..', '..');
 const oldHost = 'CL' + 'AUDE';
@@ -49,7 +51,23 @@ assert.ok(crgServer, 'plugin bundles the code-review-graph MCP server');
 assert.strictEqual(crgServer.command, 'node');
 assert.deepStrictEqual(crgServer.args, ['scripts/mcp-server.cjs']);
 assert.strictEqual(crgServer.cwd, '.', 'relative launcher path is resolved from the installed plugin root');
-assert.strictEqual(crgServer.startup_timeout_sec, 100, 'bundled MCP startup timeout stays at 100 seconds');
+assert.strictEqual(MCP_STARTUP_TIMEOUT_SEC, 600, 'the shared MCP startup budget covers first-run runtime installation');
+assert.strictEqual(
+  crgServer.startup_timeout_sec,
+  MCP_STARTUP_TIMEOUT_SEC,
+  'bundled MCP startup timeout stays aligned with the bootstrap budget'
+);
+
+const packageJson = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'package.json'), 'utf8'));
+assert.strictEqual(MINIMUM_NODE_MAJOR, 18, 'Node 18 is the minimum supported launcher runtime');
+assert.strictEqual(packageJson.engines && packageJson.engines.node, '>=18.0.0', 'package declares its Node runtime prerequisite');
+
+const readme = fs.readFileSync(path.join(pluginRoot, 'README.md'), 'utf8');
+const setupSkill = fs.readFileSync(path.join(pluginRoot, 'skills', 'codemap-boost-setup', 'SKILL.md'), 'utf8');
+for (const [label, text] of [['README', readme], ['setup skill', setupSkill]]) {
+  assert.match(text, /startup_timeout_sec[^\n]*600|600[^\n]*startup timeout/i, `${label} documents the 600-second startup budget`);
+  assert.match(text, /Node(?:\.js)?[^\n]*18/i, `${label} documents the Node 18 prerequisite`);
+}
 
 const hooks = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'hooks', 'hooks.json'), 'utf8'));
 const legacyHooks = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'hooks', 'codex-hooks.json'), 'utf8'));

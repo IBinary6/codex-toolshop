@@ -1,13 +1,16 @@
 {
   "name": "local-knowledge-codex",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Local indexed knowledge for Codex, including fixes, preferences, facts, decisions, and workflows.",
   "license": "MIT",
   "private": true,
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "check:syntax": "node --check scripts/run-hook.cjs && node --check hooks/js/local_knowledge_cli.js && node --check hooks/js/local_knowledge_check.js && node --check hooks/js/local_knowledge_session.js && node --check hooks/js/local_knowledge_prompt.js && python -m compileall -q bugdb local_knowledge tests",
+    "check:syntax": "node --check scripts/run-hook.cjs && node --check scripts/python-launcher.cjs && node --check hooks/js/local_knowledge_cli.js && node --check hooks/js/local_knowledge_check.js && node --check hooks/js/local_knowledge_session.js && node --check hooks/js/local_knowledge_prompt.js && node scripts/python-launcher.cjs -m compileall -q bugdb local_knowledge tests",
     "check": "node scripts/check-plugin.cjs",
-    "test:python": "python -m unittest discover -s tests -p \"test_*.py\"",
+    "test:python": "node scripts/python-launcher.cjs -m unittest discover -s tests -p \"test_*.py\"",
     "test:unit": "node scripts/run-tests.cjs",
     "test": "npm run check:syntax && npm run check && npm run test:python && npm run test:unit"
   }

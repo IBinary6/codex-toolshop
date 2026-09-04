@@ -174,6 +174,25 @@ def parse_windows_proxy_server(value: str) -> ProxySettings | None:
     return ProxySettings(http, https, all_proxy, source="windows-system-proxy")
 
 
+def parse_windows_proxy_override(value: str) -> tuple[str, ...]:
+    """把 Windows `ProxyOverride` 转为可安全表达的 `NO_PROXY` 条目。
+
+    示例：``parse_windows_proxy_override("*.example.com;<local>")``。
+    """
+
+    entries = list(DEFAULT_NO_PROXY)
+    for raw in value.split(";"):
+        item = raw.strip()
+        if not item or item.casefold() == "<local>":
+            continue
+        if item.startswith("*."):
+            item = item[1:]
+        if "*" in item or "?" in item or (item.startswith("<") and item.endswith(">")):
+            continue
+        entries.append(item)
+    return tuple(dict.fromkeys(entries))
+
+
 def detect_windows_proxy() -> ProxySettings | None:
     """读取 Windows 当前用户的静态系统代理。"""
 
@@ -184,7 +203,14 @@ def detect_windows_proxy() -> ProxySettings | None:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as key:
             enabled = int(winreg.QueryValueEx(key, "ProxyEnable")[0])
             server = str(winreg.QueryValueEx(key, "ProxyServer")[0])
-        return parse_windows_proxy_server(server) if enabled else None
+            try:
+                override = str(winreg.QueryValueEx(key, "ProxyOverride")[0])
+            except OSError:
+                override = ""
+        settings = parse_windows_proxy_server(server) if enabled else None
+        if settings is None:
+            return None
+        return dataclasses.replace(settings, no_proxy=parse_windows_proxy_override(override))
     except (ImportError, OSError, ValueError, ProxySetupError):
         return None
 

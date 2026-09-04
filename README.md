@@ -22,6 +22,17 @@ codex plugin add system-proxy-codex@codex-toolshop
 
 安装或升级后，重新打开一个 Codex 会话，让 hooks、skills 和 MCP 配置重新加载。
 
+## 平台支持
+
+当前正式适配目标是 Windows 和 macOS；仓库保留已有 Linux 分支，但暂不纳入发布验证。所有插件要求 Node.js 18 或更高版本，涉及 Python 的插件会自动尝试 macOS 常见的 `python3`、Windows 的 `python` 与 `py -3`：
+
+| 平台 | 支持的终端/运行方式 | CI 配置 |
+| --- | --- | --- |
+| Windows | PowerShell、Git Bash、Windows Python launcher | GitHub Actions `windows-latest` |
+| macOS | zsh、bash、`python3`、Apple Silicon 常用工具链 | GitHub Actions `macos-latest` |
+
+`codemap-boost-codex` 还需要 Git，以及 `uv` 或支持 `venv` 的 Python；`cpp-style-enforcer-codex` 的 `clang-format` 和 `iconv-lite` 为可选能力。
+
 ## 插件索引
 
 | 插件 | 当前用途 | 日常用法 |
@@ -45,7 +56,7 @@ codex plugin add system-proxy-codex@codex-toolshop
 - 搜索、规划和审查继续按职责选择专门角色；两个写代码角色默认继承主任务模型，不再固定为 Luna/max 或 Terra/ultra。
 - 普通 Bash/agent 工具命令默认不产生 `PreToolUse` 路由提示；单条命令不再触发重复的模型建议。
 - 安装后无需手动运行 setup；新建任务会自动生成项目 Agent 并注入路由。`agent-dispatch-setup` 只用于查看或覆盖配置。
-- PowerShell 和 Git Bash 都受支持；集成终端 Shell 的选择不会改变 Hook 的 Node.js 运行逻辑。
+- Windows 的 PowerShell/Git Bash 与 macOS 的 zsh/bash 都受支持；集成终端 Shell 的选择不会改变 Hook 的 Node.js 运行逻辑。
 - 全局配置保存在插件 `PLUGIN_DATA/config.json`，项目配置保存在 `.agent-dispatch-codex/config.json`。
 
 需要查看或修改规则时，在 Codex 中说：
@@ -117,9 +128,14 @@ codex plugin list
 如需补齐可选依赖，可在普通终端中预装：
 
 ```bash
-python -m pip install clang-format==18.1.8
-npm install iconv-lite@0.6.3
+# macOS
+python3 -m pip install clang-format==18.1.8
+
+# Windows
+py -3 -m pip install clang-format==18.1.8
 ```
+
+`iconv-lite` 必须由插件包或插件数据目录提供；不要在任意工作目录执行 `npm install`，否则运行时无法解析该依赖。缺失时插件会安全跳过 GBK 转码/BOM 处理。
 
 ## 更新本地插件
 
@@ -131,6 +147,7 @@ codex plugin add codemap-boost-codex@codex-toolshop
 codex plugin add cpp-style-enforcer-codex@codex-toolshop
 codex plugin add agent-dispatch-codex@codex-toolshop
 codex plugin add local-knowledge-codex@codex-toolshop
+codex plugin add system-proxy-codex@codex-toolshop
 ```
 
 然后重启 Codex 或新开会话。查看当前版本：

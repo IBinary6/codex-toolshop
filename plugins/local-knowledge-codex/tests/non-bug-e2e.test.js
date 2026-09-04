@@ -5,12 +5,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { spawnPythonSync } = require('./python-runtime');
 
 const root = path.resolve(__dirname, '..');
 const cli = path.join(root, 'local_knowledge', 'cli.py');
 const runner = path.join(root, 'scripts', 'run-hook.cjs');
-const python = process.env.LOCAL_KNOWLEDGE_TEST_PYTHON
-  || process.env.BUGDB_TEST_PYTHON || 'python';
 
 function hook(input, environment) {
   /** 通过真实 hook runner 提交一条用户提示。 */
@@ -29,13 +28,12 @@ function hook(input, environment) {
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'local-knowledge-non-bug-e2e-'));
 const environment = {
   LOCAL_KNOWLEDGE_HOME: temp,
-  LOCAL_KNOWLEDGE_PYTHON: python,
   PYTHONUTF8: '1',
   PYTHONIOENCODING: 'utf-8',
 };
 
 try {
-  const remember = spawnSync(python, [cli, '--format', 'json', 'remember',
+  const remember = spawnPythonSync([cli, '--format', 'json', 'remember',
     '--kind', 'preference', '--canonical-key', 'reply.language',
     '--title', '回复语言偏好',
     '--content', '默认使用中文回答，技术说明保持简洁。',

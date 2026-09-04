@@ -2,8 +2,8 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
 const { runCpplint, formatViolations, parseCpplintOutput, buildFilterArg, MAX_ERRORS_SHOWN } = require('../steps/cpplint.js');
+const { resolvePython } = require('../lib/python');
 
 // ---- formatViolations：逐字去重后取前 5 + 「还有 N 条」----
 const many = [];
@@ -67,8 +67,7 @@ assert.ok(
 );
 
 // ---- runCpplint：真实文件名下无误报 + 原文件零改动（需 python）----
-const hasPython = spawnSync('python', ['--version'], { stdio: 'pipe' }).status === 0
-  || spawnSync('python3', ['--version'], { stdio: 'pipe' }).status === 0;
+const hasPython = resolvePython() !== null;
 if (hasPython) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cpplint-'));
   try {

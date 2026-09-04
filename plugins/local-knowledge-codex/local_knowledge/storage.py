@@ -1,8 +1,8 @@
 """Local Knowledge 的 SQLite 存储、去重和本地召回实现。
 
 该模块只依赖 Python 标准库，并把新知识放在独立的
-``knowledge_items``/``knowledge_items_fts`` 表中。旧格式表仍由兼容模块
-负责读写；适配器只在召回时读取旧记录。
+``knowledge_items`` 表及能力允许时的 ``knowledge_items_fts`` 索引中。旧格式表
+仍由兼容模块负责读写；适配器只在召回时读取旧记录。
 """
 
 from __future__ import annotations
@@ -31,6 +31,12 @@ _SENSITIVITIES = frozenset({"normal", "confidential"})
 _STATUSES = frozenset({"active", "archived"})
 _CJK_RE = re.compile(r"[\u3400-\u9fff]+")
 _WORD_RE = re.compile(r"[a-z0-9][a-z0-9_./:+-]*", re.IGNORECASE)
+_FTS_COLUMNS = ("canonical_key", "title", "content", "cues", "tags")
+_FTS_TRIGGER_NAMES = (
+    "knowledge_items_fts_insert",
+    "knowledge_items_fts_delete",
+    "knowledge_items_fts_update",
+)
 # 抑制只重合一个常见英文词的弱命中；精确短语和中文有效线索远高于此值。
 _MIN_MATCH_SCORE = 8.0
 _SENSITIVE_PATTERNS = (
@@ -167,6 +173,152 @@ def _fts_query(cue: str) -> str:
     return " OR ".join(f'"{term.replace(chr(34), chr(34) * 2)}"' for term in unique)
 
 
+def _unicode_fts_query(cue: str) -> str:
+    """生成适用于默认 unicode61 tokenizer 的安全前缀查询。
+
+    Example:
+        >>> _unicode_fts_query("深色模式")
+        '"深色模式"*'
+    """
+    normalized = _clean_text(cue).casefold()
+    terms = [token for token in _WORD_RE.findall(normalized) if len(token) >= 2]
+    terms.extend(run for run in _CJK_RE.findall(normalized) if len(run) >= 2)
+    unique = dict.fromkeys(terms)
+    return " OR ".join(
+        f'"{term.replace(chr(34), chr(34) * 2)}"*' for term in unique
+    )
+
+
+def _create_fts_table(conn: sqlite3.Connection, tokenizer: str) -> None:
+    """使用明确允许的 tokenizer 创建外部内容 FTS5 表。
+
+    Example:
+        ``_create_fts_table(conn, "unicode61")`` 不依赖 trigram 扩展。
+    """
+    if tokenizer not in {"trigram", "unicode61"}:
+        raise ValueError(f"unsupported FTS tokenizer: {tokenizer}")
+    conn.execute(
+        "CREATE VIRTUAL TABLE knowledge_items_fts USING fts5("
+        "canonical_key, title, content, cues, tags, "
+        "content='knowledge_items', content_rowid='id', "
+        f"tokenize='{tokenizer}')"
+    )
+
+
+def _fts_trigger_names(conn: sqlite3.Connection) -> set[str]:
+    """返回当前数据库中已存在的知识索引同步触发器。"""
+    placeholders = ",".join("?" for _ in _FTS_TRIGGER_NAMES)
+    return {
+        str(row[0]) for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='trigger' "
+            f"AND name IN ({placeholders})",
+            _FTS_TRIGGER_NAMES,
+        ).fetchall()
+    }
+
+
+def _ensure_fts_triggers(conn: sqlite3.Connection) -> bool:
+    """补齐 FTS 同步触发器，并报告是否修复过缺失对象。"""
+    repaired = not set(_FTS_TRIGGER_NAMES).issubset(_fts_trigger_names(conn))
+    conn.executescript(
+        """
+        CREATE TRIGGER IF NOT EXISTS knowledge_items_fts_insert
+            AFTER INSERT ON knowledge_items BEGIN
+            INSERT INTO knowledge_items_fts(rowid, canonical_key, title, content, cues, tags)
+            VALUES (new.id, new.canonical_key, new.title, new.content, new.cues, new.tags);
+        END;
+        CREATE TRIGGER IF NOT EXISTS knowledge_items_fts_delete
+            AFTER DELETE ON knowledge_items BEGIN
+            INSERT INTO knowledge_items_fts(knowledge_items_fts, rowid, canonical_key, title, content, cues, tags)
+            VALUES ('delete', old.id, old.canonical_key, old.title, old.content, old.cues, old.tags);
+        END;
+        CREATE TRIGGER IF NOT EXISTS knowledge_items_fts_update
+            AFTER UPDATE ON knowledge_items BEGIN
+            INSERT INTO knowledge_items_fts(knowledge_items_fts, rowid, canonical_key, title, content, cues, tags)
+            VALUES ('delete', old.id, old.canonical_key, old.title, old.content, old.cues, old.tags);
+            INSERT INTO knowledge_items_fts(rowid, canonical_key, title, content, cues, tags)
+            VALUES (new.id, new.canonical_key, new.title, new.content, new.cues, new.tags);
+        END;
+        """
+    )
+    return repaired
+
+
+def _drop_fts_triggers(conn: sqlite3.Connection) -> None:
+    """在 FTS 能力不可用时停用同步触发器，保证基础表仍可写。"""
+    for name in _FTS_TRIGGER_NAMES:
+        conn.execute(f"DROP TRIGGER IF EXISTS {name}")
+
+
+def _is_fts_capability_error(error: sqlite3.Error) -> bool:
+    """判断错误是否只表示 FTS5 模块或指定 tokenizer 不可用。"""
+    message = str(error).casefold()
+    return any(fragment in message for fragment in (
+        "no such module: fts5",
+        "no such tokenizer",
+        "unknown tokenizer",
+    ))
+
+
+def _fts_tokenizer(sql: str) -> str | None:
+    """只识别插件支持的 trigram 或 unicode61 tokenizer 声明。"""
+    match = re.search(
+        r"\btokenize\s*=\s*(['\"])(trigram|unicode61)(?:\s[^'\"]*)?\1",
+        sql,
+        re.IGNORECASE,
+    )
+    return match.group(2).casefold() if match else None
+
+
+def _probe_fts_table(conn: sqlite3.Connection) -> None:
+    """用真实 MATCH 查询验证现有 FTS 表及 tokenizer 可执行。"""
+    conn.execute(
+        "SELECT rowid FROM knowledge_items_fts "
+        "WHERE knowledge_items_fts MATCH ? LIMIT 1",
+        ('"__codex_fts_probe__"',),
+    ).fetchone()
+
+
+def _ensure_fts_schema(conn: sqlite3.Connection) -> tuple[str, bool]:
+    """保留已有 FTS，或选择降级路径，并报告是否必须重建索引。"""
+    existing = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' "
+        "AND name='knowledge_items_fts'"
+    ).fetchone()
+    if existing is not None:
+        sql = str(existing["sql"] if isinstance(existing, sqlite3.Row) else existing[0])
+        mode = _fts_tokenizer(sql)
+        if mode is None:
+            _drop_fts_triggers(conn)
+            return "like", False
+        try:
+            _probe_fts_table(conn)
+        except sqlite3.Error as error:
+            if not _is_fts_capability_error(error):
+                raise
+            _drop_fts_triggers(conn)
+            return "like", False
+        repaired = _ensure_fts_triggers(conn)
+        return mode, repaired
+
+    for tokenizer in ("trigram", "unicode61"):
+        try:
+            _create_fts_table(conn, tokenizer)
+        except sqlite3.Error as error:
+            if not _is_fts_capability_error(error):
+                raise
+            continue
+        repaired = _ensure_fts_triggers(conn)
+        return tokenizer, repaired
+    return "like", False
+
+
+def _like_pattern(term: str) -> str:
+    """转义 SQLite LIKE 元字符并返回子串匹配参数。"""
+    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
 class KnowledgeBase:
     """独立管理通用本地知识并按场景安全召回。
 
@@ -181,6 +333,7 @@ class KnowledgeBase:
         self._path = paths.get_db_path(db_path)
         self._memory = str(self._path) == ":memory:"
         self._keepalive: sqlite3.Connection | None = None
+        self._fts_mode = "like"
         if not self._memory:
             self._path.parent.mkdir(parents=True, exist_ok=True)
         else:
@@ -219,7 +372,7 @@ class KnowledgeBase:
             conn.close()
 
     def _ensure_schema(self) -> None:
-        """创建中性知识表、真实 FTS 索引和同步触发器。"""
+        """创建中性知识表，并按 SQLite 能力选择安全的索引模式。"""
         with self._connection() as conn:
             conn.executescript(
                 """
@@ -248,33 +401,16 @@ class KnowledgeBase:
                     ON knowledge_items(scope_kind, scope_key);
                 CREATE INDEX IF NOT EXISTS idx_knowledge_items_policy
                     ON knowledge_items(recall_policy, status);
-                CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_items_fts USING fts5(
-                    canonical_key, title, content, cues, tags,
-                    content='knowledge_items', content_rowid='id', tokenize='trigram'
-                );
-                CREATE TRIGGER IF NOT EXISTS knowledge_items_fts_insert
-                    AFTER INSERT ON knowledge_items BEGIN
-                    INSERT INTO knowledge_items_fts(rowid, canonical_key, title, content, cues, tags)
-                    VALUES (new.id, new.canonical_key, new.title, new.content, new.cues, new.tags);
-                END;
-                CREATE TRIGGER IF NOT EXISTS knowledge_items_fts_delete
-                    AFTER DELETE ON knowledge_items BEGIN
-                    INSERT INTO knowledge_items_fts(knowledge_items_fts, rowid, canonical_key, title, content, cues, tags)
-                    VALUES ('delete', old.id, old.canonical_key, old.title, old.content, old.cues, old.tags);
-                END;
-                CREATE TRIGGER IF NOT EXISTS knowledge_items_fts_update
-                    AFTER UPDATE ON knowledge_items BEGIN
-                    INSERT INTO knowledge_items_fts(knowledge_items_fts, rowid, canonical_key, title, content, cues, tags)
-                    VALUES ('delete', old.id, old.canonical_key, old.title, old.content, old.cues, old.tags);
-                    INSERT INTO knowledge_items_fts(rowid, canonical_key, title, content, cues, tags)
-                    VALUES (new.id, new.canonical_key, new.title, new.content, new.cues, new.tags);
-                END;
                 """
             )
-            item_count = conn.execute("SELECT COUNT(*) FROM knowledge_items").fetchone()[0]
-            fts_count = conn.execute("SELECT COUNT(*) FROM knowledge_items_fts").fetchone()[0]
-            if item_count != fts_count:
-                conn.execute("INSERT INTO knowledge_items_fts(knowledge_items_fts) VALUES ('rebuild')")
+            self._fts_mode, rebuild_required = _ensure_fts_schema(conn)
+            if self._fts_mode != "like":
+                item_count = conn.execute("SELECT COUNT(*) FROM knowledge_items").fetchone()[0]
+                fts_count = conn.execute("SELECT COUNT(*) FROM knowledge_items_fts").fetchone()[0]
+                if rebuild_required or item_count != fts_count:
+                    conn.execute(
+                        "INSERT INTO knowledge_items_fts(knowledge_items_fts) VALUES ('rebuild')"
+                    )
 
     def _row_to_item(self, row: sqlite3.Row) -> KnowledgeItem:
         """将 SQLite 行转换为不可变的领域记录。"""
@@ -528,21 +664,74 @@ class KnowledgeBase:
         where = ("status='active' "
                  f"AND recall_policy IN ({placeholders}){sensitivity_sql}{scope_sql}")
         params: list[Any] = [*policies, *scope_params]
-        query = _fts_query(cue)
-        if query:
+        candidate_limit = max(limit * 20, 100)
+        query = (_fts_query(cue) if self._fts_mode == "trigram"
+                 else _unicode_fts_query(cue))
+        fts_rows: list[sqlite3.Row] = []
+        if self._fts_mode != "like" and query:
             try:
-                return conn.execute(
-                    "SELECT * FROM knowledge_items WHERE id IN ("
-                    "SELECT rowid FROM knowledge_items_fts "
-                    "WHERE knowledge_items_fts MATCH ?) AND " + where + " LIMIT ?",
-                    [query, *params, max(limit * 20, 100)],
+                fts_rows = conn.execute(
+                    "SELECT knowledge_items.* FROM knowledge_items_fts "
+                    "JOIN knowledge_items "
+                    "ON knowledge_items.id=knowledge_items_fts.rowid "
+                    "WHERE knowledge_items_fts MATCH ? AND " + where
+                    + " ORDER BY bm25(knowledge_items_fts), "
+                    "knowledge_items.updated_at DESC LIMIT ?",
+                    [query, *params, candidate_limit],
                 ).fetchall()
-            except sqlite3.Error:
-                # FTS5 缺失或索引损坏时仍可在授权范围内降级，不放宽策略或 scope。
-                pass
+            except sqlite3.Error as error:
+                if not _is_fts_capability_error(error):
+                    raise
+                # 运行期间能力失效时停用触发器；LIKE 仍保留原 policy/scope 限制。
+                _drop_fts_triggers(conn)
+                self._fts_mode = "like"
+        if cue:
+            normalized_cue = _clean_text(cue).casefold()
+            if self._fts_mode == "trigram" and query:
+                # trigram 已覆盖普通词项；这里只补回可能被 bm25 截断的完整短语。
+                terms = [normalized_cue]
+            else:
+                terms = list(dict.fromkeys((normalized_cue, *_tokenize(cue))))
+            terms = [term for term in terms if term][:32]
+            if terms:
+                clauses = [
+                    f"{column} LIKE ? ESCAPE '\\'"
+                    for column in _FTS_COLUMNS for _ in terms
+                ]
+                like_params = [
+                    _like_pattern(term) for _ in _FTS_COLUMNS for term in terms
+                ]
+                exact_pattern = _like_pattern(normalized_cue)
+                exact_parts = [
+                    f"{column} LIKE ? ESCAPE '\\'" for column in _FTS_COLUMNS
+                ]
+                exact_params = [exact_pattern] * len(_FTS_COLUMNS)
+                rank_parts: list[str] = []
+                rank_params: list[str] = []
+                for term in terms:
+                    for column in _FTS_COLUMNS:
+                        rank_parts.append(
+                            f"CASE WHEN {column} LIKE ? ESCAPE '\\' "
+                            "THEN 1 ELSE 0 END"
+                        )
+                        rank_params.append(_like_pattern(term))
+                like_rows = conn.execute(
+                    "SELECT * FROM knowledge_items WHERE (" + " OR ".join(clauses)
+                    + ") AND " + where + " ORDER BY CASE WHEN ("
+                    + " OR ".join(exact_parts) + ") THEN 1 ELSE 0 END DESC, ("
+                    + " + ".join(rank_parts)
+                    + ") DESC, updated_at DESC LIMIT ?",
+                    [*like_params, *params, *exact_params, *rank_params, candidate_limit],
+                ).fetchall()
+                seen = {int(row["id"]) for row in fts_rows}
+                return [
+                    *fts_rows,
+                    *(row for row in like_rows if int(row["id"]) not in seen),
+                ]
         return conn.execute(
-            "SELECT * FROM knowledge_items WHERE " + where + " LIMIT ?",
-            [*params, max(limit * 20, 100)],
+            "SELECT * FROM knowledge_items WHERE " + where
+            + " ORDER BY updated_at DESC LIMIT ?",
+            [*params, candidate_limit],
         ).fetchall()
 
     def _legacy_results(self, cue: str, limit: int) -> list[dict[str, Any]]:
@@ -694,11 +883,9 @@ class KnowledgeBase:
             "schema": {
                 "knowledge_items": names.get("knowledge_items") == "table",
                 "knowledge_items_fts": names.get("knowledge_items_fts") == "table",
+                "knowledge_items_fts_mode": self._fts_mode,
                 "knowledge_items_fts_triggers": all(
-                    names.get(name) == "trigger" for name in (
-                        "knowledge_items_fts_insert", "knowledge_items_fts_delete",
-                        "knowledge_items_fts_update"
-                    )
+                    names.get(name) == "trigger" for name in _FTS_TRIGGER_NAMES
                 ),
             },
         }

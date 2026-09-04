@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "node \"${PLUGIN_ROOT}/hooks/js/run-python.js\" session_start",
-            "timeout": 45,
+            "timeout": 60,
             "statusMessage": "Configuring Codex system proxy support"
           }
         ]

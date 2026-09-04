@@ -37,6 +37,7 @@ const packageJson = readJson('package.json');
 assert.equal(manifest.name, packageJson.name);
 assert.equal(manifest.version, packageJson.version);
 assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+assert.equal(packageJson.engines && packageJson.engines.node, '>=18', 'package must declare the supported Node runtime');
 assert.ok(Array.isArray(manifest.interface.defaultPrompt));
 assert.ok(!Object.hasOwn(manifest, 'hooks'), 'default hooks discovery should be used');
 

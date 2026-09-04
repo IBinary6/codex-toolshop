@@ -17,10 +17,22 @@ function writeFakeCodex(binDir) {
       '@echo off',
       'echo %*>>"%CODEMAP_TEST_MCP_LOG%"',
       'if defined CODEMAP_TEST_CODEX_BROKEN exit /b 1',
-      'if "%1"=="--version" echo codex-cli 0.146.1 & exit /b 0',
-      'if "%2"=="get" if defined CODEMAP_TEST_MCP_BAD_CWD echo {"name":"code-review-graph","enabled":true,"startup_timeout_sec":100,"transport":{"type":"stdio","command":"node","args":["scripts/mcp-server.cjs"],"cwd":"C:\\fixed"}} & exit /b 0',
-      'if "%2"=="get" if defined CODEMAP_TEST_CRG_JSON_COMMAND echo {"name":"code-review-graph","enabled":true,"startup_timeout_sec":100,"transport":{"type":"stdio","command":"node","args":["scripts/mcp-server.cjs"],"cwd":"%CODEMAP_TEST_PLUGIN_ROOT_JSON%"}} & exit /b 0',
-      'if "%2"=="get" echo {"name":"code-review-graph","enabled":true,"transport":{"type":"stdio","command":"uvx","args":["code-review-graph","serve"],"cwd":null}} & exit /b 0',
+      'if "%1"=="--version" (',
+      '  echo codex-cli 0.146.1',
+      '  exit /b 0',
+      ')',
+      'if "%2"=="get" if defined CODEMAP_TEST_MCP_BAD_CWD (',
+      '  echo {"name":"code-review-graph","enabled":true,"startup_timeout_sec":600,"transport":{"type":"stdio","command":"node","args":["scripts/mcp-server.cjs"],"cwd":"C:\\fixed"}}',
+      '  exit /b 0',
+      ')',
+      'if "%2"=="get" if defined CODEMAP_TEST_CRG_JSON_COMMAND (',
+      '  echo {"name":"code-review-graph","enabled":true,"startup_timeout_sec":600,"transport":{"type":"stdio","command":"node","args":["scripts/mcp-server.cjs"],"cwd":"%CODEMAP_TEST_PLUGIN_ROOT_JSON%"}}',
+      '  exit /b 0',
+      ')',
+      'if "%2"=="get" (',
+      '  echo {"name":"code-review-graph","enabled":true,"transport":{"type":"stdio","command":"uvx","args":["code-review-graph","serve"],"cwd":null}}',
+      '  exit /b 0',
+      ')',
       'exit /b 1',
       '',
     ].join('\r\n'), 'utf8');
@@ -33,11 +45,11 @@ function writeFakeCodex(binDir) {
     'if [ -n "$CODEMAP_TEST_CODEX_BROKEN" ]; then exit 1; fi',
     'if [ "$1" = "--version" ]; then echo "codex-cli 0.146.1"; exit 0; fi',
     'if [ "$2" = "get" ] && [ -n "$CODEMAP_TEST_MCP_BAD_CWD" ]; then',
-    '  printf \'{"name":"code-review-graph","enabled":true,"startup_timeout_sec":100,"transport":{"type":"stdio","command":"node","args":["scripts/mcp-server.cjs"],"cwd":"/fixed"}}\\n\'',
+    '  printf \'{"name":"code-review-graph","enabled":true,"startup_timeout_sec":600,"transport":{"type":"stdio","command":"node","args":["scripts/mcp-server.cjs"],"cwd":"/fixed"}}\\n\'',
     '  exit 0',
     'fi',
     'if [ "$2" = "get" ] && [ -n "$CODEMAP_TEST_CRG_COMMAND" ]; then',
-    '  printf \'{"name":"code-review-graph","enabled":true,"startup_timeout_sec":100,"transport":{"type":"stdio","command":"node","args":["scripts/mcp-server.cjs"],"cwd":"%s"}}\\n\' "$CODEMAP_TEST_PLUGIN_ROOT"',
+    '  printf \'{"name":"code-review-graph","enabled":true,"startup_timeout_sec":600,"transport":{"type":"stdio","command":"node","args":["scripts/mcp-server.cjs"],"cwd":"%s"}}\\n\' "$CODEMAP_TEST_PLUGIN_ROOT"',
     '  exit 0',
     'fi',
     'if [ "$2" = "get" ]; then',
@@ -135,8 +147,9 @@ try {
 
   assert.strictEqual(healthy.status, 0, `${healthy.stderr}\n${healthy.stdout}`);
   assert.match(healthy.stdout, /私有运行时:\s+PASS/);
+  assert.match(healthy.stdout, /Node\.js:\s+PASS.*>=18\.0\.0/);
   assert.match(healthy.stdout, /MCP 原生配置:\s+PASS/);
-  assert.match(healthy.stdout, /启动超时 100 秒/);
+  assert.match(healthy.stdout, /启动超时 600 秒/);
   assert.match(healthy.stdout, /Codex MCP 解析:\s+PASS/);
   assert.match(healthy.stdout, /同名全局覆盖:\s+PASS/);
   assert.match(healthy.stdout, /项目图谱:\s+PASS/);

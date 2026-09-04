@@ -13,6 +13,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { resolvePython } = require('../lib/python');
 
 const postEdit = path.join(__dirname, '..', 'post_edit.js');
 const stopCheck = path.join(__dirname, '..', 'stop_check.js');
@@ -48,8 +49,7 @@ function runRaw(entry, rawInput, cwd) {
   return { status: r.status, stdout: (r.stdout || ''), stderr: (r.stderr || '') };
 }
 
-const hasPython = spawnSync('python', ['--version'], { stdio: 'pipe' }).status === 0
-  || spawnSync('python3', ['--version'], { stdio: 'pipe' }).status === 0;
+const hasPython = resolvePython() !== null;
 
 // 合法输出契约：要么空，要么 trim 后是单个合法 JSON
 function assertCleanStdout(stdout, ctx) {

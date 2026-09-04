@@ -1,13 +1,18 @@
 {
   "name": "system-proxy-codex",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Codex system proxy bootstrap and safe Python .env configuration.",
   "license": "MIT",
   "private": true,
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "check:syntax": "node --check hooks/js/run-python.js && python -m py_compile scripts/setup_proxy.py scripts/session_start.py scripts/install_system_proxy_codex.py",
+    "check:syntax": "node --check hooks/js/run-python.js && node hooks/js/run-python.js --exec -m py_compile scripts/setup_proxy.py scripts/session_start.py scripts/install_system_proxy_codex.py",
     "check": "node scripts/check-plugin.cjs",
-    "test:unit": "python -m unittest discover -s tests -v",
+    "test:python": "node hooks/js/run-python.js --exec -m unittest discover -s tests -p \"test_*.py\" -v",
+    "test:node": "node tests/test_run_python.js",
+    "test:unit": "npm run test:python && npm run test:node",
     "test": "npm run check:syntax && npm run check && npm run test:unit"
   }
 }

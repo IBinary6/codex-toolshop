@@ -4,6 +4,17 @@ const assert = require('node:assert');
 const { prepareMcpServer } = require('../../../scripts/mcp-server.cjs');
 
 {
+  let ensured = false;
+  const prepared = prepareMcpServer({
+    nodeRuntimeStatus: () => ({ ok: false, version: '16.20.2', requirement: '>=18.0.0' }),
+    ensureCrg: () => { ensured = true; return true; },
+  });
+  assert.strictEqual(prepared.ok, false);
+  assert.match(prepared.diagnostic, /Node\.js 16\.20\.2.*>=18\.0\.0/);
+  assert.strictEqual(ensured, false, 'unsupported Node must fail before runtime installation');
+}
+
+{
   let enabled = false;
   const prepared = prepareMcpServer({
     ensureCrg: () => true,

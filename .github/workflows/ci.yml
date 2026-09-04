@@ -6,7 +6,15 @@ on:
 
 jobs:
   validate:
-    runs-on: windows-latest
+    name: Validate on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -17,7 +25,11 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: "3.12"
+
+      - name: Validate agent-dispatch-codex
+        working-directory: plugins/agent-dispatch-codex
+        run: npm test
 
       - name: Validate cpp-style-enforcer-codex
         working-directory: plugins/cpp-style-enforcer-codex
@@ -25,4 +37,12 @@ jobs:
 
       - name: Validate codemap-boost-codex
         working-directory: plugins/codemap-boost-codex
+        run: npm test
+
+      - name: Validate local-knowledge-codex
+        working-directory: plugins/local-knowledge-codex
+        run: npm test
+
+      - name: Validate system-proxy-codex
+        working-directory: plugins/system-proxy-codex
         run: npm test

@@ -7,7 +7,7 @@ description: Configure, verify, or troubleshoot CodeMap Boost for Codex, includi
 
 ## Default behavior
 
-Treat plugin installation as the complete normal setup. The bundled `.mcp.json` exposes `code-review-graph` while a cross-platform Node launcher creates or repairs the isolated CRG venv before serving MCP. It uses the marketplace-qualified Codex plugin data directory, serializes concurrent installation, and declares a 100-second startup timeout. Do not ask the user to run setup after a normal installation.
+Treat plugin installation as the complete normal setup. The bundled `.mcp.json` exposes `code-review-graph` while a cross-platform Node launcher creates or repairs the isolated CRG venv before serving MCP. It uses the marketplace-qualified Codex plugin data directory, serializes concurrent installation, and declares a 600-second startup timeout. Node.js 18 or newer must be resolvable as `node` by the Codex host itself; never assume that a desktop app inherits Homebrew, nvm, or an interactive shell PATH. Do not ask the user to run setup after a normal installation.
 
 After installing or upgrading the plugin, ask the user to create a new Codex task because an already-running task cannot dynamically add MCP tools. On upgrades, SessionStart probes Codex CLI candidates instead of trusting the first PATH entry, then removes an old absolute-path registration only when its plugin-data path proves plugin ownership; if that migration occurred, create one more new task. A missing standalone CLI prevents the legacy override check, although the bundled MCP launcher itself does not depend on that CLI. Never auto-remove `uvx code-review-graph serve`, because the command alone cannot prove whether the plugin or the user created it. Doctor should report that ambiguous override for user confirmation.
 
@@ -24,7 +24,7 @@ The bundled configuration should resolve to:
 - stdio command `node`;
 - argument `scripts/mcp-server.cjs`;
 - `cwd` resolved under the installed plugin root;
-- `startup_timeout_sec` equal to `100`.
+- `startup_timeout_sec` equal to `600`.
 
 The plugin-root `cwd` is only for locating the launcher. The graph `PreToolUse` hook injects the active task's Git root as `repo_root` for CRG project tools, while preserving an explicit `repo_root` and leaving cross-repository registry tools unchanged.
 
@@ -40,7 +40,7 @@ When the user asks for diagnosis, run the read-only doctor from the target proje
 node <plugin-root>/scripts/setup.cjs --doctor
 ```
 
-Resolve `<plugin-root>` from this skill location or from `codex plugin list --json`. Doctor reports the effective Codex paths, marketplace-qualified plugin data directory, private runtime/parser health, bundled MCP timeout, same-name global overrides, project graph status, and restart guidance. A CRG status timeout or temporarily unavailable state is reported as a retryable status, not as `NEEDS_BUILD`; a missing graph directory or explicit status failure remains a build-needed state. If no executable standalone Codex CLI is available, the CLI-dependent checks are `UNKNOWN`/`WARN` rather than a plugin failure. Exit `0` means `READY`; exit `1` means attention is required. Never combine `--doctor` with setup flags.
+Resolve `<plugin-root>` from this skill location or from `codex plugin list --json`. Doctor reports the active Node.js version and `>=18.0.0` requirement, effective Codex paths, marketplace-qualified plugin data directory, private runtime/parser health, bundled MCP timeout, same-name global overrides, project graph status, and restart guidance. A CRG status timeout or temporarily unavailable state is reported as a retryable status, not as `NEEDS_BUILD`; a missing graph directory or explicit status failure remains a build-needed state. If no executable standalone Codex CLI is available, the CLI-dependent checks are `UNKNOWN`/`WARN` rather than a plugin failure. Exit `0` means `READY`; exit `1` means attention is required. Never combine `--doctor` with setup flags.
 
 ## Setup fallback
 

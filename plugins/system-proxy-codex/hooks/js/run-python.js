@@ -24,23 +24,43 @@ function pluginData() {
     : path.join(codexHome(), 'plugins', 'data', 'system-proxy-codex');
 }
 
-function pythonCandidates() {
-  return process.platform === 'win32'
-    ? [['python3', []], ['python', []], ['py', ['-3']]]
-    : [['python3', []], ['python', []]];
+/**
+ * 返回当前平台可用的 Python 3 候选，显式配置优先。
+ * @example pythonCandidates({ platform: 'darwin', environment: {} })
+ */
+function pythonCandidates(options = {}) {
+  const environment = options.environment || process.env;
+  if (environment.SYSTEM_PROXY_PYTHON) {
+    const prefix = String(environment.SYSTEM_PROXY_PYTHON_ARGS || '').trim().split(/\s+/).filter(Boolean);
+    return [{ command: environment.SYSTEM_PROXY_PYTHON, prefix }];
+  }
+  const candidates = [
+    { command: 'python3', prefix: [] },
+    { command: 'python', prefix: [] },
+  ];
+  if ((options.platform || process.platform) === 'win32') {
+    candidates.push({ command: 'py', prefix: ['-3'] });
+  }
+  return candidates;
 }
 
-function findPython() {
-  for (const [command, prefix] of pythonCandidates()) {
-    const probe = spawnSync(command, [...prefix, '--version'], {
+/**
+ * 选择第一个满足最低版本的 Python；旧版本不会阻止后续候选。
+ * @example findPython({ candidates: [{ command: 'python3', prefix: [] }] })
+ */
+function findPython(options = {}) {
+  const candidates = options.candidates || pythonCandidates(options);
+  const spawn = options.spawnSync || spawnSync;
+  for (const candidate of candidates) {
+    const probe = spawn(candidate.command, [...candidate.prefix, '--version'], {
       encoding: 'utf8',
-      windowsHide: process.platform === 'win32',
+      windowsHide: (options.platform || process.platform) === 'win32',
       timeout: 5000,
     });
     if (probe.error || probe.status !== 0) continue;
     const version = `${probe.stdout || ''} ${probe.stderr || ''}`.match(/Python\s+(\d+)\.(\d+)/i);
     if (version && (Number(version[1]) > 3 || (Number(version[1]) === 3 && Number(version[2]) >= 10))) {
-      return { command, prefix };
+      return candidate;
     }
   }
   return null;
@@ -55,8 +75,42 @@ function hookMessage(message) {
   }));
 }
 
+/**
+ * 使用探测到的 Python 执行普通命令，并保留调用方的标准流。
+ * @example runPythonCommand(['-m', 'unittest'])
+ */
+function runPythonCommand(args) {
+  const python = findPython();
+  if (!python) {
+    process.stderr.write('System Proxy for Codex 需要 Python 3.10 或更高版本。\n');
+    return 2;
+  }
+  const child = spawnSync(python.command, [...python.prefix, ...args], {
+    env: {
+      ...process.env,
+      PYTHONIOENCODING: 'utf-8',
+      PYTHONUTF8: '1',
+    },
+    stdio: 'inherit',
+    windowsHide: process.platform === 'win32',
+  });
+  if (child.error) {
+    process.stderr.write(`System Proxy for Codex 启动 Python 失败：${child.error.message}\n`);
+    return 2;
+  }
+  return Number.isInteger(child.status) ? child.status : 2;
+}
+
+/**
+ * 分派 Hook 模式或跨平台 Python 命令模式。
+ * @example main()
+ */
 function main() {
   const hook = process.argv[2];
+  if (hook === '--exec') {
+    process.exitCode = runPythonCommand(process.argv.slice(3));
+    return;
+  }
   if (hook !== 'session_start') return;
   const python = findPython();
   if (!python) {
@@ -91,4 +145,6 @@ function main() {
   if (child.error) hookMessage(`System Proxy for Codex 启动 Python 失败：${child.error.message}`);
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { findPython, main, pythonCandidates, runPythonCommand };

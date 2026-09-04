@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { crgRuntimePaths, probeCrgRuntime } = require('./bootstrap');
+const { MCP_STARTUP_TIMEOUT_SEC, crgRuntimePaths, probeCrgRuntime } = require('./bootstrap');
 
 const {
   codexHome,
@@ -597,7 +597,7 @@ function isPluginManagedLegacyCrgMcpConfig(config) {
 
 /**
  * 判断当前 MCP 配置是否来自插件自带的跨平台启动器。
- * @example isNativeCrgMcpConfig({ command: 'node', args: ['scripts/mcp-server.cjs'], cwd: '.', startup_timeout_sec: 100 }, { allowRelativeCwd: true })
+ * @example isNativeCrgMcpConfig({ command: 'node', args: ['scripts/mcp-server.cjs'], cwd: '.', startup_timeout_sec: 600 }, { allowRelativeCwd: true })
  */
 function isNativeCrgMcpConfig(config, options = {}) {
   if (!config || typeof config !== 'object') return false;
@@ -625,7 +625,7 @@ function isNativeCrgMcpConfig(config, options = {}) {
     && JSON.stringify(args) === JSON.stringify(['scripts/mcp-server.cjs'])
     && cwdOk
     && Number.isFinite(timeout)
-    && timeout === 100;
+    && timeout === MCP_STARTUP_TIMEOUT_SEC;
 }
 
 function readBootstrapFailure() {
@@ -835,10 +835,26 @@ function cleanLegacyCrgHooks(home = codexHome()) {
   return true;
 }
 
+/**
+ * 仅从当前仓库实际生效的 Git hook 路径移除旧版 CRG 行。
+ * @example cleanLegacyCrgGitHook(process.cwd())
+ */
 function cleanLegacyCrgGitHook(cwd) {
   const root = repoRoot(cwd);
   if (!root) return false;
-  const target = path.join(root, '.git', 'hooks', 'pre-commit');
+  let target = '';
+  try {
+    const result = spawnSync('git', ['rev-parse', '--git-path', 'hooks/pre-commit'], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: process.platform === 'win32',
+      timeout: 5000,
+    });
+    if (!result.error && result.status === 0) target = result.stdout.trim();
+  } catch (_) {}
+  if (!target) return false;
+  if (!path.isAbsolute(target)) target = path.resolve(root, target);
   let content = '';
   try {
     content = fs.readFileSync(target, 'utf8');

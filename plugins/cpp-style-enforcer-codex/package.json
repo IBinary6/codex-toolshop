@@ -1,9 +1,12 @@
 {
   "name": "cpp-style-enforcer-codex",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Codex plugin for C++ style enforcement with encoding preservation and staged-content commit checks.",
   "license": "MIT",
   "private": true,
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "check": "node scripts/check-plugin.cjs",
     "check:syntax": "node scripts/check-syntax.cjs",

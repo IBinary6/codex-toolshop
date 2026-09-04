@@ -4,6 +4,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { MCP_STARTUP_TIMEOUT_SEC } = require('../lib/bootstrap');
 
 const {
   cleanLegacyCrgGitHook,
@@ -75,16 +76,37 @@ const healthyManaged = {
     command: 'node',
     args: ['scripts/mcp-server.cjs'],
     cwd: '.',
-    startup_timeout_sec: 100,
+    startup_timeout_sec: MCP_STARTUP_TIMEOUT_SEC,
   };
   assert.strictEqual(isNativeCrgMcpConfig(native, { allowRelativeCwd: true }), true);
-  for (const timeout of [99, 101, 600]) {
+  for (const timeout of [100, MCP_STARTUP_TIMEOUT_SEC - 1, MCP_STARTUP_TIMEOUT_SEC + 1]) {
     assert.strictEqual(
       isNativeCrgMcpConfig({ ...native, startup_timeout_sec: timeout }, { allowRelativeCwd: true }),
       false,
       `native MCP rejects unexpected startup timeout ${timeout}`
     );
   }
+}
+
+{
+  const windowsManaged = {
+    enabled: true,
+    transport: {
+      type: 'stdio',
+      command: 'C:\\Users\\tester\\.codex\\plugins\\data\\codemap-boost-codex-codex-toolshop\\crg-runtime\\Scripts\\code-review-graph.exe',
+      args: ['serve'],
+    },
+  };
+  const macManaged = {
+    enabled: true,
+    transport: {
+      type: 'stdio',
+      command: '/Users/tester/.codex/plugins/data/codemap-boost-codex-codex-toolshop/crg-runtime/bin/code-review-graph',
+      args: ['serve'],
+    },
+  };
+  assert.strictEqual(isPluginManagedLegacyCrgMcpConfig(windowsManaged), true, 'Windows private runtime paths are recognized');
+  assert.strictEqual(isPluginManagedLegacyCrgMcpConfig(macManaged), true, 'macOS private runtime paths are recognized');
 }
 
 {
@@ -347,6 +369,59 @@ const healthyManaged = {
     ].join('\n'), 'utf8');
     assert.strictEqual(cleanLegacyCrgGitHook(repo), false);
     assert.ok(fs.existsSync(hook), 'unrelated user git hook is preserved');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-clean-linked-worktree-hook-'));
+  try {
+    const repo = path.join(tmp, 'repo');
+    const linked = path.join(tmp, 'linked worktree');
+    mkdirp(repo);
+    const init = require('node:child_process').spawnSync('git', ['init'], {
+      cwd: repo,
+      encoding: 'utf8',
+      windowsHide: process.platform === 'win32',
+    });
+    assert.strictEqual(init.status, 0, init.stderr);
+    const commit = require('node:child_process').spawnSync('git', [
+      '-c', 'user.name=CodeMap Test',
+      '-c', 'user.email=codemap@example.invalid',
+      'commit', '--allow-empty', '-m', 'initial',
+    ], {
+      cwd: repo,
+      encoding: 'utf8',
+      windowsHide: process.platform === 'win32',
+    });
+    assert.strictEqual(commit.status, 0, commit.stderr);
+    const add = require('node:child_process').spawnSync('git', ['worktree', 'add', '-b', 'linked-test', linked], {
+      cwd: repo,
+      encoding: 'utf8',
+      windowsHide: process.platform === 'win32',
+    });
+    assert.strictEqual(add.status, 0, add.stderr);
+
+    const resolved = require('node:child_process').spawnSync('git', ['rev-parse', '--git-path', 'hooks/pre-commit'], {
+      cwd: linked,
+      encoding: 'utf8',
+      windowsHide: process.platform === 'win32',
+    });
+    assert.strictEqual(resolved.status, 0, resolved.stderr);
+    const hook = path.isAbsolute(resolved.stdout.trim())
+      ? resolved.stdout.trim()
+      : path.resolve(linked, resolved.stdout.trim());
+    fs.mkdirSync(path.dirname(hook), { recursive: true });
+    fs.writeFileSync(hook, [
+      '#!/bin/sh',
+      '# Installed by code-review-graph. Remove this file to disable pre-commit graph checks.',
+      'code-review-graph update || true',
+      '',
+    ].join('\n'), 'utf8');
+
+    assert.strictEqual(cleanLegacyCrgGitHook(linked), true, 'linked worktree resolves the shared Git hooks path');
+    assert.ok(!fs.existsSync(hook), 'legacy hook is removed through git rev-parse --git-path');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

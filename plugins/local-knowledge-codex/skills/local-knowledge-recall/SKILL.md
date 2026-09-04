@@ -12,9 +12,7 @@ description: 查询本地知识库中的错误解决方案、用户偏好、事�
 使用用户原始问题或完整错误行查询一次：
 
 ```text
-python <plugin-root>/local_knowledge/cli.py --format json recall \
-  --query "<原始问题或错误>" --scope-kind workspace \
-  --scope-key "<当前工作区绝对路径>" --limit 5 --max-chars 3000
+node "<plugin-root>/scripts/python-launcher.cjs" "<plugin-root>/local_knowledge/cli.py" --format json recall --query "<原始问题或错误>" --scope-kind workspace --scope-key "<当前工作区绝对路径>" --limit 5 --max-chars 3000
 ```
 
 `<plugin-root>` 是本 skill 所在插件目录（从当前 `SKILL.md` 向上两级）。显式查询用户要求手工保存的内容时增加 `--explicit`。

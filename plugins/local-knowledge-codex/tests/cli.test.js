@@ -4,14 +4,13 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const { spawnPythonSync } = require('./python-runtime');
 
 const root = path.resolve(__dirname, '..');
 const cli = path.join(root, 'bugdb', 'cli.py');
-const python = process.env.BUGDB_TEST_PYTHON || 'python';
 
 function run(home, args, expected = 0) {
-  const result = spawnSync(python, [cli, ...args], {
+  const result = spawnPythonSync([cli, ...args], {
     cwd: root,
     encoding: 'utf8',
     env: { ...process.env, BUGDB_HOME: home },
@@ -27,7 +26,7 @@ function json(home, args) {
 }
 
 function runWithEnvironment(environment, args, expected = 0) {
-  const result = spawnSync(python, [cli, ...args], {
+  const result = spawnPythonSync([cli, ...args], {
     cwd: root,
     encoding: 'utf8',
     env: { ...process.env, ...environment },

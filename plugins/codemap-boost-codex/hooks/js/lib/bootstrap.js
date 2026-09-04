@@ -10,16 +10,25 @@ const { commandExists } = require('./runtime');
 const CRG_PACKAGE = 'code-review-graph[all]';
 const CRG_RUNTIME_DIR = 'crg-runtime';
 const CRG_PYTHON_VERSION = '3.12';
+const MCP_STARTUP_TIMEOUT_SEC = 10 * 60;
+const MCP_BOOTSTRAP_RESERVE_MS = 30 * 1000;
+const MCP_BOOTSTRAP_BUDGET_MS = MCP_STARTUP_TIMEOUT_SEC * 1000 - MCP_BOOTSTRAP_RESERVE_MS;
+const INSTALL_COMMAND_TIMEOUT_MS = 5 * 60 * 1000;
 const INSTALL_LOCK_WAIT_MS = 9 * 60 * 1000;
 const INSTALL_LOCK_BOOT_MS = 5000;
 
-function pythonCandidates() {
+/**
+ * 返回当前平台可用的 Python 启动器候选，显式平台参数仅用于跨平台验证。
+ * @example pythonCandidates({ platform: 'win32' })
+ */
+function pythonCandidates(options = {}) {
+  const windows = (options.platform || process.platform) === 'win32';
   const candidates = [];
   if (process.env.CODEMAP_BOOST_PYTHON) {
     const args = (process.env.CODEMAP_BOOST_PYTHON_ARGS || '').trim().split(/\s+/).filter(Boolean);
     candidates.push([process.env.CODEMAP_BOOST_PYTHON, args]);
   }
-  if (isWindows) {
+  if (windows) {
     candidates.push(['py', ['-3.12']]);
     candidates.push(['py', ['-3.11']]);
   }
@@ -27,7 +36,7 @@ function pythonCandidates() {
   candidates.push(['python3.11', []]);
   candidates.push(['python', []]);
   candidates.push(['python3', []]);
-  if (isWindows) candidates.push(['py', ['-3']]);
+  if (windows) candidates.push(['py', ['-3']]);
   return candidates;
 }
 
@@ -37,7 +46,7 @@ function pipInstall(pkg) {
       const result = spawnSync(
         py,
         [...baseArgs, '-m', 'pip', 'install', '--disable-pip-version-check', pkg],
-        { stdio: 'ignore', timeout: 300000, windowsHide: isWindows }
+        { stdio: 'ignore', timeout: INSTALL_COMMAND_TIMEOUT_MS, windowsHide: isWindows }
       );
       if (!result.error && result.status === 0) return true;
     } catch (_) {}
@@ -50,12 +59,15 @@ function pipInstall(pkg) {
  * @example crgRuntimePaths().command
  */
 function crgRuntimePaths(options = {}) {
-  const dir = path.resolve(options.runtimeDir || path.join(pluginDataDir(), CRG_RUNTIME_DIR));
-  const binDir = path.join(dir, isWindows ? 'Scripts' : 'bin');
+  const platform = options.platform || process.platform;
+  const windows = platform === 'win32';
+  const pathApi = windows ? path.win32 : path.posix;
+  const dir = pathApi.resolve(options.runtimeDir || pathApi.join(pluginDataDir(), CRG_RUNTIME_DIR));
+  const binDir = pathApi.join(dir, windows ? 'Scripts' : 'bin');
   return {
     dir,
-    python: path.join(binDir, isWindows ? 'python.exe' : 'python'),
-    command: path.join(binDir, isWindows ? 'code-review-graph.exe' : 'code-review-graph'),
+    python: pathApi.join(binDir, windows ? 'python.exe' : 'python'),
+    command: pathApi.join(binDir, windows ? 'code-review-graph.exe' : 'code-review-graph'),
   };
 }
 
@@ -68,14 +80,30 @@ function errorSummary(error) {
   return String(error.code || error.message || error);
 }
 
+/**
+ * 在共享绝对截止时间内计算当前子步骤可用超时。
+ * @example boundedTimeout({ deadlineMs: Date.now() + 1000 }, 5000)
+ */
+function boundedTimeout(options, requestedMs) {
+  const now = typeof options.now === 'function' ? options.now() : Date.now();
+  const configured = options.timeout ?? requestedMs;
+  if (!Number.isFinite(options.deadlineMs)) return configured;
+  return Math.max(0, Math.min(configured, options.deadlineMs - now));
+}
+
 function runOk(command, args, options = {}) {
   const spawn = options.spawnSync || spawnSync;
   const label = options.diagnosticLabel || command;
+  const timeout = boundedTimeout(options, INSTALL_COMMAND_TIMEOUT_MS);
+  if (timeout <= 0) {
+    recordDiagnostic(options, `${label} 跳过：启动预算已耗尽`);
+    return false;
+  }
   try {
     const result = spawn(command, args, {
       encoding: 'utf8',
       stdio: options.stdio || ['ignore', 'pipe', 'pipe'],
-      timeout: options.timeout || 300000,
+      timeout,
       windowsHide: isWindows,
     });
     if (result && !result.error && result.status === 0) return true;
@@ -172,7 +200,7 @@ function installManagedCrg(pkg = CRG_PACKAGE, options = {}) {
   }
 
   let pythonList = [];
-  try { pythonList = candidates(); } catch (error) {
+  try { pythonList = candidates(options); } catch (error) {
     recordDiagnostic(options, `Python 候选检测异常：${errorSummary(error)}`);
   }
   for (const [python, baseArgs] of pythonList) {
@@ -232,9 +260,14 @@ function isPidAlive(pid) {
  * @example acquireInstallLock('/tmp/crg-runtime.install.lock')
  */
 function acquireInstallLock(file, options = {}) {
-  const waitMs = options.installLockWaitMs || INSTALL_LOCK_WAIT_MS;
-  const bootMs = options.installLockBootMs || INSTALL_LOCK_BOOT_MS;
-  const deadline = Date.now() + waitMs;
+  const waitMs = options.installLockWaitMs ?? INSTALL_LOCK_WAIT_MS;
+  const bootMs = options.installLockBootMs ?? INSTALL_LOCK_BOOT_MS;
+  const now = Date.now();
+  const deadline = Math.min(
+    now + waitMs,
+    Number.isFinite(options.deadlineMs) ? options.deadlineMs : Number.POSITIVE_INFINITY
+  );
+  if (deadline <= now) return false;
   const token = crypto.randomUUID();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   while (Date.now() <= deadline) {
@@ -318,7 +351,12 @@ function ensureCrg(options = {}) {
   const install = options.installRuntime || installManagedCrg;
   const markerFile = options.markerPath || markerPath('.crg-install-failed');
   const diagnostics = Array.isArray(options.diagnostics) ? options.diagnostics : [];
-  const runtimeOptions = { ...options, diagnostics };
+  const now = typeof options.now === 'function' ? options.now() : Date.now();
+  const ownDeadline = now + MCP_BOOTSTRAP_BUDGET_MS;
+  const deadlineMs = Number.isFinite(options.deadlineMs)
+    ? Math.min(options.deadlineMs, ownDeadline)
+    : ownDeadline;
+  const runtimeOptions = { ...options, deadlineMs, diagnostics };
   const clearMarker = () => {
     try { fs.rmSync(markerFile, { force: true }); } catch (_) {}
   };
@@ -377,6 +415,11 @@ function ensureGraphify() {
 
 module.exports = {
   CRG_PACKAGE,
+  INSTALL_COMMAND_TIMEOUT_MS,
+  INSTALL_LOCK_WAIT_MS,
+  MCP_BOOTSTRAP_BUDGET_MS,
+  MCP_BOOTSTRAP_RESERVE_MS,
+  MCP_STARTUP_TIMEOUT_SEC,
   crgRuntimePaths,
   pythonCandidates,
   pipInstall,

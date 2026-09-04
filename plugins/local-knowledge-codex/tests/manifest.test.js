@@ -18,6 +18,7 @@ assert.equal(plugin.name, packageJson.name);
 assert.equal(plugin.name, 'local-knowledge-codex');
 assert.match(plugin.version, /^\d+\.\d+\.\d+$/);
 assert.equal(plugin.version, packageJson.version);
+assert.equal(packageJson.engines.node, '>=18');
 const pyprojectVersion = pyproject.match(/^version\s*=\s*"([^"]+)"/m);
 assert.ok(pyprojectVersion, 'pyproject version must exist');
 assert.equal(pyprojectVersion[1], plugin.version);
@@ -43,7 +44,13 @@ for (const skill of [
   const skillText = fs.readFileSync(skillFile, 'utf8');
   assert.match(skillText, new RegExp(`^---\\r?\\nname: ${skill}\\r?\\n`));
   assert.doesNotMatch(skillText, /bugdb-(?:lookup|record|migrate|setup)/i);
+  assert.match(skillText, /scripts\/python-launcher\.cjs/);
+  assert.doesNotMatch(skillText, /^python(?:3)?\s/m);
+  assert.doesNotMatch(skillText, /\\\r?$/m);
 }
+assert.match(packageJson.scripts['check:syntax'], /node scripts\/python-launcher\.cjs/);
+assert.match(packageJson.scripts['test:python'], /node scripts\/python-launcher\.cjs/);
+assert.doesNotMatch(JSON.stringify(packageJson.scripts), /(?:^|[&|;]\s*)python(?:3)?\s/);
 assert.match(pyproject, /knowledge-codex\s*=\s*"local_knowledge\.cli:main"/);
 assert.match(pyproject, /bugdb-codex\s*=\s*"bugdb\.cli:main"/);
 assert.ok(fs.existsSync(path.join(root, 'local_knowledge', 'cli.py')));

@@ -2,6 +2,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const { MCP_STARTUP_TIMEOUT_SEC } = require('../hooks/js/lib/bootstrap');
+const { MINIMUM_NODE_MAJOR } = require('../hooks/js/lib/runtime');
 
 const pluginRoot = path.resolve(__dirname, '..');
 
@@ -34,6 +36,7 @@ function main() {
   assert(plugin.name === 'codemap-boost-codex', 'plugin name is wrong');
   assert(plugin.version === packageJson.version, 'package.json version must match plugin.json');
   assert(/^\d+\.\d+\.\d+$/.test(plugin.version), 'plugin version must be plain patch semver');
+  assert(packageJson.engines && packageJson.engines.node === `>=${MINIMUM_NODE_MAJOR}.0.0`, 'package must declare the supported Node runtime');
 
   const repoRoot = findRepoRoot(pluginRoot);
   if (repoRoot) {
@@ -55,7 +58,7 @@ function main() {
   assert(crgServer.command === 'node', 'bundled MCP must use the cross-platform Node launcher');
   assert(JSON.stringify(crgServer.args) === JSON.stringify(['scripts/mcp-server.cjs']), 'bundled MCP launcher path is wrong');
   assert(crgServer.cwd === '.', 'bundled MCP cwd must resolve from the plugin root');
-  assert(crgServer.startup_timeout_sec === 100, 'bundled MCP startup timeout must stay at 100 seconds');
+  assert(crgServer.startup_timeout_sec === MCP_STARTUP_TIMEOUT_SEC, 'bundled MCP startup timeout must match bootstrap budget');
 
   const hooks = readJson(path.join(pluginRoot, 'hooks', 'hooks.json'), 'hooks manifest');
   const legacyHooks = readJson(path.join(pluginRoot, 'hooks', 'codex-hooks.json'), 'legacy hooks manifest');

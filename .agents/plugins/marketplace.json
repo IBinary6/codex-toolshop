@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "cpp-style-enforcer-codex",
-      "version": "0.1.9",
+      "version": "0.1.10",
       "description": "C++ style enforcement workflow with tracked-file encoding preservation and staged-content cpplint checks.",
       "source": {
         "source": "local",
@@ -20,7 +20,7 @@
     },
     {
       "name": "codemap-boost-codex",
-      "version": "0.1.21",
+      "version": "0.1.22",
       "description": "Install-ready CodeMap workflow for Codex with a bundled code-review-graph MCP and synchronized graph-read barriers.",
       "source": {
         "source": "local",
@@ -34,7 +34,7 @@
     },
     {
       "name": "agent-dispatch-codex",
-      "version": "0.1.12",
+      "version": "0.1.13",
       "description": "Role-aware routing with task-selected writer models, serial primary-agent Git, and bounded subagent lifecycle management.",
       "source": {
         "source": "local",
@@ -48,7 +48,7 @@
     },
     {
       "name": "local-knowledge-codex",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "description": "Local indexed knowledge for Codex with relevant recall of fixes, preferences, facts, decisions, and workflows.",
       "source": {
         "source": "local",
@@ -62,7 +62,7 @@
     },
     {
       "name": "system-proxy-codex",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "Automatically enables Codex system-proxy support and provides a Python setup command for safe .env proxy configuration.",
       "source": {
         "source": "local",

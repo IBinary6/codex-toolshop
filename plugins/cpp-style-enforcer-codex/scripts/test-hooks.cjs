@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { resolvePython } = require('../hooks/js/lib/python');
 
 const pluginRoot = path.resolve(__dirname, '..');
 const runner = path.join(pluginRoot, 'scripts', 'run-hook.cjs');
@@ -38,12 +39,17 @@ function runHook(name, payload, cwd, dataDir) {
   });
 }
 
+/**
+ * 要求测试环境存在 Python 3；缺失的候选会被跳过，全部不可用才报错。
+ *
+ * @returns {{cmd:string,args:string[]}} 已验证的 Python 3 启动描述
+ * @example
+ * requirePython() // macOS 常见返回 { cmd: 'python3', args: [] }
+ */
 function requirePython() {
-  for (const py of ['python', 'python3']) {
-    const result = sh(py, ['--version']);
-    if (result.status === 0) return;
-  }
-  throw new Error('python or python3 is required for cpplint hook tests');
+  const python = resolvePython();
+  if (python) return python;
+  throw new Error('Python 3 (python, python3, or Windows py -3) is required for cpplint hook tests');
 }
 
 function initRepo(repo) {

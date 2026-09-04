@@ -44,6 +44,7 @@ function main() {
   const packageJson = readJson(path.join(pluginRoot, 'package.json'), 'package.json');
   assert(plugin.version === packageJson.version, 'package.json version must match plugin.json');
   assert(/^\d+\.\d+\.\d+$/.test(plugin.version), 'plugin version must be plain patch semver');
+  assert(packageJson.engines && packageJson.engines.node === '>=18', 'package must declare the supported Node runtime');
 
   if (repoRoot) {
     const marketplace = readJson(

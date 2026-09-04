@@ -15,9 +15,9 @@ const isWindows = process.platform === 'win32';
 const PRE_COMMIT_DEADLINE_MS = 25000;
 
 /**
- * 收紧正则判定真正的 `git commit`：
- * - 命令以 git 开头（允许前导空白），后接 commit 作为独立子命令（词边界）。
- * - 排除 commit-graph / commit-tree（连字符后缀）与 echo/字符串包裹（命令必须以 git 起头）。
+ * 将 shell 命令拆成 token，供后续判定真正的 `git commit`：
+ * - Git 可执行文件允许大小写差异、git.exe、绝对路径和常见包装命令。
+ * - commit 必须是独立子命令，排除 commit-graph、commit-tree 和 echo 中的字符串。
  * - 存疑一律返回 false（放行，不阻止）。
  * @param {string} command
  * @returns {boolean}
@@ -30,24 +30,112 @@ function unquote(token) {
   return String(token).replace(/^(['"])(.*)\1$/, '$2');
 }
 
+/**
+ * 按未被引号包裹的 shell 连接符拆分命令，保留 `cmd /c "... && ..."` 的内部结构。
+ *
+ * @param {string} command 原始命令
+ * @returns {string[]} 顺序命令片段
+ * @example
+ * splitCommandSegments('cd repo && git commit') // ['cd repo', 'git commit']
+ */
+function splitCommandSegments(command) {
+  const text = String(command);
+  const segments = [];
+  let start = 0;
+  let quote = null;
+  let escaped = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\' && quote === '"') {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    const pair = text.slice(index, index + 2);
+    const separatorLength = pair === '&&' || pair === '||' ? 2
+      : (char === ';' || char === '|' ? 1 : 0);
+    if (!separatorLength) continue;
+    const segment = text.slice(start, index).trim();
+    if (segment) segments.push(segment);
+    index += separatorLength - 1;
+    start = index + 1;
+  }
+  const tail = text.slice(start).trim();
+  if (tail) segments.push(tail);
+  return segments;
+}
+
+/**
+ * 提取命令路径的文件名并统一为小写，同时兼容 POSIX 与 Windows 分隔符。
+ *
+ * @param {string} token 命令 token
+ * @returns {string} 规范化后的命令名
+ * @example
+ * commandName('C:\\Program Files\\Git\\cmd\\git.exe') // 'git.exe'
+ */
+function commandName(token) {
+  const parts = unquote(token).split(/[\\/]/);
+  return String(parts[parts.length - 1] || '').toLowerCase();
+}
+
+/**
+ * 判断 token 是否为 Git 可执行文件，接受 git、git.exe 和它们的绝对路径。
+ *
+ * @param {string} token 命令 token
+ * @returns {boolean} 是否为 Git 可执行文件
+ * @example
+ * isGitExecutable('/usr/bin/git') // true
+ */
+function isGitExecutable(token) {
+  const name = commandName(token);
+  return name === 'git' || name === 'git.exe';
+}
+
 function normalizedCommandTokens(segment) {
   let tokens = tokenizeCommand(segment);
   while (tokens.length > 0) {
-    const head = unquote(tokens[0]).toLowerCase();
+    const head = commandName(tokens[0]);
     if (head === 'command' || head === '&') {
       tokens = tokens.slice(1);
       continue;
-    }
-    if ((head === 'cmd' || head === 'cmd.exe') && tokens.length >= 3 && unquote(tokens[1]).toLowerCase() === '/c') {
-      return tokenizeCommand(tokens.slice(2).map(unquote).join(' '));
     }
     return tokens;
   }
   return tokens;
 }
 
+/**
+ * 提取 Windows `cmd[.exe] ... /c <command>` 的被包装命令；非 cmd 包装返回 null。
+ *
+ * @param {string} segment 单个外层命令片段
+ * @returns {string|null} 被包装命令
+ * @example
+ * cmdWrappedCommand('cmd.exe /d /s /c git commit') // 'git commit'
+ */
+function cmdWrappedCommand(segment) {
+  const tokens = tokenizeCommand(segment);
+  if (tokens.length === 0 || !['cmd', 'cmd.exe'].includes(commandName(tokens[0]))) return null;
+  const commandIndex = tokens.findIndex((token, index) => (
+    index > 0 && unquote(token).toLowerCase() === '/c'
+  ));
+  if (commandIndex < 0 || commandIndex + 1 >= tokens.length) return '';
+  const wrapped = tokens.slice(commandIndex + 1);
+  return wrapped.length === 1 ? unquote(wrapped[0]) : wrapped.join(' ');
+}
+
 function gitSubcommand(tokens) {
-  if (tokens.length === 0 || unquote(tokens[0]) !== 'git') return null;
+  if (tokens.length === 0 || !isGitExecutable(tokens[0])) return null;
   let i = 1;
   while (i < tokens.length) {
     const tok = unquote(tokens[i]);
@@ -63,7 +151,7 @@ function gitSubcommand(tokens) {
       i += 1;
       continue;
     }
-    return tok;
+    return tok.toLowerCase();
   }
   return null;
 }
@@ -75,7 +163,7 @@ function segmentIsGitCommit(segment) {
 }
 
 function gitCommitCwdFromTokens(tokens, cwd) {
-  if (tokens.length === 0 || unquote(tokens[0]) !== 'git') return null;
+  if (tokens.length === 0 || !isGitExecutable(tokens[0])) return null;
   let current = path.resolve(cwd);
   let i = 1;
   while (i < tokens.length) {
@@ -98,7 +186,7 @@ function gitCommitCwdFromTokens(tokens, cwd) {
       i += 1;
       continue;
     }
-    return tok === 'commit' ? current : null;
+    return tok.toLowerCase() === 'commit' ? current : null;
   }
   return null;
 }
@@ -106,12 +194,21 @@ function gitCommitCwdFromTokens(tokens, cwd) {
 function commitCwd(command, baseCwd = process.cwd()) {
   if (typeof command !== 'string') return null;
   let current = path.resolve(baseCwd);
-  for (const segment of command.split(/\s*(?:&&|\|\||;|\|)\s*/)) {
+  for (const segment of splitCommandSegments(command)) {
+    const wrapped = cmdWrappedCommand(segment);
+    if (wrapped !== null) {
+      if (!wrapped) continue;
+      const nestedTarget = commitCwd(wrapped, current);
+      if (nestedTarget) return nestedTarget;
+      continue;
+    }
     const tokens = normalizedCommandTokens(segment);
     if (tokens.length === 0) continue;
-    const head = unquote(tokens[0]).toLowerCase();
+    const head = commandName(tokens[0]);
     if (head === 'cd' && tokens.length >= 2) {
-      current = path.resolve(current, unquote(tokens[1]));
+      const targetIndex = unquote(tokens[1]).toLowerCase() === '/d' ? 2 : 1;
+      if (targetIndex >= tokens.length) return null;
+      current = path.resolve(current, unquote(tokens[targetIndex]));
       continue;
     }
     const target = gitCommitCwdFromTokens(tokens, current);
@@ -125,20 +222,36 @@ function isGitCommit(command) {
 }
 
 /**
- * 暂存区 C++ 文件（--diff-filter=ACM），过滤扩展名/排除目录。
+ * 通过 Git `-z` 列出暂存区 C++ 文件（--diff-filter=ACM），按 NUL 边界保留原文件名。
  * @param {string} root
  * @returns {string[]} 绝对路径数组
  */
-function stagedCppFiles(root) {
-  const r = spawnSync('git', ['diff', '--cached', '--name-only', '--diff-filter=ACM'], {
-    cwd: root, encoding: 'utf-8', timeout: 5000, windowsHide: isWindows,
-  });
-  if (r.error || r.status !== 0 || !r.stdout) return [];
-  return r.stdout
-    .split(/\r?\n/)
-    .map((s) => s.trim())
+function stagedCppFiles(root, options = {}) {
+  const spawn = options.spawnSync || spawnSync;
+  let r;
+  try {
+    r = spawn('git', ['diff', '--cached', '--name-only', '-z', '--diff-filter=ACM'], {
+      cwd: root,
+      encoding: null,
+      timeout: 5000,
+      maxBuffer: 32 * 1024 * 1024,
+      windowsHide: isWindows,
+    });
+  } catch (error) {
+    throw new Error(`git diff --cached 启动失败：${error && error.message ? error.message : error}`);
+  }
+  if (!r || r.error || r.status !== 0) {
+    const reason = r && r.error
+      ? (r.error.code || r.error.message)
+      : `退出码 ${r && r.status !== undefined ? r.status : '未知'}`;
+    throw new Error(`git diff --cached 无法枚举暂存区：${reason}`);
+  }
+  if (!r.stdout) return [];
+  return Buffer.from(r.stdout)
+    .toString('utf8')
+    .split('\0')
     .filter(Boolean)
-    .map((rel) => path.resolve(root, rel))
+    .map((rel) => path.resolve(root, ...rel.split('/')))
     .filter((abs) => shouldHandle(abs));
 }
 
@@ -159,7 +272,12 @@ async function main() {
   const root = repoRoot(cwd);
   if (!root) return passSilent();
 
-  let files = stagedCppFiles(root);
+  let files;
+  try {
+    files = stagedCppFiles(root);
+  } catch (error) {
+    return denyTool(`提交被阻止：无法枚举 Git 暂存区，未执行完整 cpplint 检查。${error && error.message ? ` ${error.message}` : ''}`);
+  }
   if (config.mode === 'incremental') {
     files = files.filter((f) => isNew(f, root) !== false);
   }
@@ -169,6 +287,7 @@ async function main() {
   const allViolations = [];
   const deadline = Date.now() + PRE_COMMIT_DEADLINE_MS;
   let snapshot;
+  let cleanupError = null;
   try {
     snapshot = createStagedSnapshot(root, files);
     for (const stagedFile of snapshot.files) {
@@ -197,7 +316,13 @@ async function main() {
   } catch (e) {
     return denyTool(`提交被阻止：无法创建 Git index 快照，未执行 cpplint 检查。${e && e.message ? ` ${e.message}` : ''}`);
   } finally {
-    if (snapshot) snapshot.cleanup();
+    if (snapshot) {
+      try { snapshot.cleanup(); } catch (error) { cleanupError = error; }
+    }
+  }
+
+  if (cleanupError) {
+    return denyTool(`提交被阻止：无法清理 Git index 临时快照。${cleanupError.message ? ` ${cleanupError.message}` : ''}`);
   }
 
   // 一律硬违规：暂存文件存在任何 cpplint 违规即拦截提交。
@@ -215,4 +340,11 @@ if (require.main === module) {
   });
 }
 
-module.exports = { isGitCommit, stagedCppFiles, tokenizeCommand, gitSubcommand, commitCwd };
+module.exports = {
+  commitCwd,
+  gitSubcommand,
+  isGitCommit,
+  splitCommandSegments,
+  stagedCppFiles,
+  tokenizeCommand,
+};

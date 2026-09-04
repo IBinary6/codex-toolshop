@@ -7,6 +7,21 @@ const { spawn, spawnSync } = require('child_process');
 
 const isWindows = process.platform === 'win32';
 const PLUGIN_NAME = 'codemap-boost-codex';
+const MINIMUM_NODE_MAJOR = 18;
+
+/**
+ * 检查当前 Node.js 是否满足插件启动器的最低版本要求。
+ * @example nodeRuntimeStatus('18.0.0').ok
+ */
+function nodeRuntimeStatus(version = process.versions.node) {
+  const text = String(version || '').replace(/^v/, '');
+  const major = Number.parseInt(text.split('.')[0], 10);
+  return {
+    ok: Number.isInteger(major) && major >= MINIMUM_NODE_MAJOR,
+    version: text,
+    requirement: `>=${MINIMUM_NODE_MAJOR}.0.0`,
+  };
+}
 
 function codexHome() {
   return process.env.CODEX_HOME
@@ -166,7 +181,9 @@ function spawnDetached(cmd, args, options = {}) {
 }
 
 module.exports = {
+  MINIMUM_NODE_MAJOR,
   isWindows,
+  nodeRuntimeStatus,
   codexHome,
   pluginDataDir,
   hookCwd,

@@ -4,20 +4,18 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const { spawnPythonSync } = require('./python-runtime');
 
 const root = path.resolve(__dirname, '..');
 const neutralCli = path.join(root, 'local_knowledge', 'cli.py');
 const legacyCli = path.join(root, 'bugdb', 'cli.py');
-const python = process.env.LOCAL_KNOWLEDGE_TEST_PYTHON
-  || process.env.BUGDB_TEST_PYTHON || 'python';
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'local-knowledge-migrate-'));
 const sourceHome = path.join(temp, 'source-home');
 const neutralTarget = path.join(temp, 'neutral-target', 'knowledge.db');
 const legacyTargetHome = path.join(temp, 'legacy-target-home');
 
 function run(cli, environment, args, expected = 0) {
-  const result = spawnSync(python, [cli, ...args], {
+  const result = spawnPythonSync([cli, ...args], {
     cwd: root,
     encoding: 'utf8',
     env: {

@@ -3,7 +3,18 @@
 const assert = require('node:assert');
 const os = require('os');
 const path = require('path');
-const { pluginDataDir } = require('../lib/runtime');
+const { MINIMUM_NODE_MAJOR, nodeRuntimeStatus, pluginDataDir } = require('../lib/runtime');
+
+{
+  assert.strictEqual(MINIMUM_NODE_MAJOR, 18);
+  assert.deepStrictEqual(nodeRuntimeStatus('18.0.0'), {
+    ok: true,
+    version: '18.0.0',
+    requirement: '>=18.0.0',
+  });
+  assert.strictEqual(nodeRuntimeStatus('17.9.1').ok, false, 'Node 17 is rejected');
+  assert.strictEqual(nodeRuntimeStatus('not-a-version').ok, false, 'an unreadable Node version is rejected');
+}
 
 {
   const oldPluginData = process.env.PLUGIN_DATA;

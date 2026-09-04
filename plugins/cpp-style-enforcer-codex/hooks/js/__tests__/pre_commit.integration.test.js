@@ -6,10 +6,12 @@ const path = require('path');
 
 const pluginRoot = path.join(__dirname, '..', '..', '..');
 const entry = path.join(pluginRoot, 'hooks', 'js', 'pre_commit.js');
-const { commitCwd, isGitCommit } = require(path.join(pluginRoot, 'hooks', 'js', 'pre_commit.js'));
+const cleanupFailureFixture = path.join(__dirname, 'fail_snapshot_cleanup.cjs');
+const stagedDiffFailureFixture = path.join(__dirname, 'fail_staged_diff.cjs');
+const { commitCwd, isGitCommit, stagedCppFiles } = require(path.join(pluginRoot, 'hooks', 'js', 'pre_commit.js'));
 
-function runHook(command, cwd = process.cwd(), inputCwd = undefined) {
-  const r = spawnSync('node', [entry], {
+function runHook(command, cwd = process.cwd(), inputCwd = undefined, nodeArgs = []) {
+  const r = spawnSync(process.execPath, [...nodeArgs, entry], {
     cwd,
     input: JSON.stringify({ tool_name: 'Bash', cwd: inputCwd, tool_input: { command } }),
     encoding: 'utf-8',
@@ -48,6 +50,16 @@ assert.strictEqual(isGitCommit('git -C repo commit -m "x"'), true, 'git -C repo 
 assert.strictEqual(isGitCommit('git -c user.name=x commit -m "x"'), true, 'git -c ... commit 应命中');
 assert.strictEqual(isGitCommit('cd repo; git commit -m "x"'), true, '组合命令中的 git commit 应命中');
 assert.strictEqual(isGitCommit('cmd /c git commit -m "x"'), true, 'cmd /c git commit 应命中');
+assert.strictEqual(isGitCommit('GIT COMMIT -m "x"'), true, '大小写不同的 GIT COMMIT 应命中');
+assert.strictEqual(isGitCommit('git.exe commit -m "x"'), true, 'Windows git.exe commit 应命中');
+assert.strictEqual(isGitCommit('/usr/bin/git commit -m "x"'), true, '绝对路径 git commit 应命中');
+assert.strictEqual(isGitCommit('"C:\\Program Files\\Git\\cmd\\git.exe" commit -m "x"'), true,
+  '带空格的 Windows 绝对路径 git.exe commit 应命中');
+assert.strictEqual(isGitCommit('cmd.exe /C git.exe COMMIT -m "x"'), true, 'cmd /c 包装的 git.exe commit 应命中');
+assert.strictEqual(isGitCommit('cmd /c "C:\\Program Files\\Git\\cmd\\git.exe" commit -m "x"'), true,
+  'cmd /c 包装的带空格绝对路径 git.exe commit 应命中');
+assert.strictEqual(isGitCommit('cmd.exe /d /s /c git.exe commit -m "x"'), true,
+  '带常见 cmd 开关的 /c 包装应命中');
 assert.strictEqual(isGitCommit('command git commit -m "x"'), true, 'command 包装的 git commit 应命中');
 assert.strictEqual(isGitCommit('echo "git commit"'), false, 'echo 内 git commit 不应命中');
 assert.strictEqual(isGitCommit('git commit-graph write'), false, 'commit-graph 不应命中');
@@ -59,6 +71,27 @@ assert.strictEqual(isGitCommit('git status'), false, 'git status 不应命中');
   assert.strictEqual(commitCwd('git commit', base), base);
   assert.strictEqual(commitCwd('git -C repo commit -m "x"', base), path.join(base, 'repo'));
   assert.strictEqual(commitCwd('cd repo; git commit -m "x"', base), path.join(base, 'repo'));
+  assert.strictEqual(commitCwd('cd /d "repo with space" && git.exe commit -m "x"', base),
+    path.join(base, 'repo with space'));
+  assert.strictEqual(commitCwd('cmd /c "cd /d repo && git.exe commit -m x"', base),
+    path.join(base, 'repo'), 'cmd 引号内的 cd 必须决定实际提交目录');
+}
+
+// Git -z 输出必须原样保留空格、中文、shell 元字符；POSIX 还覆盖文件名内换行。
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pre-commit-paths-'));
+  try {
+    git(['init'], tmp);
+    const names = ['src/with space.cc', 'src/中文.cpp', 'src/hash#bracket[1].hpp'];
+    if (process.platform !== 'win32') names.push('src/line\nbreak.cc');
+    for (const name of names) writeBytes(path.join(tmp, ...name.split('/')), CLEAN_CPP);
+    git(['add', '--', ...names], tmp);
+
+    const actual = stagedCppFiles(tmp).map((filePath) => path.relative(tmp, filePath).split(path.sep).join('/'));
+    assert.deepStrictEqual(actual.sort(), [...names].sort(), '暂存文件名必须按 NUL 边界完整解析');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 // 非 commit 命令 → passSilent（exit 0，stdout 空）
@@ -164,6 +197,42 @@ assert.strictEqual(isGitCommit('git status'), false, 'git status 不应命中');
     assert.strictEqual(r.status, 0, '暂存 CPPLINT.cfg 应使对应源码通过检查');
     assert.strictEqual(r.stdout, '', '暂存 CPPLINT.cfg 生效时应静默');
     assert.ok(fs.readFileSync(config).equals(before), '提交检查不得改写工作区 CPPLINT.cfg');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// 无法枚举暂存区时检查不完整，必须明确拒绝提交，不能当作“没有 C++ 文件”。
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pre-commit-staged-diff-failure-'));
+  try {
+    git(['init'], tmp);
+    writeBytes(path.join(tmp, 'clean.cc'), CLEAN_CPP);
+    git(['add', 'clean.cc'], tmp);
+
+    const r = runHook('git commit -m "x"', tmp, undefined, ['--require', stagedDiffFailureFixture]);
+    assert.strictEqual(r.status, 0, 'hook 协议要求拒绝提交时仍 exit 0');
+    const payload = JSON.parse(r.stdout);
+    assert.strictEqual(payload.hookSpecificOutput.permissionDecision, 'deny');
+    assert.match(payload.hookSpecificOutput.permissionDecisionReason, /暂存区|git diff/i);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// 快照清理失败属于检查不完整，必须明确拒绝提交，不能落入顶层 fail-open。
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pre-commit-cleanup-failure-'));
+  try {
+    git(['init'], tmp);
+    writeBytes(path.join(tmp, 'clean.cc'), CLEAN_CPP);
+    git(['add', 'clean.cc'], tmp);
+
+    const r = runHook('git commit -m "x"', tmp, undefined, ['--require', cleanupFailureFixture]);
+    assert.strictEqual(r.status, 0, 'hook 协议要求拒绝提交时仍 exit 0');
+    const payload = JSON.parse(r.stdout);
+    assert.strictEqual(payload.hookSpecificOutput.permissionDecision, 'deny');
+    assert.match(payload.hookSpecificOutput.permissionDecisionReason, /清理.*快照|快照.*清理/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
