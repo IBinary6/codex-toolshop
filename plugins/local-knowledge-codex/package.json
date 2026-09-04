@@ -1,6 +1,6 @@
 {
   "name": "local-knowledge-codex",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Local indexed knowledge for Codex, including fixes, preferences, facts, decisions, and workflows.",
   "license": "MIT",
   "private": true,

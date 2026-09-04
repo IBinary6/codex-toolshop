@@ -19,9 +19,13 @@ function main() {
   /** 校验 Local Knowledge 的清单、hook、skill 和运行时文件。 */
   const manifest = readJson('.codex-plugin/plugin.json');
   const packageJson = readJson('package.json');
+  const pyproject = fs.readFileSync(path.join(root, 'pyproject.toml'), 'utf8');
+  const pyprojectVersion = pyproject.match(/^version\s*=\s*"([^"]+)"/m);
   assert(manifest.name === 'local-knowledge-codex', 'plugin name is wrong');
   assert(packageJson.name === manifest.name, 'package name must match plugin name');
   assert(packageJson.version === manifest.version, 'package version must match plugin version');
+  assert(pyprojectVersion && pyprojectVersion[1] === manifest.version,
+    'pyproject version must match plugin version');
   assert(/^\d+\.\d+\.\d+$/.test(manifest.version), 'plugin version must be plain patch semver');
   assert(manifest.skills === './skills/', 'skills directory must be declared');
   assert(!Object.prototype.hasOwnProperty.call(manifest, 'hooks'), 'plugin.json must omit hooks');

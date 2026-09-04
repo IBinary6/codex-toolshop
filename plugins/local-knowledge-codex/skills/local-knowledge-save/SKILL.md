@@ -16,13 +16,24 @@ description: 将用户明确要求记住的偏好或信息，以及已验证且�
 ## 建模
 
 - `preference`：用户偏好。跨项目稳定偏好使用 `global + pinned`；仅在特定主题相关时使用 `on_match`。
-- `bug`：已验证错误解决方案，`cues` 放原始错误码、关键报错和组件名，默认 `on_match`。
+- `bug`：只保存已验证且有复用价值的错误解决方案，默认 `on_match`；作用域按知识能否跨项目复用来选，不按故障发生目录来选。
 - `fact`：用户要求保存的事实或已核实项目事实，默认 `on_match`。
 - `decision`：已确定的选择及其约束，默认 `on_match`。
 - `workflow`：可重复执行的流程，默认 `on_match`。
 - `note`：不适合上述类型的显式备注；若不应自动出现，使用 `manual`。
 
-作用域优先选择最窄且正确的范围：仓库知识用 `repository`，工作区约定用 `workspace`，真正跨项目的用户偏好才用 `global`。`canonical-key` 使用稳定语义名；`cues` 写未来提问中可能出现的词，不写整段噪声。
+作用域按真实复用边界选择：能跨项目复用的知识用 `global`，只适用于某个工作区或仓库的知识才用 `workspace` 或 `repository`。`canonical-key` 使用稳定语义名；`cues` 写未来提问中可能出现的词，不写整段噪声。
+
+## Bug 记录准则
+
+记录前先判断根因、成立条件和直接修复能否脱离当前项目复用：
+
+- 通用 Bug 使用 `global + on_match`。标题、正文、`cues` 和 `tags` 只保留可复用的症状、稳定错误标识、成立条件、真正根因、直接修复和验证步骤。去掉项目、仓库、分支、提交、客户或业务名称、绝对路径、临时日志值和叙事性排查过程；只有当某项是判断根因所必需的通用技术条件时才保留。
+- 仅当根因或修复实质依赖特定仓库的代码、配置、协议或数据约定，且以后在该项目确有复现价值时，才使用 `repository` 或 `workspace`，并只保留判断和修复所需的最少项目上下文。
+
+根因必须解释症状由什么机制导致，不能写“配置问题”“改完就好了”“某项目需要关闭”之类的空话；未经构建、测试或运行证实的猜测不得写入。
+
+例如：某类编译错误若由通用工具链产物不兼容导致，修复不依赖仓库实现，应记录为 `global + on_match`；只有修复必须调整仓库自定义配置或协议约定时，才记录为项目作用域。
 
 ## 保存
 
@@ -46,7 +57,7 @@ python <plugin-root>/local_knowledge/cli.py --format json remember \
 ```text
 python <plugin-root>/local_knowledge/cli.py --format json recall \
   --query "<未来查询>" --scope-kind <作用域> --scope-key "<作用域标识>" \
-  --explicit --limit 5
+  --occasion prompt --limit 5
 ```
 
-确认返回的 `id`、`kind`、`scope` 和正文正确。无法召回时报告索引或线索问题，不能把写入视为完整成功。
+`on_match` 或 `pinned` 必须先按上述普通提示场景验证自动召回，不能用 `--explicit` 掩盖错误的召回策略；只有 `manual` 或 `confidential` 记录才改用 `--explicit` 验证。确认返回的 `id`、`kind`、`scope_kind`、`scope_key`、`recall_policy` 和正文正确。无法召回时报告索引、作用域、策略或线索问题，不能把写入视为完整成功。
