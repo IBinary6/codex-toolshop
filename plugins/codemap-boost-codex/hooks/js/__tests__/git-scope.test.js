@@ -19,8 +19,13 @@ function git(cwd, args) {
   assert.strictEqual(result.status, 0, result.stderr || result.stdout);
 }
 
-function canonical(target) {
-  return fs.realpathSync(target);
+function assertSameDirectory(actual, expected, message = 'Git resolves the expected directory') {
+  // Windows 的 8.3 短路径与完整路径可能指向同一目录，核对文件系统身份。
+  const actualStat = fs.statSync(actual, { bigint: true });
+  const expectedStat = fs.statSync(expected, { bigint: true });
+  assert.ok(actualStat.isDirectory() && expectedStat.isDirectory(), message);
+  assert.strictEqual(actualStat.dev, expectedStat.dev, message);
+  assert.strictEqual(actualStat.ino, expectedStat.ino, message);
 }
 
 try {
@@ -141,27 +146,27 @@ for (const name of ['isCodeMapEnabled', 'canUseCrg', 'refreshCrgSync', 'startAut
       const refreshes = result.events.filter((event) => event.name === 'refreshCrgSync');
       assert.strictEqual(refreshes.length, name === 'session_start' ? 1 : 0,
         'only SessionStart refreshes; reminders never refresh');
-      if (refreshes.length) assert.strictEqual(canonical(refreshes[0].args[0]), canonical(expectedRoot));
+      if (refreshes.length) assertSameDirectory(refreshes[0].args[0], expectedRoot);
     }
     const implicit = invoke('pre_graph_tool', cwd, graph);
     assert.strictEqual(implicit.output.permissionDecision, 'allow');
-    assert.strictEqual(canonical(implicit.output.updatedInput.repo_root), canonical(expectedRoot));
-    assert.strictEqual(canonical(implicit.events.find((event) => event.name === 'refreshCrgSync').args[0]), canonical(expectedRoot));
+    assertSameDirectory(implicit.output.updatedInput.repo_root, expectedRoot);
+    assertSameDirectory(implicit.events.find((event) => event.name === 'refreshCrgSync').args[0], expectedRoot);
   }
 
   const explicit = invoke('pre_graph_tool', nested, {
     ...graph, tool_input: { ...graph.tool_input, repo_root: linkedNested },
   });
   assert.strictEqual(explicit.output.permissionDecision, 'allow');
-  assert.strictEqual(canonical(explicit.output.updatedInput.repo_root), canonical(linked),
+  assertSameDirectory(explicit.output.updatedInput.repo_root, linked,
     'explicit worktree subdirectory resolves to its own root, not the current checkout');
-  assert.strictEqual(canonical(explicit.events.find((event) => event.name === 'refreshCrgSync').args[0]), canonical(linked));
+  assertSameDirectory(explicit.events.find((event) => event.name === 'refreshCrgSync').args[0], linked);
 
   const fromNonGit = invoke('pre_graph_tool', plain, {
     ...graph, tool_input: { ...graph.tool_input, repo_root: nested },
   });
   assert.strictEqual(fromNonGit.output.permissionDecision, 'allow', 'explicit Git targets remain usable from a non-Git task');
-  assert.strictEqual(canonical(fromNonGit.output.updatedInput.repo_root), canonical(repo));
+  assertSameDirectory(fromNonGit.output.updatedInput.repo_root, repo);
 
   const invalidExplicit = invoke('pre_graph_tool', nested, {
     ...graph, tool_input: { ...graph.tool_input, repo_root: plain },
