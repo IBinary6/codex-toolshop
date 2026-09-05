@@ -76,7 +76,7 @@
     },
     {
       "name": "conversation-namer-codex",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "description": "Automatically names new Codex conversations from the first user message with a lightweight model.",
       "source": {
         "source": "local",

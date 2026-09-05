@@ -55,6 +55,7 @@ function main() {
     'hooks/js/user_prompt_submit.js',
     'hooks/js/name_worker.js',
     'hooks/js/startup_observer.js',
+    'hooks/js/desktop_delivery.js',
     'hooks/js/lib/first_prompt.js',
     'hooks/js/lib/state.js',
     'hooks/js/lib/naming.js',
@@ -86,11 +87,12 @@ function main() {
   const legacyHooks = readJson('hooks/codex-hooks.json');
   assert.deepEqual(hooks, legacyHooks, 'hook manifests must stay identical');
   assert.ok(Array.isArray(hooks.hooks.SessionStart));
-  assert.deepEqual(Object.keys(hooks.hooks), ['SessionStart', 'UserPromptSubmit']);
+  assert.deepEqual(Object.keys(hooks.hooks).sort(), ['PostToolUse', 'SessionStart', 'Stop', 'UserPromptSubmit']);
   assert.equal(hooks.hooks.SessionStart[0].matcher, 'startup|resume|clear|compact');
   const hookText = JSON.stringify(hooks);
   assert.ok(hookText.includes('${PLUGIN_ROOT}'));
-  assert.ok(!hookText.includes('Stop'), 'Stop hook must not be registered');
+  assert.equal(hooks.hooks.Stop[0].hooks[0].timeout, 130);
+  assert.equal(hooks.hooks.PostToolUse[0].matcher, '.*');
   assert.ok(Array.isArray(hooks.hooks.UserPromptSubmit));
   assert.ok(!hookText.includes('"async"'), 'Codex command hooks must not be async');
   assert.doesNotMatch(hookText, /[A-Za-z]:[\\/]/, 'hooks must not contain absolute Windows paths');

@@ -1,6 +1,6 @@
 {
   "name": "conversation-namer-codex",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Automatic Codex conversation naming with a lightweight background model.",
   "license": "MIT",
   "private": true,
@@ -8,7 +8,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "check:syntax": "node --check scripts/run-hook.cjs && node --check scripts/check-plugin.cjs && node --check scripts/run-tests.cjs && node --check hooks/js/session_start.js && node --check hooks/js/user_prompt_submit.js && node --check hooks/js/name_worker.js && node --check hooks/js/startup_observer.js && node --check hooks/js/lib/first_prompt.js && node --check hooks/js/lib/guidance.js && node --check hooks/js/lib/protocol.js && node --check hooks/js/lib/state.js && node --check hooks/js/lib/naming.js && node --check hooks/js/lib/app_server.js",
+    "check:syntax": "node --check scripts/run-hook.cjs && node --check scripts/check-plugin.cjs && node --check scripts/run-tests.cjs && node --check hooks/js/session_start.js && node --check hooks/js/user_prompt_submit.js && node --check hooks/js/name_worker.js && node --check hooks/js/startup_observer.js && node --check hooks/js/desktop_delivery.js && node --check hooks/js/lib/first_prompt.js && node --check hooks/js/lib/guidance.js && node --check hooks/js/lib/protocol.js && node --check hooks/js/lib/state.js && node --check hooks/js/lib/naming.js && node --check hooks/js/lib/app_server.js",
     "check": "node scripts/check-plugin.cjs",
     "test:unit": "node scripts/run-tests.cjs",
     "test": "npm run check:syntax && npm run check && npm run test:unit"

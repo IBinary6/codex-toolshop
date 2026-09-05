@@ -22,6 +22,12 @@ async function nameSession(input, { env = process.env, clientFactory } = {}) {
       return;
     }
     const current = await client.readThreadName(sessionId);
+    // 独立 App Server 的通知不会同步到桌面连接；由当前任务调用宿主工具完成写回。
+    if (current.source === 'vscode') {
+      writeState(sessionId, { status: 'ready', title: result.title, model: result.model,
+        delivery: 'desktop' }, env);
+      return;
+    }
     if (current.originalTitle === result.title) {
       writeState(sessionId, { status: 'done', title: result.title, model: result.model }, env);
       return;
