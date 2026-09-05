@@ -101,6 +101,18 @@ try {
   git(repo, ['commit', '-m', 'init']);
   fs.mkdirSync(path.join(repo, '.code-review-graph'));
 
+  const registryData = path.join(tmp, 'registry-only-data');
+  const registry = spawnSync(process.execPath, [path.join(__dirname, '..', 'pre_graph_tool.js')], {
+    cwd: repo,
+    input: JSON.stringify({ cwd: repo, tool_name: 'mcp__code_review_graph__list_repos_tool', tool_input: {} }),
+    encoding: 'utf8',
+    env: { ...process.env, PLUGIN_DATA: registryData, CODEMAP_BOOST_DISABLE_BOOTSTRAP: '1' },
+    windowsHide: process.platform === 'win32',
+  });
+  assert.strictEqual(registry.status, 0, registry.stderr);
+  assert.strictEqual(registry.stdout, '', 'registry queries must not be denied by an unrelated project refresh');
+  assert.ok(!fs.existsSync(registryData), 'registry queries must not initialize project graph state');
+
   const calls = [];
   const options = {
     canUseCrg: () => true,

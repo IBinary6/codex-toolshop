@@ -84,6 +84,12 @@ assert.ok(
   JSON.stringify(hooks.hooks.PreToolUse).includes('pre_graph_tool'),
   'graph MCP barrier must use the pre_graph_tool hook'
 );
+const searchHook = hooks.hooks.PreToolUse.find((group) => group.matcher === 'Bash');
+assert.ok(searchHook && searchHook.hooks[0].command.includes('pre_code_search'),
+  'Bash (including exec_command) has a soft, filtered graph-first reminder');
+assert.ok(searchHook.hooks[0].timeout <= 5, 'search reminders do not reserve graph refresh time');
+assert.ok(hooks.hooks.UserPromptSubmit[0].hooks[0].timeout <= 5,
+  'prompt hints must not reserve the graph build timeout');
 assert.ok(
   hooks.hooks.PostToolUse.some((group) => String(group.matcher || '').includes('apply_patch')),
   'PostToolUse must refresh after apply_patch edits'

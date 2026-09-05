@@ -2,6 +2,8 @@
 
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 
 const { findPython, pythonCandidates } = require('../hooks/js/run-python.js');
@@ -65,5 +67,23 @@ const propagated = spawnSync(process.execPath, [runner, '--exec', '-c', 'import 
   windowsHide: process.platform === 'win32',
 });
 assert.equal(propagated.status, 7, propagated.stderr);
+
+// SessionStart 的子进程异常必须提供失败信息，不能静默吞掉非零状态。
+const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'proxy-hook-failure-'));
+try {
+  fs.mkdirSync(path.join(temporary, 'scripts'));
+  fs.writeFileSync(path.join(temporary, 'scripts', 'session_start.py'), 'raise SystemExit(7)\n');
+  const failed = spawnSync(process.execPath, [runner, 'session_start'], {
+    input: '{}', encoding: 'utf8',
+    env: { ...process.env, PLUGIN_ROOT: temporary,
+      PLUGIN_DATA: path.join(temporary, 'data'), CODEX_HOME: path.join(temporary, 'codex'),
+      SYSTEM_PROXY_PYTHON: current.command, SYSTEM_PROXY_PYTHON_ARGS: current.prefix.join(' ') },
+    windowsHide: process.platform === 'win32',
+  });
+  assert.equal(failed.status, 0, '失败诊断不阻断主任务');
+  assert.match(JSON.parse(failed.stdout).hookSpecificOutput.additionalContext, /退出码 7/);
+} finally {
+  fs.rmSync(temporary, { recursive: true, force: true });
+}
 
 console.log('test_run_python.js PASS');

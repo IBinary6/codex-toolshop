@@ -2,6 +2,7 @@
 
 const { additionalContext, readStdinJson, hookCwd, passSilent } = require('./lib/runtime');
 const {
+  CONTEXT,
   cleanLegacyCrgGitHook,
   cleanLegacyCrgHooks,
   ensureAgentsBlock,
@@ -11,7 +12,6 @@ const {
   refreshCrgSync,
   removeLegacyCrgMcp,
   startAutoBootstrap,
-  startCrgBuild,
 } = require('./lib/codemap');
 
 async function main() {
@@ -39,7 +39,8 @@ async function main() {
         || 'CodeMap Boost 正在后台安装并配置 code-review-graph。完成后请新开一个 Codex 任务加载 MCP 工具；当前任务不会动态补载新工具。');
     }
   }
-  if (mcpNotice) additionalContext('SessionStart', mcpNotice);
+  // 新任务可能已在 hook 写入 AGENTS 前加载规则；恢复/压缩后也需保留入口提醒。
+  if (isCodeMapEnabled()) additionalContext('SessionStart', [mcpNotice, CONTEXT].filter(Boolean).join(' '));
   passSilent();
 }
 

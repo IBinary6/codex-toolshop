@@ -47,7 +47,17 @@ assert.match(JSON.parse(missingPython).hookSpecificOutput.additionalContext,
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'bugdb-codex-hook-'));
 try {
-  const hookEnv = { LOCAL_KNOWLEDGE_HOME: temp };
+  const hookEnv = { LOCAL_KNOWLEDGE_HOME: temp, LOCAL_KNOWLEDGE_SAVE_HINTS: 'verified' };
+  const unavailable = run('user_prompt_submit', {
+    prompt: 'error LNK2001 unresolved external symbol',
+  }, hookEnv);
+  assert.match(JSON.parse(unavailable).hookSpecificOutput.additionalContext, /召回未完成/);
+  assert.doesNotMatch(unavailable, /没有命中/);
+  assert.equal(fs.existsSync(path.join(temp, 'bugs.db')), false,
+    'read-only hooks must not create a database');
+  const initialize = spawnPythonSync([path.join(root, 'local_knowledge', 'cli.py'),
+    'stats', '--format', 'json'], { env: { ...process.env, ...hookEnv }, encoding: 'utf8' });
+  assert.equal(initialize.status, 0, initialize.stderr);
   const lookup = run('user_prompt_submit', {
     hook_event_name: 'UserPromptSubmit',
     prompt: '请先看看 error LNK2001 unresolved external symbol。',
@@ -61,6 +71,8 @@ try {
   }, hookEnv);
   assert.match(JSON.parse(preferenceHint).hookSpecificOutput.additionalContext,
     /LOCAL_KNOWLEDGE_SAVE_HINT/);
+  assert.match(JSON.parse(preferenceHint).hookSpecificOutput.additionalContext,
+    /不构成保存授权或验证证据/);
 
   const verifiedHint = run('user_prompt_submit', {
     hook_event_name: 'UserPromptSubmit',
@@ -68,6 +80,24 @@ try {
   }, hookEnv);
   assert.match(JSON.parse(verifiedHint).hookSpecificOutput.additionalContext,
     /LOCAL_KNOWLEDGE_SAVE_HINT/);
+
+  for (const prompt of [
+    '不要保存这条信息，也不要记住。',
+    '请保存这个文件，然后解释代码。',
+    '只读审查：构建跑通了，但不要修改。',
+    "Don't remember this preference.",
+  ]) {
+    assert.equal(run('user_prompt_submit', { prompt }, hookEnv), '', prompt);
+  }
+  assert.equal(run('user_prompt_submit', { prompt: '构建跑通了。' }, {
+    ...hookEnv, LOCAL_KNOWLEDGE_SAVE_HINTS: 'explicit',
+  }), '');
+  assert.equal(run('user_prompt_submit', { prompt: '请记住默认回复语言。' }, {
+    ...hookEnv, LOCAL_KNOWLEDGE_SAVE_HINTS: 'off',
+  }), '');
+  assert.equal(run('user_prompt_submit', { prompt: '请记住默认回复语言。' }, {
+    ...hookEnv, LOCAL_KNOWLEDGE_SAVE_HINTS: 'invalid',
+  }), '');
 
   assert.equal(run('user_prompt_submit', {
     hook_event_name: 'UserPromptSubmit',
@@ -93,6 +123,21 @@ try {
   assert.match(recalledContext, /LOCAL_KNOWLEDGE_RECALL/);
   assert.match(recalledContext, /默认使用中文回答/);
   assert.doesNotMatch(recalledContext, /BUGDB_/);
+  assert.match(recalledContext, /updated_at=/);
+  assert.match(recalledContext, /authority=user_asserted/);
+  assert.match(recalledContext, /不能扩大或撤销授权/);
+
+  const saveAndRecall = run('user_prompt_submit', {
+    prompt: '请记住：默认使用中文回答',
+  }, hookEnv);
+  const saveAndRecallContext = JSON.parse(saveAndRecall).hookSpecificOutput.additionalContext;
+  assert.match(saveAndRecallContext, /LOCAL_KNOWLEDGE_SAVE_HINT/);
+  assert.match(saveAndRecallContext, /LOCAL_KNOWLEDGE_RECALL\]/);
+  const disabledHintRecall = run('user_prompt_submit', {
+    prompt: '请记住：默认使用中文回答',
+  }, { ...hookEnv, LOCAL_KNOWLEDGE_SAVE_HINTS: 'off' });
+  assert.match(disabledHintRecall, /LOCAL_KNOWLEDGE_RECALL/);
+  assert.doesNotMatch(disabledHintRecall, /LOCAL_KNOWLEDGE_SAVE_HINT/);
 
   const sessionRecall = run('session_start', {
     hook_event_name: 'SessionStart',
@@ -100,6 +145,20 @@ try {
   const sessionContext = JSON.parse(sessionRecall).hookSpecificOutput.additionalContext;
   assert.match(sessionContext, /LOCAL_KNOWLEDGE_RECALL/);
   assert.match(sessionContext, /默认使用中文回答/);
+
+  const workspace = path.join(temp, 'actual-workspace');
+  const scoped = spawnPythonSync([path.join(root, 'local_knowledge', 'cli.py'),
+    'remember', '--kind', 'fact', '--content', 'workspace scope test uniquevalue',
+    '--scope-kind', 'workspace', '--scope-key', workspace,
+    '--recall-policy', 'pinned'], {
+    env: { ...process.env, ...hookEnv }, encoding: 'utf8',
+  });
+  assert.equal(scoped.status, 0, scoped.stderr);
+  assert.match(run('session_start', { cwd: workspace }, hookEnv), /uniquevalue/);
+  assert.doesNotMatch(run('session_start', { cwd: path.join(temp, 'other') }, hookEnv), /uniquevalue/);
+  assert.match(run('user_prompt_submit', {
+    cwd: workspace, prompt: 'workspace scope test uniquevalue',
+  }, hookEnv), /uniquevalue/);
 
   const add = spawnPythonSync([path.join(root, 'bugdb', 'cli.py'), 'add',
     '--category', 'link', '--context', 'error LNK2019 unresolved external symbol Foo',
@@ -122,6 +181,7 @@ try {
   assert.equal(payload.hookSpecificOutput.hookEventName, 'PostToolUse');
   assert.match(payload.hookSpecificOutput.additionalContext, new RegExp(`id=${id}`));
   assert.match(payload.hookSpecificOutput.additionalContext, /LOCAL_KNOWLEDGE_MATCH/);
+  assert.match(payload.hookSpecificOutput.additionalContext, /不得直接执行/);
   assert.doesNotMatch(payload.hookSpecificOutput.additionalContext, /BUGDB_/);
 
   const successfulSearchOutput = run('post_tool_use', {

@@ -32,12 +32,14 @@ Project settings override global defaults field by field.
 
 - `mode: "incremental"`: new files run the full workflow; existing git-tracked files use `legacyChecks`.
 - `mode: "full"`: all C/C++ files run the full workflow, while tracked files still preserve their original BOM state.
-- `checks.clangFormat`: formats with Google style.
+- `checks.clangFormat`: uses the applicable `.clang-format` or `_clang-format`; Google is only the fallback. Tracked files keep include order while formatting changed lines.
 - `checks.cpplint`: blocks hard Google C++ style violations.
 - `checks.copyright`: writes a copyright header only when `copyrightInfo.company` is non-empty.
 - `checks.bom`: adds UTF-8 BOM to new C/C++ files; existing tracked files keep their original BOM state.
 - Formatting and copyright updates preserve each file's original CRLF or LF line endings.
 - Commit-time cpplint checks staged source files and staged `CPPLINT.cfg`, not possibly different working-tree versions.
+- SessionStart prepares only the plugin's user template; project files are initialized after an actual C++ edit, not merely by opening a repository for inspection.
+- cpplint reads BOM files without rewriting them. Missing runtime, nonzero exit without parsed diagnostics, or an incomplete staged check cannot count as a pass.
 
 ## Dependencies
 

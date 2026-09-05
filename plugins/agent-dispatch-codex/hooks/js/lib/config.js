@@ -13,6 +13,40 @@ const OVERRIDE_KEYS = [
   'prompt_keywords',
 ];
 
+// 2026-09-05 宿主暴露的能力快照，仅用于校验，不代表账号已开放这些模型。
+const STANDARD_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
+const KNOWN_MODEL_EFFORTS = new Map([
+  ['gpt-6-astra', [...STANDARD_EFFORTS, 'max', 'ultra']],
+  ['gpt-5.6-sol', [...STANDARD_EFFORTS, 'max', 'ultra']],
+  ['gpt-5.6-terra', [...STANDARD_EFFORTS, 'max', 'ultra']],
+  ['gpt-5.6-luna', [...STANDARD_EFFORTS, 'max']],
+  ['gpt-5.5', STANDARD_EFFORTS],
+  ['gpt-5.4-mini', STANDARD_EFFORTS],
+  ['gpt-5.3-codex-spark', STANDARD_EFFORTS],
+]);
+
+function modelEffortWarnings(config) {
+  const settings = config && config.agent_profiles;
+  if (!settings || settings.enabled === false) return [];
+  const warnings = [];
+  for (const [name, profile] of Object.entries(settings.profiles || {})) {
+    if (!profile || profile.enabled === false) continue;
+    const model = typeof profile.model === 'string' ? profile.model.trim() : '';
+    const effort = typeof profile.model_reasoning_effort === 'string'
+      ? profile.model_reasoning_effort.trim() : '';
+    if (!model) continue;
+    const supported = KNOWN_MODEL_EFFORTS.get(model);
+    if (!supported) {
+      warnings.push(`${name}: 本插件未记录 ${model} 的能力；按宿主实际支持校验，不自动映射其他型号。`);
+    } else if (effort && !supported.includes(effort)) {
+      warnings.push(`${name}: ${model}/${effort} 超出本插件已知能力（${supported.join(', ')}）。配置保留；启动前核对宿主支持，不能直接使用未获支持的组合或擅自替换显式模型。`);
+    } else if (!effort) {
+      warnings.push(`${name}: ${model} 继承主任务推理档位；启动前确认该档位受支持，不能直接继承不兼容的 ultra。`);
+    }
+  }
+  return warnings;
+}
+
 function pluginRoot() {
   return process.env.PLUGIN_ROOT
     ? path.resolve(process.env.PLUGIN_ROOT)
@@ -73,8 +107,16 @@ function mergeConfig(base, layer) {
       result.agent_profiles.profiles = result.agent_profiles.profiles || {};
       for (const [name, profile] of Object.entries(profiles)) {
         if (!profile || typeof profile !== 'object' || Array.isArray(profile)) continue;
+        const previous = result.agent_profiles.profiles[name] || {};
+        const changesModel = typeof profile.model === 'string'
+          && profile.model.trim() !== String(previous.model || '').trim();
         result.agent_profiles.profiles[name] = {
-          ...(result.agent_profiles.profiles[name] || {}),
+          ...previous,
+          // 已知模型单独切换时使用本插件的 medium 预设，避免继承旧模型或主任务的 ultra。
+          // 未知模型不猜能力；同层显式 effort（包括空字符串）仍优先。
+          ...(changesModel ? {
+            model_reasoning_effort: KNOWN_MODEL_EFFORTS.has(profile.model.trim()) ? 'medium' : '',
+          } : {}),
           ...profile,
         };
       }
@@ -188,6 +230,7 @@ module.exports = {
   loadConfig,
   loadDefaults,
   mergeConfig,
+  modelEffortWarnings,
   pluginDataDir,
   projectConfigPath,
 };

@@ -11,6 +11,7 @@ import hashlib
 import os
 import re
 import sqlite3
+import weakref
 import unicodedata
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -328,17 +329,24 @@ class KnowledgeBase:
         'created'
     """
 
-    def __init__(self, db_path: Path | str | None = None):
-        """解析共享数据库路径并确保新表、FTS 和触发器存在。"""
+    def __init__(self, db_path: Path | str | None = None, *, read_only: bool = False):
+        """解析共享路径；只读模式仅检查现有表，不执行初始化或迁移。"""
         self._path = paths.get_db_path(db_path)
+        self._read_only = read_only
         self._memory = str(self._path) == ":memory:"
         self._keepalive: sqlite3.Connection | None = None
         self._fts_mode = "like"
+        self._has_knowledge_table = True
+        if self._read_only:
+            self._inspect_schema()
+            return
         if not self._memory:
             self._path.parent.mkdir(parents=True, exist_ok=True)
         else:
             self._keepalive = sqlite3.connect(":memory:")
             self._keepalive.row_factory = sqlite3.Row
+            # 内存库与 KnowledgeBase 同寿命；释放对象时关闭唯一的保活连接。
+            weakref.finalize(self, self._keepalive.close)
         self._ensure_schema()
 
     @property
@@ -357,9 +365,13 @@ class KnowledgeBase:
                 self._keepalive.rollback()
                 raise
             return
-        conn = sqlite3.connect(str(self._path))
+        conn = (sqlite3.connect(self._path.resolve().as_uri() + "?mode=ro", uri=True)
+                if self._read_only else sqlite3.connect(str(self._path)))
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
+        if self._read_only:
+            conn.execute("PRAGMA query_only=ON")
+        else:
+            conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=3000")
         conn.execute("PRAGMA foreign_keys=ON")
         try:
@@ -370,6 +382,25 @@ class KnowledgeBase:
             raise
         finally:
             conn.close()
+
+    def _inspect_schema(self) -> None:
+        """只读探测基础表和现有索引；能力缺失时不修复持久对象。"""
+        with self._connection() as conn:
+            self._has_knowledge_table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='knowledge_items'"
+            ).fetchone() is not None
+            row = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='knowledge_items_fts'"
+            ).fetchone()
+            mode = _fts_tokenizer(row["sql"]) if row is not None else None
+            if mode:
+                try:
+                    _probe_fts_table(conn)
+                except sqlite3.Error as error:
+                    if not _is_fts_capability_error(error):
+                        raise
+                else:
+                    self._fts_mode = mode
 
     def _ensure_schema(self) -> None:
         """创建中性知识表，并按 SQLite 能力选择安全的索引模式。"""
@@ -443,12 +474,12 @@ class KnowledgeBase:
         ).fetchone()
 
     def remember(self, content: str, *, kind: str = "note",
-                 canonical_key: str | None = None, title: str = "",
+                 canonical_key: str | None = None, title: str | None = None,
                  cues: Iterable[Any] | str | None = None,
                  tags: Iterable[Any] | str | None = None,
                  scope_kind: str = "global", scope_key: str = "",
-                 recall_policy: str = "on_match",
-                 authority: str = "user_asserted", sensitivity: str = "normal") -> dict[str, Any]:
+                 recall_policy: str | None = None,
+                 authority: str | None = None, sensitivity: str | None = None) -> dict[str, Any]:
         """显式保存知识，按范围、类型和 key 幂等去重。
 
         Example:
@@ -460,31 +491,48 @@ class KnowledgeBase:
             raise KnowledgeArgumentError("content must not be empty")
         kind = _value(kind, _KINDS, "kind")
         scope_kind = _value(scope_kind, _SCOPES, "scope_kind")
-        recall_policy = _value(recall_policy, _POLICIES, "recall_policy")
-        authority = _value(authority, _AUTHORITIES, "authority")
-        sensitivity = _value(sensitivity, _SENSITIVITIES, "sensitivity")
-        title = _clean_text(title)
         raw_scope_key = _clean_text(scope_key) if scope_kind != "global" else ""
         if scope_kind != "global" and not raw_scope_key:
             raise KnowledgeArgumentError("scope_key must not be empty for scoped knowledge")
         scope_key = _normalize_scope_path(raw_scope_key) if scope_kind != "global" else ""
         key = _canonical_key(normalized_content, canonical_key)
-        cue_values = _clean_list(cues)
-        tag_values = _clean_list(tags)
-        if sensitivity == "confidential" and recall_policy != "manual":
-            raise KnowledgeArgumentError(
-                "confidential knowledge must use recall_policy=manual"
-            )
-        if authority == "imported" and recall_policy == "pinned":
-            raise KnowledgeArgumentError(
-                "imported knowledge cannot use recall_policy=pinned"
-            )
-        _reject_sensitive(" ".join((normalized_content, title, key,
-                                    *cue_values, *tag_values)))
         now = _now_iso()
         with self._connection() as conn:
             existing = self._find_existing(conn, scope_kind, scope_key, kind, key)
-            if existing is not None and existing["content"] == normalized_content:
+
+            def retained(value: Any, field: str, default: str) -> Any:
+                """省略字段时保留原记录，避免修正文案意外放宽召回或保密策略。"""
+                if value is not None:
+                    return value
+                return existing[field] if existing is not None else default
+
+            title = _clean_text(retained(title, "title", ""))
+            cue_values = _clean_list(retained(cues, "cues", ""))
+            tag_values = _clean_list(retained(tags, "tags", ""))
+            recall_policy = _value(retained(recall_policy, "recall_policy", "on_match"),
+                                   _POLICIES, "recall_policy")
+            authority = _value(retained(authority, "authority", "user_asserted"),
+                               _AUTHORITIES, "authority")
+            sensitivity = _value(retained(sensitivity, "sensitivity", "normal"),
+                                 _SENSITIVITIES, "sensitivity")
+            if sensitivity == "confidential" and recall_policy != "manual":
+                raise KnowledgeArgumentError(
+                    "confidential knowledge must use recall_policy=manual"
+                )
+            if authority == "imported" and recall_policy == "pinned":
+                raise KnowledgeArgumentError(
+                    "imported knowledge cannot use recall_policy=pinned"
+                )
+            _reject_sensitive(" ".join((normalized_content, title, key,
+                                        *cue_values, *tag_values)))
+            desired = {
+                "title": title, "content": normalized_content,
+                "cues": ",".join(cue_values), "tags": ",".join(tag_values),
+                "recall_policy": recall_policy, "authority": authority,
+                "sensitivity": sensitivity, "status": "active",
+            }
+            if existing is not None and all(existing[field] == value
+                                            for field, value in desired.items()):
                 item = self._row_to_item(existing)
                 return self._receipt(item, "unchanged")
             if existing is None:
@@ -683,7 +731,8 @@ class KnowledgeBase:
                 if not _is_fts_capability_error(error):
                     raise
                 # 运行期间能力失效时停用触发器；LIKE 仍保留原 policy/scope 限制。
-                _drop_fts_triggers(conn)
+                if not self._read_only:
+                    _drop_fts_triggers(conn)
                 self._fts_mode = "like"
         if cue:
             normalized_cue = _clean_text(cue).casefold()
@@ -750,7 +799,8 @@ class KnowledgeBase:
             from bugdb.exceptions import BugDBError
             from bugdb.search import search
 
-            records = search(BugDB(self._path), cue, include_deprecated=False, limit=limit)
+            records = search(BugDB(self._path, read_only=self._read_only), cue,
+                             include_deprecated=False, limit=limit)
         except (BugDBError, sqlite3.Error) as error:
             raise KnowledgeError(f"legacy knowledge lookup failed: {error}") from error
         results: list[dict[str, Any]] = []
@@ -773,6 +823,7 @@ class KnowledgeBase:
                 "tags": list(record.tags),
                 "category": record.category.value,
                 "status": record.status.value,
+                "updated_at": record.updated_at,
                 "score": score[0],
                 "match_reason": score[1],
             })
@@ -830,7 +881,7 @@ class KnowledgeBase:
             raise KnowledgeArgumentError("limit must be greater than zero")
         policies = self._allowed_policies(policy, occasion, explicit, cue)
         results: list[dict[str, Any]] = []
-        if policies:
+        if policies and self._has_knowledge_table:
             scope_sql, scope_params = self._scope_sql(scope_kind, scope_key)
             with self._connection() as conn:
                 rows = self._candidate_rows(conn, cue, policies, scope_sql,
@@ -847,13 +898,15 @@ class KnowledgeBase:
     def stats(self) -> dict[str, Any]:
         """返回新表统计，并显式报告 FTS 表和同步触发器是否存在。"""
         with self._connection() as conn:
-            total = conn.execute("SELECT COUNT(*) FROM knowledge_items").fetchone()[0]
-            by_kind = dict(conn.execute(
-                "SELECT kind, COUNT(*) FROM knowledge_items GROUP BY kind"
-            ).fetchall())
-            by_status = dict(conn.execute(
-                "SELECT status, COUNT(*) FROM knowledge_items GROUP BY status"
-            ).fetchall())
+            total, by_kind, by_status = 0, {}, {}
+            if self._has_knowledge_table:
+                total = conn.execute("SELECT COUNT(*) FROM knowledge_items").fetchone()[0]
+                by_kind = dict(conn.execute(
+                    "SELECT kind, COUNT(*) FROM knowledge_items GROUP BY kind"
+                ).fetchall())
+                by_status = dict(conn.execute(
+                    "SELECT status, COUNT(*) FROM knowledge_items GROUP BY status"
+                ).fetchall())
             legacy_bug_total = 0
             legacy_table = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' "

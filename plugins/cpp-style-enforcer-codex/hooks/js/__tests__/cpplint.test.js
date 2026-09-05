@@ -66,6 +66,22 @@ assert.ok(
   '不抑制版权时仍保留团队默认 filter',
 );
 
+// 运行时失败不能冒充零违规，不依赖本机 Python 或 Git。
+assert.ok(runCpplint(__filename, { resolvePython: () => null })
+  .some((item) => item.category === 'runtime/cpplint'));
+for (const result of [
+  { status: 7, stderr: Buffer.from('Traceback: linter failed') },
+  { status: null, signal: 'SIGTERM' },
+  { error: { code: 'ENOENT' } },
+  { status: 0, stderr: Buffer.from('Line length must be numeric.') },
+]) {
+  const violations = runCpplint(__filename, {
+    resolvePython: () => ({ cmd: 'test-python', args: [] }),
+    spawnSync: () => result,
+  });
+  assert.ok(violations.some((item) => item.category === 'runtime/cpplint'));
+}
+
 // ---- runCpplint：真实文件名下无误报 + 原文件零改动（需 python）----
 const hasPython = resolvePython() !== null;
 if (hasPython) {
@@ -121,12 +137,15 @@ if (hasPython) {
     const bazGuard = '#ifndef PROJ_SRC_BAZ_H_\r\n#define PROJ_SRC_BAZ_H_\r\n\r\nclass Baz {};\r\n\r\n#endif  // PROJ_SRC_BAZ_H_\r\n';
     const bomBytes = Buffer.concat([BOM, Buffer.from(bazGuard, 'utf-8')]);
     fs.writeFileSync(bomH, bomBytes);
+    fs.utimesSync(bomH, new Date(1000000), new Date(1000000));
+    const bomMtime = fs.statSync(bomH).mtimeMs;
     const vBom = runCpplint(bomH, { root: tmp, suppressCopyright: true });
     assert.ok(
       !vBom.some((v) => v.category === 'build/header_guard'),
       'BOM 头文件剥 BOM 后不误报 header_guard',
     );
     assert.ok(fs.readFileSync(bomH).equals(bomBytes), 'BOM + CRLF 文件 lint 后原字节（含 BOM 与 CRLF）恢复');
+    assert.strictEqual(fs.statSync(bomH).mtimeMs, bomMtime, 'BOM lint 过程中也不能写文件');
 
     // 5) suppressCopyright 开关
     const fc = path.join(src, 'nocopy.cpp');

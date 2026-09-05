@@ -23,12 +23,13 @@ function main() {
   const pyprojectVersion = pyproject.match(/^version\s*=\s*"([^"]+)"/m);
   assert(manifest.name === 'local-knowledge-codex', 'plugin name is wrong');
   assert(packageJson.name === manifest.name, 'package name must match plugin name');
-  assert(packageJson.version === manifest.version, 'package version must match plugin version');
+  const releaseVersion = manifest.version.split('+')[0];
+  assert(packageJson.version === releaseVersion, 'package must match the plugin release version');
   assert(packageJson.engines && packageJson.engines.node === '>=18',
     'plugin must declare Node.js 18+');
-  assert(pyprojectVersion && pyprojectVersion[1] === manifest.version,
-    'pyproject version must match plugin version');
-  assert(/^\d+\.\d+\.\d+$/.test(manifest.version), 'plugin version must be plain patch semver');
+  assert(pyprojectVersion && pyprojectVersion[1] === releaseVersion,
+    'pyproject must match the plugin release version');
+  assert(/^\d+\.\d+\.\d+(?:\+codex\.[a-z0-9-]+)?$/.test(manifest.version), 'plugin version must be semver with optional Codex cache metadata');
   assert(manifest.skills === './skills/', 'skills directory must be declared');
   assert(!Object.prototype.hasOwnProperty.call(manifest, 'hooks'), 'plugin.json must omit hooks');
   assert(fs.existsSync(path.join(root, manifest.interface.composerIcon)), 'composer icon is missing');

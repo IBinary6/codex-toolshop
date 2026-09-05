@@ -238,4 +238,31 @@ assert.strictEqual(isGitCommit('git status'), false, 'git status 不应命中');
   }
 }
 
+// 显式启用 legacyChecks.cpplint 时，已提交过的文件同样必须检查。
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pre-commit-legacy-checks-'));
+  try {
+    git(['init'], tmp);
+    git(['config', 'user.email', 'test@example.invalid'], tmp);
+    git(['config', 'user.name', 'test'], tmp);
+    git(['config', 'commit.gpgsign', 'false'], tmp);
+    writeBytes(path.join(tmp, 'legacy.cc'), CLEAN_CPP);
+    git(['add', 'legacy.cc'], tmp);
+    git(['commit', '-m', 'baseline'], tmp);
+    writeBytes(path.join(tmp, '.codex-cpp-style', 'cpp-style.json'), Buffer.from(JSON.stringify({
+      mode: 'incremental', checks: { cpplint: false },
+      legacyChecks: { cpplint: true, copyright: false },
+    })));
+    writeBytes(path.join(tmp, 'legacy.cc'), VIOLATION_CPP);
+    git(['add', 'legacy.cc'], tmp);
+    const result = runHook('git commit -m "check legacy"', tmp);
+    assert.strictEqual(result.status, 0);
+    const payload = JSON.parse(result.stdout);
+    assert.strictEqual(payload.hookSpecificOutput.permissionDecision, 'deny');
+    assert.match(payload.hookSpecificOutput.permissionDecisionReason, /legacy.cc/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 console.log('pre_commit.integration.test.js PASS');

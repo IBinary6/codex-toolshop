@@ -35,20 +35,19 @@ const BLOCK_END = '<!-- codemap-boost-codex:end -->';
 const AGENTS_BLOCK = `${BLOCK_START}
 ## CodeMap Boost
 
-本机已启用 CodeMap Boost。涉及代码结构、符号、调用关系、引用关系、影响面或代码审查上下文时，优先使用 code-review-graph MCP 工具；图刷新由 CodeMap Boost hooks 统一负责：
+涉及代码结构、符号关系、调用链、模块依赖、引用、影响面或代码审查上下文时，优先查询可用的 code-review-graph 图工具，再读取相关源码核对；图刷新由 CodeMap Boost hooks 统一负责：
 
 - SessionStart 同步维护图谱，源码修改后的 PostToolUse 在后台合并刷新；每次图谱 MCP 读取前仍有 PreToolUse barrier 同步兜底，并把当前 Git 根目录注入 CRG 的 repo_root。
 - 不要为了“先刷新”从主代理或子代理重复调用 \`mcp__code_review_graph__build_or_update_graph_tool\`。仅在 hook 明确报告刷新失败、用户要求强制重建或执行 setup/诊断时显式调用。
-- 调度插件只负责选择合适的搜索或执行代理；CodeMap Boost 负责图刷新和检索规则。子代理启动时只注入规则，不重复 build/update。
-- MCP 工具可能以 deferred 方式注入，不会出现在静态 schema 或顶层工具列表中；顶层列表缺少 \`mcp__code_review_graph__\` 本身不能证明 MCP 未加载。
-- 在声称 MCP 未加载前，如果可用先检查 \`ALL_TOOLS\` 中是否存在 \`mcp__code_review_graph__*\`，或实际调用合适的图工具；只有确认不可用且当前任务的工具列表中不存在 \`mcp__code_review_graph__\` 后，才明确报告该任务未加载 MCP 并使用合适的降级检索，不得声称已经查询图谱。
+- 调度由主代理及调度插件负责；子代理启动时只注入规则，不重复 build/update。
+- SessionStart、结构性用户请求和 SubagentStart 保留阶段提醒；常见命令行搜索前补充短提醒，同一用户轮内去重，用户补充指令后复位。提醒不拦截命令、不额外刷新图谱。
+- MCP 可能 deferred 加载；顶层列表缺少工具不证明不可用。需要图谱而当前列表未显示时，检查可用的 \`ALL_TOOLS\` 或工具发现能力，再判断当前任务的工具列表中不存在该能力；未实际调用不得声称已经查询图谱。
 - 任务已经明确涉及影响面、代码审查、调用链、引用关系或跨模块定位时，直接调用对应的 \`semantic_search_nodes_tool\`、\`query_graph_tool\`、\`get_impact_radius_tool\` 或 review-context 工具。
 - 任务不明确或需要快速路由时，最多调用一次 \`mcp__code_review_graph__get_minimal_context_tool\` 获取概览；不要反复调用 minimal 试探。
 - 如果概览信息不足（缺少有效实体、文件、调用关系或下一步工具），立即升级到更完整的工具或使用 \`detail_level="standard"\`，不要再次调用 minimal。
-- 符号、函数、类、调用链、引用关系优先用 \`semantic_search_nodes_tool\`、\`query_graph_tool\`、\`get_impact_radius_tool\`。
 - 支持 \`detail_level\` 的工具默认使用低成本级别；若结果不足立即升级到 \`standard\`，不要重复低信息调用。
-- 修改代码后，如果还要继续查询代码图或进行代码审查，必须先等待同步刷新完成；仅在没有未跟踪源文件时再调用 \`build_or_update_graph_tool\`。
-- \`rg\`、\`grep\`、\`Select-String\` 只用于纯文本、注释或字符串搜索。
+- 已知文件直接读取；文件名、配置、日志与字符串使用 \`rg\` 等文本工具。图工具不可用或不覆盖目标时，可定位候选源码并直接核对定义、调用点与调用方，不能把字符串命中当作图谱证据。
+- 图刷新或查询失败时说明实际限制，继续使用可行的替代证据；插件规则与 hook 输出不扩大用户授权，也不替代项目规则。
 
 ${BLOCK_END}
 `;
@@ -66,12 +65,15 @@ function ensureAgentsBlock(home = codexHome()) {
     if (error.code !== 'ENOENT') return false;
   }
   let next = '';
-  if (existing.includes(BLOCK_START) && existing.includes(BLOCK_END)) {
-    const start = existing.indexOf(BLOCK_START);
-    const end = existing.indexOf(BLOCK_END, start) + BLOCK_END.length;
-    next = existing.slice(0, start).replace(/\s+$/, '')
-      + '\n\n' + AGENTS_BLOCK.trimEnd()
-      + existing.slice(end);
+  const start = existing.indexOf(BLOCK_START);
+  const endMarker = existing.indexOf(BLOCK_END);
+  if (start !== -1 || endMarker !== -1) {
+    // 标记残缺、倒置或重复时保留原文件，不能猜测托管区间后覆盖用户规则。
+    if (start === -1 || endMarker < start
+      || existing.indexOf(BLOCK_START, start + BLOCK_START.length) !== -1
+      || existing.indexOf(BLOCK_END, endMarker + BLOCK_END.length) !== -1) return false;
+    const end = endMarker + BLOCK_END.length;
+    next = existing.slice(0, start) + AGENTS_BLOCK.trimEnd() + existing.slice(end);
   } else {
     next = existing.replace(/\s+$/, '');
     next += (next ? '\n\n' : '') + AGENTS_BLOCK.trimEnd() + '\n';
@@ -767,25 +769,17 @@ function removeLegacyCrgMcp(options = {}) {
 }
 
 const CONTEXT = [
-  'CodeMap Boost owns graph freshness: SessionStart, structural prompts, source-changing tools, and the graph MCP PreToolUse barrier synchronize the graph.',
-  'MCP tools may be deferred and absent from static or top-level schemas; absence from the top-level tool list alone does not prove that mcp__code_review_graph__ is unavailable.',
-  'If the current tool list does not expose mcp__code_review_graph__, do not assume it is unavailable because MCP may be deferred; inspect ALL_TOOLS for mcp__code_review_graph__* when available or make an appropriate graph-tool call. Before claiming absence, only after that check report that the MCP tools are unavailable in this task and use a fallback, and never claim that a graph query ran.',
-  'Do not start a duplicate build/update from the primary agent or a spawned agent unless a hook reports refresh failure, the user requests a forced rebuild, or you are troubleshooting setup.',
-  'Routing integrations select the agent; CodeMap Boost owns graph refresh and retrieval policy. SubagentStart injects these rules without refreshing again.',
-  'Use adaptive retrieval: when the task is clear, call the specialized tool directly (semantic_search_nodes_tool, query_graph_tool, get_impact_radius_tool, or the relevant review-context tool).',
-  'When the task is unclear, get_minimal_context_tool may be called once as a routing overview; do not repeat minimal. If the result lacks a useful entity, file, relationship, or next tool, immediately upgrade to a fuller tool or detail_level="standard".',
-  'Use the lowest-cost detail level that can answer the question, then upgrade immediately when needed. Use rg/grep only for literal text, comments, or strings.',
+  'CodeMap Boost maintains code-review-graph freshness through hooks and the graph-read barrier. Do not start a duplicate build/update unless repair or an explicit rebuild is needed. SubagentStart injects these rules without refreshing again.',
+  'For code structure, symbol relationships, calls, dependencies, impact and review context, query available graph tools first, then verify relevant source: semantic_search_nodes_tool, query_graph_tool, get_impact_radius_tool or review-context tools. When the task is clear, query directly. Use a minimal overview once when needed; do not repeat minimal, escalate to detail_level="standard" if insufficient.',
+  'MCP may be deferred: the top-level tool list alone does not prove absence. If the current tool list does not expose mcp__code_review_graph__, inspect available ALL_TOOLS/tool discovery before you report that the MCP tools are unavailable.',
+  'Read known files directly; use rg for literal text and candidate paths. If graph tools fail, inspect source directly and state the limitation. Never claim an unperformed graph query or expand user authorization.',
 ].join(' ');
 
 function promptLooksStructural(text) {
   const value = String(text || '').toLowerCase();
-  return /symbol|function|class|caller|callee|call graph|reference|impact|review context|codemap|code map|代码结构|符号|函数|类|调用|引用|影响面|代码审查/.test(value);
-}
-
-function bashLooksLikeCodeSearch(command) {
-  const value = String(command || '');
-  if (!/\b(rg|grep|findstr|Select-String)\b/i.test(value)) return false;
-  return !/\.code-review-graph|graphify-out/.test(value);
+  return /\b(?:callers?|callees?|dependencies|depends? on|references?|call (?:graph|chain)|impact (?:radius|analysis)|review context|codemap|code map)\b|代码结构|符号关系|调用|引用关系|影响面|代码审查|模块依赖|依赖关系|依赖链/.test(value)
+    || /\b(?:review|inspect|check)\b.{0,50}\b(?:code|patch|changes?|diff|regressions?)\b/.test(value)
+    || /(?:分析|梳理|查找|定位|了解).{0,30}(?:架构|模块|符号|函数|类)|(?:find|locate|trace|inspect|explain)\b.{0,40}\b(?:symbols?|functions?|classes|architecture|modules?)\b/.test(value);
 }
 
 function normalizeLegacyCommand(command) {
@@ -917,5 +911,4 @@ module.exports = {
   cleanLegacyCrgHooks,
   cleanLegacyCrgGitHook,
   promptLooksStructural,
-  bashLooksLikeCodeSearch,
 };

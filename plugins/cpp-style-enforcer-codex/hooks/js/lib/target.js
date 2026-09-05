@@ -32,20 +32,23 @@ function resolveFilePaths(input) {
     const resolved = toAbs(value.trim());
     if (!paths.includes(resolved)) paths.push(resolved);
   };
+  const addPatchPaths = (patch) => {
+    for (const line of patch.split(/\r?\n/)) {
+      const match = line.match(/^\*\*\* (?:(?:Add|Update) File|Move to):\s+(.+?)\s*$/);
+      if (match) add(match[1]);
+    }
+  };
 
   const t = input.tool_input;
   if (t && typeof t === 'object') {
     add(t.file_path || t.path || null);
     if (t.relative_path) add(t.relative_path);
     if (typeof t.command === 'string') {
-      for (const line of t.command.split(/\r?\n/)) {
-        let match = line.match(/^\*\*\* (?:Add|Update) File:\s+(.+?)\s*$/);
-        if (!match) match = line.match(/^\*\*\* Move to:\s+(.+?)\s*$/);
-        if (match) add(match[1]);
-      }
+      addPatchPaths(t.command);
     }
   } else if (typeof t === 'string') {
-    add(t);
+    if (t.trimStart().startsWith('*** Begin Patch')) addPatchPaths(t);
+    else add(t);
   }
   add(input.file_path || input.path || null);
   return paths;

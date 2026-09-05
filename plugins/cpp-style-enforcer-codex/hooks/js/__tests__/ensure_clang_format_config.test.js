@@ -55,6 +55,16 @@ try {
     assert.doesNotThrow(() => ensureClangFormatConfig(null), 'root=null 不应抛出');
   }
 
+  // 5. 父目录风格正在生效时，不用仓库根的缺省风格遮盖它。
+  {
+    const parent = mkRepo();
+    const root = path.join(parent, 'nested');
+    fs.mkdirSync(root);
+    fs.writeFileSync(path.join(parent, '.clang-format'), 'BasedOnStyle: LLVM\nIndentWidth: 4\n');
+    ensureClangFormatConfig(root);
+    assert.ok(!fs.existsSync(path.join(root, '.clang-format')), '保留父目录配置继承');
+  }
+
   console.log('ensure_clang_format_config.test.js PASS');
 } finally {
   for (const t of tmps) fs.rmSync(t, { recursive: true, force: true });

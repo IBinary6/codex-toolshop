@@ -73,6 +73,7 @@ try {
   assert.equal(duplicate.operation, 'unchanged');
   assert.equal(duplicate.status, 'active');
   assert.equal(duplicate.revision, 1);
+  assert.deepEqual(duplicate.tags, ['user', 'ui']);
 
   const updated = json(['remember', '--kind', 'preference',
     '--canonical-key', 'editor.theme', '--title', '编辑器偏好',
@@ -178,6 +179,12 @@ try {
     '--canonical-key', 'customer.internal.alias', '--content', '客户内部代号是海棠',
     '--cues', '客户代号,海棠', '--sensitivity', 'confidential',
     '--recall-policy', 'manual']);
+  const revisedConfidential = json(['remember', '--kind', 'note',
+    '--canonical-key', 'customer.internal.alias', '--content', '客户内部代号是海棠，已核实']);
+  assert.equal(revisedConfidential.operation, 'updated');
+  assert.equal(revisedConfidential.recall_policy, 'manual');
+  assert.equal(revisedConfidential.sensitivity, 'confidential');
+  assert.deepEqual(revisedConfidential.cues, ['客户代号', '海棠']);
   const confidentialAuto = json(['recall', '--query', '客户代号是什么']);
   assert.equal(confidentialAuto.results.some((item) => item.id === confidential.id), false);
   const confidentialExplicit = json(['recall', '--query', '客户代号是什么', '--explicit']);

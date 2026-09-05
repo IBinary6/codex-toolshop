@@ -1,6 +1,6 @@
 {
   "name": "system-proxy-codex",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Enable Codex system-proxy support automatically and configure proxy environment variables safely with Python.",
   "author": {
     "name": "IBinary6",
@@ -28,9 +28,9 @@
     ],
     "websiteURL": "https://github.com/IBinary6/codex-toolshop",
     "defaultPrompt": [
-      "使用 system-proxy-setup 一键配置 Codex 代理。",
-      "使用 system-proxy-setup，把 Codex 代理端口设置为 7890。",
-      "检查当前 Codex 系统代理配置。"
+      "\u4f7f\u7528 system-proxy-setup \u4e00\u952e\u914d\u7f6e Codex \u4ee3\u7406\u3002",
+      "\u4f7f\u7528 system-proxy-setup\uff0c\u628a Codex \u4ee3\u7406\u7aef\u53e3\u8bbe\u7f6e\u4e3a 7890\u3002",
+      "\u68c0\u67e5\u5f53\u524d Codex \u7cfb\u7edf\u4ee3\u7406\u914d\u7f6e\u3002"
     ],
     "brandColor": "#2563EB",
     "composerIcon": "./assets/icon.svg",

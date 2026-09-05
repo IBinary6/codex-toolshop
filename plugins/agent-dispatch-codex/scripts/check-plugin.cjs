@@ -35,8 +35,9 @@ for (const file of required) {
 const manifest = readJson('.codex-plugin/plugin.json');
 const packageJson = readJson('package.json');
 assert.equal(manifest.name, packageJson.name);
-assert.equal(manifest.version, packageJson.version);
-assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+const releaseVersion = manifest.version.split('+')[0];
+assert.equal(releaseVersion, packageJson.version);
+assert.match(manifest.version, /^\d+\.\d+\.\d+(?:\+codex\.[a-z0-9-]+)?$/);
 assert.equal(packageJson.engines && packageJson.engines.node, '>=18', 'package must declare the supported Node runtime');
 assert.ok(Array.isArray(manifest.interface.defaultPrompt));
 assert.ok(!Object.hasOwn(manifest, 'hooks'), 'default hooks discovery should be used');
@@ -47,7 +48,7 @@ if (repoRoot) {
   assert.equal(marketplace.name, 'codex-toolshop');
   const entry = marketplace.plugins.find((item) => item.name === 'agent-dispatch-codex');
   assert.ok(entry, 'marketplace must include agent-dispatch-codex');
-  assert.equal(entry.version, manifest.version, 'marketplace version must match plugin.json');
+  assert.equal(entry.version, releaseVersion, 'marketplace must match the plugin release version');
   assert.equal(entry.source && entry.source.path, './plugins/agent-dispatch-codex');
 }
 

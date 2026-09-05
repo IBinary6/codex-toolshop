@@ -1,6 +1,6 @@
 {
   "name": "system-proxy-codex",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Codex system proxy bootstrap and safe Python .env configuration.",
   "license": "MIT",
   "private": true,

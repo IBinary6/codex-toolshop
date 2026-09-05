@@ -7550,7 +7550,8 @@ def ProcessFile(filename, vlevel, extra_check_functions=None):
         if filename == "-":
             lines = sys.stdin.read().split("\n")
         else:
-            with codecs.open(filename, "r", "utf8", "replace") as target_file:
+            # 在读取时忽略 UTF-8 BOM，检查过程不需要临时改写源文件。
+            with codecs.open(filename, "r", "utf-8-sig", "replace") as target_file:
                 lines = target_file.read().split("\n")
 
         # Remove trailing '\r'.

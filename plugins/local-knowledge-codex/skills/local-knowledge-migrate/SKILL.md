@@ -8,7 +8,7 @@ description: 验证或迁移旧版本地 SQLite 知识记录到当前 Local Know
 当前版本继续使用原有共享 SQLite 文件，因此升级插件通常无需复制数据。先运行：
 
 ```text
-node "<plugin-root>/scripts/python-launcher.cjs" "<plugin-root>/local_knowledge/cli.py" --format json stats
+node "<plugin-root>/scripts/python-launcher.cjs" "<plugin-root>/local_knowledge/cli.py" --format json stats --read-only
 ```
 
 只有记录仍位于旧目录或独立数据库时，才调用兼容迁移入口：

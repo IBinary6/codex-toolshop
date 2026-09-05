@@ -9,7 +9,7 @@
 | 语义能力 | Codex 版 | Claude Code 版 |
 | --- | --- | --- |
 | 主代理工具约束 | 普通工具调用默认不注入 `PreToolUse` 提示，避免重复上下文和误拦截 | `PreToolUse` 白名单硬拦截，非轻量工具要求用 `Agent` |
-| 子代理识别 | Codex hook 不能稳定区分调用来源，改用 `SubagentStart` 规则 | Claude hook 输入包含 `agent_id`，子代理可豁免 |
+| 子代理识别 | 使用 `SubagentStart` 明确角色边界，不依赖可选 `agent_id` 来硬拦截工具 | Claude hook 输入包含 `agent_id`，子代理可豁免 |
 | 调度提示 | `SessionStart` / `UserPromptSubmit` 注入紧凑调度策略 | 被 block 后下一条 prompt 注入 dispatcher 指令 |
 | Git 边界 | 纯 Git CLI 固定主代理串行执行，不进入委派分类 | 安全 Git 可直跑，危险 Git 拦截 |
 | 配置 | `PLUGIN_DATA` + 项目 `.agent-dispatch-codex`，支持 Codex agent profile | `~/.agent-dispatch` + 项目 `.agent-dispatch` |
@@ -18,7 +18,7 @@
 
 ## 为什么不是原样复制 Claude Hook
 
-Codex 当前的 `PreToolUse` 只可靠覆盖部分 Bash、`apply_patch` 和 MCP 调用，而且该事件没有 Claude 版用于识别子代理的 `agent_id`。若照搬“非白名单直接 block”，主代理派出的子代理也会被同一 Hook 拦截。
+Codex 的 `PreToolUse` 提供标准工具事件，`exec_command`（含 Code Mode 内层调用）投影为 `Bash`。事件中的 `agent_id` 是可选字段，缺失不能证明调用来自主代理。无论是否带来源标识，单次工具调用都不足以决定任务是否适合委派；因此本插件不做“非白名单直接 block”。
 
 本插件因此使用 Codex 原生分层策略：
 
@@ -35,7 +35,23 @@ Codex 当前的 `PreToolUse` 只可靠覆盖部分 Bash、`apply_patch` 和 MCP 
 
 不需要先运行 `agent-dispatch-setup`。插件安装并启用后，新建 Codex 任务会自动触发 `SessionStart`：创建缺失的全局/项目配置骨架、合并三层配置、在当前 Git 项目生成 `.codex/agents/*.toml`，并注入主代理调度规则。之后每次 `UserPromptSubmit` 会按当前提示词只补充一条精简路由建议。
 
-`agent-dispatch-setup` 只用于查看有效配置或做自定义覆盖。平台仍要求新任务重新加载插件；Hook 哈希变化时仍需在 `/hooks` 中审查并信任。账号或工作区未开放某个模型/推理档位时，Codex 只能按可用能力降级，插件不能绕过模型权限。
+`agent-dispatch-setup` 只用于查看有效配置或做自定义覆盖。关键词路由是建议，主代理根据上下文和实际分派收益决定是否使用；已有可执行方案时直接推进，普通任务不强制另起规划或审查代理。单纯文本较长不会触发路由。平台仍要求新任务重新加载插件；Hook 哈希变化时仍需在 `/hooks` 中审查并信任。
+
+路由先处理明确范围，再判断任务意图和风险。它不是自然语言权限解析器，未识别到限制也不构成授权；完整上下文仍由主代理核对。典型行为如下：
+
+| 用户请求 | 路由建议 |
+| --- | --- |
+| 只读诊断崩溃，禁止修改 | 只读证据收集，不建议可写执行角色。 |
+| 只用主代理修复，或不要委派 | 不追加子代理路线。 |
+| 按已有计划实现跨模块迁移 | 实现候选加图优先影响面核对，不重复规划。 |
+| auth 模块被谁依赖 / Find all callers | 有边界的图查询；跨模块大范围扫描才建议 mapper。 |
+| inspect this patch for regressions | 审查候选，保留图谱与源码核对。 |
+| 仅改 README 中 security 一词的拼写 | 不因 security 单词升级为高风险审查。 |
+| 修复单文件权限缺陷 | 主代理先核对契约、证据和授权，再按实际风险验证。 |
+
+代码审查优先于其中附带的搜索词；跨模块实现保留实现意图，不被降成纯搜索。明确的小范围工作由主代理处理，模型候选仅在独立分派确有收益时使用。
+
+生成配置不等于宿主已加载角色，也不代表账号已开放对应模型。主代理在启动前核对宿主实际支持的模型/推理组合；默认组合不可用时选择受支持组合或自行处理。用户明确指定的模型不能擅自替换，插件也不发起模型探测请求。
 
 Profile 文件本身不会占用智能体名额；只有实际 spawn 出来的线程占用并发槽。主代理在结果整合、阻塞或不再需要时必须立即停止/关闭对应线程。
 
@@ -64,7 +80,7 @@ Shell 嵌套求值不属于 Git 权限。例如 `git status $(other-command)`、
 
 默认轻量 MCP 前缀已覆盖 CodeMap Boost、Context Mode 和 Serena。Context Mode 的 Codex 原生前缀与插件命名空间前缀均受支持；Serena 同时兼容官方 `serena` 名称和常见的 `serena-cross-platform` 名称。调用这些工具时不会产生“必须委派”的误提示，主代理可直接完成上下文压缩、代码图和符号查询。
 
-安装 CodeMap Boost 后，两者按职责协作：Agent Dispatch 选择与搜索范围匹配的代理，CodeMap Boost 负责图刷新、读取屏障和图检索策略。`dispatch_explorer` 与 `dispatch_mapper` 会优先使用可用的代码图，不自行重复执行 build/update；纯文本、注释和字符串查找才使用文本搜索。
+安装 CodeMap Boost 后，两者按职责协作：Agent Dispatch 选择与搜索范围匹配的代理，CodeMap Boost 负责图刷新、读取屏障和图检索策略。Agent Dispatch 的注入仅保留职责边界，详细规则由 CodeMap Boost 维护。`dispatch_explorer` 与 `dispatch_mapper` 优先使用可用的代码图；图工具不能回答时，结合可用证据并读取源码核对关系，不把未执行的查询说成已查到结果。
 
 Agent Dispatch 不捆绑安装这些 MCP。Context Mode 应作为独立 Codex 插件安装，Serena 应按其 Codex setup 流程注册；未安装的工具不会因为加入前缀而被加载。若使用其他服务器名称，可通过 `mcp_prefixes_add` 增加项目或全局覆盖。CodeMap MCP 可能以 deferred 方式注入，不出现在静态或顶层 schema；声称未加载前，应在可用时检查 `ALL_TOOLS` 中的 `mcp__code_review_graph__*` 或实际调用，不能仅凭顶层列表判断。
 
@@ -82,13 +98,13 @@ Codex 支持项目级 `.codex/agents/*.toml` 自定义 Agent，并允许每个 A
 | `dispatch_reviewer` | `gpt-5.6-terra` | `high` | 常规独立正确性、回归和测试缺口审查。 |
 | `dispatch_deep_reviewer` | `gpt-5.6-sol` | `xhigh` | 安全、权限、并发、生产等高风险审查。 |
 
-该分层遵循 Codex 当前模型建议：Terra 适合强调速度和效率的读重型扫描，Luna 适合明确、重复、批量的窄任务；推理强度越高，耗时和 token 通常越多，多数任务不需要 Max 或 Ultra。参见 [Subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) 和 [Models](https://learn.chatgpt.com/docs/models)。
+表格是本插件的可覆盖预设。主代理根据当前任务、上下文和宿主支持选择模型与推理档位；搜索、规划和审查角色也遵循用户显式偏好。切换到 Astra 或其他模型不需要重写整个工作流，也不要求所有角色使用同一个模型或推理档位。
 
-主对话模型不受插件修改，仍由 Codex 桌面版模型选择器或顶层配置决定。生成文件会逐项加入 `.git/info/exclude`；若同名文件不是插件生成的，插件会保留用户文件，不覆盖。首次生成或修改模型配置后，新建 Codex 任务即可加载新的 Agent 配置。
+主对话模型不受插件修改，仍由 Codex 桌面版模型选择器或顶层配置决定。生成文件会逐项加入 `.git/info/exclude`；同名手写文件、空文件、已被 Git 跟踪的文件以及符号链接入口均保留。未跟踪且带插件托管头的旧 profile 才能更新或清理。首次生成或修改模型配置后，新建 Codex 任务即可加载新的 Agent 配置。
 
-搜索、规划和审查角色保留各自的默认模型档位；两个可写角色默认不固定模型或推理强度，而是继承主任务选择。主代理根据实现复杂度、上下文规模、风险、账号/工作区可用性和用户显式偏好选择可写角色、模型与推理强度，用户明确指定 `xhigh`、`ultra` 或具体模型时优先满足。插件不承诺固定的额度倍率，实际消耗取决于任务、上下文和账号计费策略。
+两个可写角色默认不固定模型或推理强度，而是继承主任务选择。显式偏好在宿主支持范围内优先满足；未知型号或不支持的档位需要核对能力，不能盲目把主任务的 `ultra` 传给另一模型。插件不承诺固定的额度倍率，实际消耗取决于任务、上下文和账号计费策略。
 
-委派不再只限于并行任务：只要实现边界和验收标准已经明确，串行的编码或修复也可以交给合适的可写角色，但不强制固定为 `dispatch_worker`。简单读取、很小的修改、强耦合步骤、结果验收和最终整合仍由主代理完成；只有用户明确要求独立验收时才启动 reviewer，并按普通风险与高风险分别选择 Terra high 或 Sol xhigh。子代理结果已整合、遇到阻塞或不再需要时，主代理应立即停止它，避免空闲智能体持续占用有限名额。
+实现边界和验收标准已经明确时，串行编码或修复也可以交给合适的可写角色。简单读取、很小的修改、强耦合步骤、结果验收和最终整合由主代理完成；独立审查按用户要求、实际风险和有效配置决定。子代理结果已整合、遇到阻塞或不再需要时，主代理应立即停止它，避免空闲智能体持续占用有限名额。
 
 文章中直接创建 `~/.codex/agents/luna-worker.toml` 的做法不适用于本插件的托管契约。插件在当前 Git 项目的 `.codex/agents/` 下生成 profile，使用顶层 `name`、`description`、`model`、`model_reasoning_effort`、`sandbox_mode` 和 `developer_instructions` 字段；应通过三层 JSON 配置覆盖，不要手改带插件托管头的 TOML。
 
@@ -129,7 +145,14 @@ Codex 支持项目级 `.codex/agents/*.toml` 自定义 Agent，并允许每个 A
 }
 ```
 
-将某个 profile 的 `model` 或 `model_reasoning_effort` 设为空字符串会省略对应 TOML 字段并继承主会话选择；设置非空值可在全局或项目层显式固定。将 `enabled` 设为 `false` 会删除对应的插件托管文件。模型是否可用仍取决于当前账号和工作区策略。
+模型与推理档位的合并规则：
+
+- 同层显式 `model` 和 `model_reasoning_effort` 原样保留，包括空字符串。空字符串省略对应 TOML 字段，交由宿主继承；只清空 `model` 且未指定 effort 时，两者一并继承。
+- 只覆盖为不同模型、未同时指定 effort 时，已知模型使用本插件的保守 `medium` 预设，避免沿用旧模型或主任务的 `ultra`。未知型号不猜能力，省略 effort 并提示核对宿主支持。
+- 只改描述或重复指定同一模型，不清除上一层的 effort；更近层级显式 effort 仍优先。
+- `config.js` 中的已知能力来自 2026-09-05 宿主列表，覆盖 Astra、Sol、Terra、Luna、5.5、5.4-mini 和 Spark。它用于发现不兼容组合，不是账号可用性探测；显式不兼容组合保留配置并在 SessionStart 提示，启动前必须按宿主实际能力处理。
+
+将某个 profile 的 `enabled` 或整个 `agent_profiles.enabled` 设为 `false`，会在下次 SessionStart 清理对应的未跟踪托管文件；配置中已不存在的旧托管角色也会清理。手写、已跟踪文件和符号链接保留，需要由其所有者管理。现有任务中的已加载角色不会因此被远程卸载，请新建任务核对最终角色。
 
 使用 `agent-dispatch-setup` skill 可查看三层来源和有效规则。
 

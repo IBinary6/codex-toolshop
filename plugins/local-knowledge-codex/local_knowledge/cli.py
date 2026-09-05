@@ -58,17 +58,17 @@ def build_parser() -> argparse.ArgumentParser:
     remember.add_argument("--kind", default="note",
                           choices=("bug", "preference", "fact", "note", "decision", "workflow"))
     remember.add_argument("--canonical-key", "--key", dest="canonical_key", default=None)
-    remember.add_argument("--title", default="")
-    remember.add_argument("--cues", default="")
-    remember.add_argument("--tags", default="")
+    remember.add_argument("--title", default=None)
+    remember.add_argument("--cues", default=None)
+    remember.add_argument("--tags", default=None)
     remember.add_argument("--scope-kind", default="global",
                           choices=("global", "workspace", "repository"))
     remember.add_argument("--scope-key", default="")
-    remember.add_argument("--recall-policy", default="on_match",
+    remember.add_argument("--recall-policy", default=None,
                           choices=("pinned", "on_match", "manual"))
-    remember.add_argument("--authority", default="user_asserted",
+    remember.add_argument("--authority", default=None,
                           choices=("user_asserted", "verified_local", "imported"))
-    remember.add_argument("--sensitivity", default="normal",
+    remember.add_argument("--sensitivity", default=None,
                           choices=("normal", "confidential"))
     _add_output_options(remember)
 
@@ -86,15 +86,20 @@ def build_parser() -> argparse.ArgumentParser:
     recall.add_argument("--limit", type=int, default=5)
     recall.add_argument("--max-chars", type=int, default=4000)
     recall.add_argument("--no-legacy-bugs", action="store_true")
+    recall.add_argument("--read-only", action="store_true",
+                        help="只读现有数据库，不创建、迁移或修复索引")
     _add_output_options(recall)
 
     for name, help_text in (("get", "读取一条知识"), ("archive", "归档一条知识"),
                             ("restore", "恢复一条知识")):
         command = subparsers.add_parser(name, help=help_text)
         command.add_argument("--id", required=True, type=int)
+        if name == "get":
+            command.add_argument("--read-only", action="store_true")
         _add_output_options(command)
 
     stats = subparsers.add_parser("stats", help="显示本地知识库统计")
+    stats.add_argument("--read-only", action="store_true")
     _add_output_options(stats)
 
     migrate = subparsers.add_parser("migrate", help="迁移旧版本地知识数据库")
@@ -126,11 +131,13 @@ def _execute(args: argparse.Namespace) -> dict[str, Any]:
         from bugdb.cli import _migrate_payload
 
         return _migrate_payload(args.source, _db_path(args))
-    base = KnowledgeBase(_db_path(args))
+    base = KnowledgeBase(_db_path(args), read_only=getattr(args, "read_only", False))
     if args.command == "remember":
         return base.remember(
             args.content, kind=args.kind, canonical_key=args.canonical_key,
-            title=args.title, cues=_csv(args.cues), tags=_csv(args.tags),
+            title=args.title,
+            cues=_csv(args.cues) if args.cues is not None else None,
+            tags=_csv(args.tags) if args.tags is not None else None,
             scope_kind=args.scope_kind, scope_key=args.scope_key,
             recall_policy=args.recall_policy, authority=args.authority,
             sensitivity=args.sensitivity,

@@ -1,7 +1,7 @@
 {
   "name": "local-knowledge-codex",
-  "version": "0.2.3",
-  "description": "Codex 本地知识库：索引错误解决方案、用户偏好、事实、决策与工作流，并在相关时召回。",
+  "version": "0.2.4",
+  "description": "Codex \u672c\u5730\u77e5\u8bc6\u5e93\uff1a\u7d22\u5f15\u9519\u8bef\u89e3\u51b3\u65b9\u6848\u3001\u7528\u6237\u504f\u597d\u3001\u4e8b\u5b9e\u3001\u51b3\u7b56\u4e0e\u5de5\u4f5c\u6d41\uff0c\u5e76\u5728\u76f8\u5173\u65f6\u53ec\u56de\u3002",
   "author": {
     "name": "IBinary6"
   },
@@ -19,8 +19,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Local Knowledge for Codex",
-    "shortDescription": "在需要时召回本地解决方案、用户偏好和项目知识。",
-    "longDescription": "通过本地 SQLite 全文索引显式保存知识，并在会话开始、用户提问或工具真实失败时按作用域和相关性召回。支持错误解决方案、用户偏好、事实、决策与工作流；数据只保存在本机。",
+    "shortDescription": "\u5728\u9700\u8981\u65f6\u53ec\u56de\u672c\u5730\u89e3\u51b3\u65b9\u6848\u3001\u7528\u6237\u504f\u597d\u548c\u9879\u76ee\u77e5\u8bc6\u3002",
+    "longDescription": "\u901a\u8fc7\u672c\u5730 SQLite \u5168\u6587\u7d22\u5f15\u663e\u5f0f\u4fdd\u5b58\u77e5\u8bc6\uff0c\u5e76\u5728\u4f1a\u8bdd\u5f00\u59cb\u3001\u7528\u6237\u63d0\u95ee\u6216\u5de5\u5177\u771f\u5b9e\u5931\u8d25\u65f6\u6309\u4f5c\u7528\u57df\u548c\u76f8\u5173\u6027\u53ec\u56de\u3002\u652f\u6301\u9519\u8bef\u89e3\u51b3\u65b9\u6848\u3001\u7528\u6237\u504f\u597d\u3001\u4e8b\u5b9e\u3001\u51b3\u7b56\u4e0e\u5de5\u4f5c\u6d41\uff1b\u6570\u636e\u53ea\u4fdd\u5b58\u5728\u672c\u673a\u3002",
     "developerName": "IBinary6",
     "category": "Coding",
     "capabilities": [
@@ -28,10 +28,10 @@
       "Write"
     ],
     "defaultPrompt": [
-      "查询本地知识库中与当前任务相关的内容。",
-      "记住我的用户偏好，并在以后相关时自动使用。",
-      "保存已验证的错误解决方案、事实、决策或工作流。",
-      "迁移旧版本地知识记录并验证索引。"
+      "\u67e5\u8be2\u672c\u5730\u77e5\u8bc6\u5e93\u4e2d\u4e0e\u5f53\u524d\u4efb\u52a1\u76f8\u5173\u7684\u5185\u5bb9\u3002",
+      "\u8bb0\u4f4f\u6211\u7684\u7528\u6237\u504f\u597d\uff0c\u5e76\u5728\u4ee5\u540e\u76f8\u5173\u65f6\u81ea\u52a8\u4f7f\u7528\u3002",
+      "\u4fdd\u5b58\u5df2\u9a8c\u8bc1\u7684\u9519\u8bef\u89e3\u51b3\u65b9\u6848\u3001\u4e8b\u5b9e\u3001\u51b3\u7b56\u6216\u5de5\u4f5c\u6d41\u3002",
+      "\u8fc1\u79fb\u65e7\u7248\u672c\u5730\u77e5\u8bc6\u8bb0\u5f55\u5e76\u9a8c\u8bc1\u7d22\u5f15\u3002"
     ],
     "brandColor": "#2563EB",
     "composerIcon": "./assets/icon.svg",

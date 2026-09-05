@@ -9,8 +9,15 @@ const { spawnSync } = require('child_process');
 const pluginRoot = path.join(__dirname, '..', '..', '..');
 const runner = path.join(pluginRoot, 'scripts', 'run-hook.cjs');
 const subagentSource = fs.readFileSync(path.join(pluginRoot, 'hooks', 'js', 'subagent_start.js'), 'utf8');
+const { promptLooksStructural } = require('../lib/codemap');
 
 assert.ok(!subagentSource.includes('refreshCrgSync'), 'SubagentStart must not launch a duplicate graph refresh');
+for (const prompt of ['请分析 auth 模块的依赖关系', 'review these changes', 'What depends on auth?', 'Find all callers of Foo', '梳理当前模块架构']) {
+  assert.equal(promptLooksStructural(prompt), true, prompt);
+}
+for (const prompt of ['写一个函数返回版本号', 'write a class to store a point', '解释这个英语单词', '修改 README 拼写']) {
+  assert.equal(promptLooksStructural(prompt), false, prompt);
+}
 
 function runHook(name, payload, extraEnv = {}, enabled = true) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-nudge-'));
@@ -57,28 +64,13 @@ function parseOutput(result) {
   const payload = parseOutput(result);
   assert.strictEqual(payload.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
   assert.ok(payload.hookSpecificOutput.additionalContext.includes('code-review-graph'), 'prompt nudge mentions CRG');
+  assert.ok(!payload.hookSpecificOutput.additionalContext.includes('refresh completed'), 'prompt keywords must not claim a completed build');
 }
 
 {
   const result = runHook('user_prompt_submit', { prompt: '写一句提交说明' });
   assert.strictEqual(result.status, 0, result.stderr);
   assert.strictEqual(result.stdout, '', 'non-structural prompt should be silent');
-}
-
-{
-  const result = runHook('pre_bash', { tool_input: { command: 'rg "class Foo" src' } });
-  const payload = parseOutput(result);
-  assert.strictEqual(payload.hookSpecificOutput.hookEventName, 'PreToolUse');
-  assert.ok(!payload.hookSpecificOutput.permissionDecision, 'Bash nudge must not deny');
-  assert.ok(payload.hookSpecificOutput.additionalContext.includes('do not repeat minimal'));
-  assert.ok(payload.hookSpecificOutput.additionalContext.includes('when the task is clear'));
-  assert.ok(payload.hookSpecificOutput.additionalContext.includes('detail_level="standard"'));
-}
-
-{
-  const result = runHook('pre_bash', { tool_input: { command: 'git status --short' } });
-  assert.strictEqual(result.status, 0, result.stderr);
-  assert.strictEqual(result.stdout, '', 'non-search Bash command should be silent');
 }
 
 {
@@ -98,3 +90,35 @@ function parseOutput(result) {
 }
 
 console.log('nudge.test.js PASS');
+
+// 连续真实入口调用验证去重与复位；所有状态只写隔离的临时插件数据目录。
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-phase-'));
+  try {
+    const env = { ...process.env, PLUGIN_ROOT: pluginRoot, PLUGIN_DATA: tmp,
+      CODEX_HOME: tmp, CODEMAP_BOOST_DISABLE_BOOTSTRAP: '1', CODEMAP_BOOST_ASSUME_CRG: '1' };
+    delete env.CODEMAP_BOOST_DISABLE_GRAPH;
+    fs.writeFileSync(path.join(tmp, '.codemap-boost-enabled'), '1');
+    const base = { session_id: 's', turn_id: 't', cwd: tmp };
+    const invoke = (name, extra) => {
+      const result = spawnSync(process.execPath, [runner, name], {
+        cwd: tmp, env, input: JSON.stringify({ ...base, ...extra }), encoding: 'utf8',
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stderr, '');
+      return result.stdout ? JSON.parse(result.stdout).hookSpecificOutput : null;
+    };
+    const search = { tool_name: 'Bash', tool_input: { command: 'rg Auth src' } };
+    assert.equal(invoke('pre_code_search', { tool_name: 'Bash', tool_input: { command: 'rg --files' } }), null);
+    const first = invoke('pre_code_search', search);
+    assert.equal(first.hookEventName, 'PreToolUse');
+    assert.match(first.additionalContext, /先查询可用的图工具/);
+    assert.equal(first.permissionDecision, undefined, 'reminder cannot deny or rewrite commands');
+    assert.equal(invoke('pre_code_search', search), null);
+    invoke('user_prompt_submit', { prompt: '继续核对调用关系' });
+    assert.ok(invoke('pre_code_search', search), 'new message with unchanged turn_id restores reminder');
+    assert.equal(invoke('pre_code_search', search), null);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}

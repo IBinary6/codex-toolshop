@@ -12,7 +12,7 @@ import urllib.request
 from pathlib import Path
 
 
-RELEASE_REF = "system-proxy-codex-v0.1.1"
+RELEASE_REF = "system-proxy-codex-v0.1.2"
 RAW_ROOT = (
     "https://raw.githubusercontent.com/IBinary6/codex-toolshop/"
     f"{RELEASE_REF}/plugins/system-proxy-codex/scripts"

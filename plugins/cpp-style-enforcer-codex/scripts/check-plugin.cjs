@@ -42,8 +42,9 @@ function main() {
     '.codex-plugin/plugin.json'
   );
   const packageJson = readJson(path.join(pluginRoot, 'package.json'), 'package.json');
-  assert(plugin.version === packageJson.version, 'package.json version must match plugin.json');
-  assert(/^\d+\.\d+\.\d+$/.test(plugin.version), 'plugin version must be plain patch semver');
+  const releaseVersion = plugin.version.split('+')[0];
+  assert(releaseVersion === packageJson.version, 'package.json must match the plugin release version');
+  assert(/^\d+\.\d+\.\d+(?:\+codex\.[a-z0-9-]+)?$/.test(plugin.version), 'plugin version must be semver with optional Codex cache metadata');
   assert(packageJson.engines && packageJson.engines.node === '>=18', 'package must declare the supported Node runtime');
 
   if (repoRoot) {
@@ -55,7 +56,7 @@ function main() {
     assert(Array.isArray(marketplace.plugins), 'marketplace plugins must be an array');
     const entry = marketplace.plugins.find((p) => p.name === 'cpp-style-enforcer-codex');
     assert(entry, 'marketplace must include cpp-style-enforcer-codex');
-    assert(entry.version === plugin.version, 'marketplace version must match plugin.json');
+    assert(entry.version === releaseVersion, 'marketplace must match the plugin release version');
     assert(entry.source && entry.source.path === './plugins/cpp-style-enforcer-codex', 'marketplace source path is wrong');
   }
 

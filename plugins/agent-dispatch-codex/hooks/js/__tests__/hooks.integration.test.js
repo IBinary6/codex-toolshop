@@ -47,7 +47,7 @@ try {
   const compactSession = parse(run('session_start', { hook_event_name: 'SessionStart', source: 'compact' }));
   assert.match(compactSession.hookSpecificOutput.additionalContext, /独立且并行有收益时委派/);
   assert.match(compactSession.hookSpecificOutput.additionalContext, /最多 3 个子代理并发/);
-  assert.match(compactSession.hookSpecificOutput.additionalContext, /CodeMap MCP 可能 deferred/);
+  assert.match(compactSession.hookSpecificOutput.additionalContext, /图刷新和检索规则由 CodeMap Boost 负责/);
   assert.doesNotMatch(compactSession.hookSpecificOutput.additionalContext, /Agent Dispatch policy for the primary Codex agent/);
 
   for (const source of ['resume', 'clear']) {
@@ -84,7 +84,8 @@ try {
   }));
   assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /dispatch_planner/);
   assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /可写执行角色/);
-  assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /停止并整合/);
+  assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /无需重复规划/);
+  assert.doesNotMatch(plannedHardPrompt.hookSpecificOutput.additionalContext, /必须串行两阶段|必须启动/);
   assert.doesNotMatch(plannedHardPrompt.hookSpecificOutput.additionalContext, /dispatch_worker|dispatch_hard_worker|gpt-5\.6-(luna|terra)|\/(?:max|ultra)/);
 
   const searchPrompt = parse(run('user_prompt_submit', {

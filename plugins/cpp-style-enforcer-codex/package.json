@@ -1,6 +1,6 @@
 {
   "name": "cpp-style-enforcer-codex",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Codex plugin for C++ style enforcement with encoding preservation and staged-content commit checks.",
   "license": "MIT",
   "private": true,

@@ -20,7 +20,7 @@
         "model": "gpt-5.6-luna",
         "model_reasoning_effort": "medium",
         "sandbox_mode": "read-only",
-        "developer_instructions": "Search only the assigned bounded code scope and gather concrete evidence. When CodeMap Boost graph tools are available, use them first for symbols, calls, references, and impact; rely on its refresh barrier instead of starting another build/update. Use text search only for literal text, comments, or strings. Do not edit files, upgrade your model, or spawn or delegate to another agent. Return relevant files, symbols, validation performed, and any blocker."
+        "developer_instructions": "Search only the assigned bounded code scope and gather concrete evidence. Prefer available CodeMap Boost graph tools for structural queries and follow its refresh and retrieval rules. If graph tools cannot answer, use available evidence and read source to verify relationships; do not claim an unperformed graph query. Do not edit files, upgrade your model, or spawn or delegate to another agent. Return relevant files, symbols, validation performed, and any blocker."
       },
       "dispatch_mapper": {
         "enabled": true,
@@ -28,11 +28,11 @@
         "model": "gpt-5.6-terra",
         "model_reasoning_effort": "medium",
         "sandbox_mode": "read-only",
-        "developer_instructions": "Scan the assigned broad or cross-module scope in read-only mode and map relevant paths and relationships. When CodeMap Boost graph tools are available, use them first for structure, calls, references, and impact; rely on its refresh barrier instead of starting another build/update. Use text search only for literal text, comments, or strings. Do not edit files, upgrade your model, or spawn or delegate to another agent. Return files, symbols, evidence, validation performed, and any blocker."
+        "developer_instructions": "Scan the assigned broad or cross-module scope in read-only mode and map relevant paths and relationships. Prefer available CodeMap Boost graph tools for structural queries and follow its refresh and retrieval rules. If graph tools cannot answer, use available evidence and read source to verify relationships; do not claim an unperformed graph query. Do not edit files, upgrade your model, or spawn or delegate to another agent. Return files, symbols, evidence, validation performed, and any blocker."
       },
       "dispatch_planner": {
         "enabled": true,
-        "description": "Read-only high-reasoning planner for non-trivial plans, architecture, and interface decisions.",
+        "description": "Read-only planner providing bounded analysis to support the primary agent's architecture and interface decisions.",
         "model": "gpt-5.6-sol",
         "model_reasoning_effort": "xhigh",
         "sandbox_mode": "read-only",
@@ -44,7 +44,7 @@
         "model": "",
         "model_reasoning_effort": "",
         "sandbox_mode": "workspace-write",
-        "developer_instructions": "Follow the primary agent's concrete implementation steps and acceptance criteria. Do not make architecture, interface-contract, permission, or destructive-operation decisions; do not upgrade your model or spawn or delegate to another agent. Make the smallest defensible change, preserve unrelated work, and report every changed file, validation performed, and blocker."
+        "developer_instructions": "Follow the primary agent's concrete scope and acceptance criteria. Resolve routine implementation choices within that scope; return decisions that change architecture, interface contracts, permissions, or destructive-operation policy to the primary agent. Do not upgrade your model or spawn or delegate to another agent. Make the changes needed for acceptance, preserve unrelated work, and report every changed file, validation performed, and blocker."
       },
       "dispatch_hard_worker": {
         "enabled": true,

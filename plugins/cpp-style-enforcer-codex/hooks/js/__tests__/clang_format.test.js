@@ -125,6 +125,17 @@ try {
       assert.strictEqual(changedNc, false, '老文件无改动行 → 不格式化返回 false');
       assert.ok(fs.readFileSync(f3).equals(beforeNc), '老文件无改动行 → 内容不动');
 
+      // 老文件不能被内联 Google 风格覆盖，必须使用项目设置的四空格缩进。
+      fs.writeFileSync(path.join(gtmp, '.clang-format'),
+        'BasedOnStyle: LLVM\nIndentWidth: 4\nAllowShortFunctionsOnASingleLine: None\n');
+      const configured = path.join(gtmp, 'configured.cpp');
+      fs.writeFileSync(configured, 'int configured() {\n    return 1;\n}\n');
+      git(['add', 'configured.cpp']);
+      git(['commit', '-m', 'configured']);
+      fs.writeFileSync(configured, 'int configured() {\n return    2;\n}\n');
+      assert.strictEqual(applyClangFormat(configured, { isNew: false, root }), true);
+      assert.strictEqual(fs.readFileSync(configured, 'utf8'), 'int configured() {\n    return 2;\n}\n');
+
       console.log('clang_format.test.js old-file mode PASS');
     } finally {
       fs.rmSync(gtmp, { recursive: true, force: true });

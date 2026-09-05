@@ -1,7 +1,10 @@
 import os
+import contextlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +39,27 @@ class FakeCommandRunner:
 
 
 class PluginInstallTest(unittest.TestCase):
+    def test_inspection_does_not_install_enable_or_write_configuration(self):
+        """只读诊断通过真实参数入口运行，不安装插件、不启用功能、不写配置。"""
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp) / "codex-home"
+            runner = mock.Mock(executable="codex-test")
+            client = mock.Mock()
+            client.version.return_value = "0.146.1"
+            client.feature_enabled.return_value = False
+            with mock.patch.object(installer, "CommandRunner", return_value=runner), \
+                    mock.patch.object(installer, "CodexClient", return_value=client), \
+                    mock.patch.object(installer, "install_plugin") as install, \
+                    mock.patch.object(installer, "ensure_feature") as enable, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                code = installer.main(["--codex-home", str(home), "--dry-run",
+                                       "--port", "7890"])
+            self.assertEqual(code, 0)
+            self.assertFalse(home.exists())
+            install.assert_not_called()
+            enable.assert_not_called()
+            runner.run.assert_not_called()
+
     def test_existing_marketplace_is_upgraded_then_plugin_is_refreshed(self):
         """验证已有 marketplace 先升级再刷新插件。"""
 

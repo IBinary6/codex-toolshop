@@ -30,7 +30,7 @@ The plugin-root `cwd` is only for locating the launcher. The graph `PreToolUse` 
 
 MCP tools may be deferred and absent from static or top-level schemas. If `mcp__code_review_graph__` is not visible in the current top-level list, do not treat that alone as proof of absence: before claiming the MCP is unavailable, inspect `ALL_TOOLS` for `mcp__code_review_graph__*` when available or make an appropriate graph-tool call. Only after that check report the MCP as unavailable and use a fallback; never claim a graph query ran without evidence.
 
-If `mcp__code_review_graph__` is absent from the current task, state that the task did not load the MCP and use a suitable fallback. Never claim a graph query ran. Check whether the task predates installation before diagnosing the plugin.
+After capability discovery confirms absence, use available source inspection and check whether the task predates installation. Known files and literal searches do not require a graph query.
 
 ## Doctor fallback
 
@@ -71,6 +71,9 @@ Never repair CRG with `pip install --user`.
 - Keep global guidance in `$CODEX_HOME/AGENTS.md`.
 - Keep project graph output in `.code-review-graph/` and optional graphify output in `graphify-out/`.
 - Let SessionStart maintain the graph synchronously and PostToolUse coalesce refreshes in the background; let the graph MCP PreToolUse barrier perform the final synchronous freshness check.
+- Preserve graph-first reminders at session, structural-prompt and subagent boundaries. For structural questions, query available graph tools first and then verify source; known-file reads and literal text searches remain direct.
+- The Bash hook also covers Codex exec_command and Code Mode inner exec_command calls. It filters common searches and emits only a short conditional reminder once per user turn; each UserPromptSubmit resets it, even within the same turn. Parallel searches claim an empty hash-named marker atomically in plugin data. Missing IDs or unavailable storage fall back to a stateless hint. It never denies, rewrites commands, refreshes graphs, or stores prompts and commands.
 - Let SubagentStart inject retrieval rules without rebuilding the graph.
 - Let routing plugins choose the worker while CodeMap Boost owns graph freshness and retrieval policy.
 - Do not let `code-review-graph install` add third-party hooks, instructions, or skills.
+- Managed AGENTS updates preserve surrounding text and reject incomplete, reversed or duplicate block markers. If another application manages AGENTS, synchronize its authoritative source after an authorized update; this plugin does not edit another application's database.

@@ -57,8 +57,9 @@ async function main() {
     const fileIsNew = step('isNew', () => isNew(filePath, root));
     const isNewFile = fileIsNew !== false;
     const effectiveChecks = (mode === 'full' || isNewFile) ? checks : legacyChecks;
+    if (!Object.values(effectiveChecks).some(Boolean)) continue;
 
-    if (mode === 'full' || isNewFile) {
+    if (effectiveChecks.clangFormat && (mode === 'full' || isNewFile)) {
       step('ensure_clang_format_config', () => ensureClangFormatConfig(root));
     }
     step('ensure_project_config', () => ensureProjectConfig(root));

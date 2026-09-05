@@ -66,27 +66,53 @@ function ensureAgentProfiles(cwd, config) {
   const root = gitRoot(cwd);
   const settings = config && config.agent_profiles;
   const result = { root, written: [], removed: [], preserved: [] };
-  if (!root || !settings || settings.enabled === false) return result;
+  if (!root || !settings) return result;
   const profiles = settings.profiles && typeof settings.profiles === 'object'
+    && !Array.isArray(settings.profiles)
     ? settings.profiles
     : {};
+  // 不沿链接写入项目外目录；保留用户手工链接的 agent 配置。
+  const agentDir = path.join(root, '.codex', 'agents');
+  for (const directory of [path.join(root, '.codex'), agentDir]) {
+    if (fs.existsSync(directory) && fs.lstatSync(directory).isSymbolicLink()) {
+      result.preserved.push(path.relative(root, directory));
+      return result;
+    }
+  }
+  const names = new Set(Object.keys(profiles));
+  if (fs.existsSync(agentDir)) {
+    for (const entry of fs.readdirSync(agentDir, { withFileTypes: true })) {
+      if (entry.name.endsWith('.toml')) names.add(entry.name.slice(0, -5));
+    }
+  }
   const excluded = [];
-  for (const [name, profile] of Object.entries(profiles)) {
-    if (!VALID_NAME.test(name) || !profile || typeof profile !== 'object' || Array.isArray(profile)) {
+  for (const name of names) {
+    const profile = profiles[name];
+    if (!VALID_NAME.test(name) || (profile && (typeof profile !== 'object' || Array.isArray(profile)))) {
       result.preserved.push(name);
       continue;
     }
     const relative = relativeAgentPath(name);
     const target = path.join(root, ...relative.split('/'));
-    const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
-    if (profile.enabled === false) {
+    let stat;
+    try {
+      stat = fs.lstatSync(target);
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    if ((stat && !stat.isFile()) || isTracked(root, relative)) {
+      result.preserved.push(relative);
+      continue;
+    }
+    const existing = stat ? fs.readFileSync(target, 'utf8') : '';
+    if (settings.enabled === false || !profile || profile.enabled === false) {
       if (existing && isManaged(existing)) {
         fs.unlinkSync(target);
         result.removed.push(relative);
       }
       continue;
     }
-    if ((existing && !isManaged(existing)) || (!existing && isTracked(root, relative))) {
+    if (stat && !isManaged(existing)) {
       result.preserved.push(relative);
       continue;
     }

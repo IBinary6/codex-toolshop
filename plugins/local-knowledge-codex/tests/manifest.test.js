@@ -16,12 +16,13 @@ const legacy = readJson('hooks/codex-hooks.json');
 
 assert.equal(plugin.name, packageJson.name);
 assert.equal(plugin.name, 'local-knowledge-codex');
-assert.match(plugin.version, /^\d+\.\d+\.\d+$/);
-assert.equal(plugin.version, packageJson.version);
+const releaseVersion = plugin.version.split('+')[0];
+assert.match(plugin.version, /^\d+\.\d+\.\d+(?:\+codex\.[a-z0-9-]+)?$/);
+assert.equal(releaseVersion, packageJson.version);
 assert.equal(packageJson.engines.node, '>=18');
 const pyprojectVersion = pyproject.match(/^version\s*=\s*"([^"]+)"/m);
 assert.ok(pyprojectVersion, 'pyproject version must exist');
-assert.equal(pyprojectVersion[1], plugin.version);
+assert.equal(pyprojectVersion[1], releaseVersion);
 assert.equal(plugin.interface.displayName, 'Local Knowledge for Codex');
 assert.doesNotMatch(JSON.stringify(plugin), /bugdb/i);
 assert.deepEqual(hooks, legacy);
@@ -59,7 +60,7 @@ if (fs.existsSync(marketplacePath)) {
   const marketplace = JSON.parse(fs.readFileSync(marketplacePath, 'utf8'));
   const marketplaceEntry = marketplace.plugins.find((entry) => entry.name === plugin.name);
   assert.ok(marketplaceEntry, 'marketplace must publish the renamed plugin');
-  assert.equal(marketplaceEntry.version, plugin.version);
+  assert.equal(marketplaceEntry.version, releaseVersion);
   assert.equal(marketplaceEntry.source.path, './plugins/local-knowledge-codex');
   assert.equal(marketplace.plugins.some((entry) => entry.name === 'bugdb-knowledge-codex'), false);
 } else {

@@ -3,7 +3,6 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { stripBom, restoreBom } = require('../lib/bom_util.js');
 const { resolvePython } = require('../lib/python');
 
 const isWindows = process.platform === 'win32';
@@ -59,16 +58,8 @@ function buildFilterArg(options = {}) {
  * 匹配「主头文件」判断 include_order。临时 hash 路径名会让这两者全错（误报
  * build/header_guard 宏名与 build/include_order）。直接对真实路径跑则二者正确。
  *
- * BOM 处理（实测 cpplint.py 不认 UTF-8 BOM：BOM 在第一行行首会令 #ifndef 检测失败，
- * 误报 build/header_guard「No #ifndef header guard found」，即使 guard 实际存在）：
- * - 无 BOM（常见）：零写入，直接对真实路径跑。
- * - 有 BOM：原地剥 BOM → 跑 cpplint → finally 中按原字节恢复。剥/恢复均为同步写，
- *   try/finally 保证恢复；剥 BOM 后的文件仍是合法 UTF-8（仅缺 BOM，下次编辑会再补），
- *   非「损坏」文件。真实路径全程不变，故 header_guard/include_order 仍按真实文件名判断。
- *
- * 行尾处理：cpplint 不负责统一 LF/CRLF，本步骤也不做行尾转换。Windows / VS 项目常用
- * CRLF，换行策略应由 git、clang-format 或 copyright 步骤处理；cpplint 只报告代码风格。
- * 有 BOM 时恢复的是原始 body 字节，因此 CRLF/LF 也会按原样恢复。
+ * 随附 cpplint 使用 utf-8-sig 读取源码，直接忽略 BOM；本步骤从不写文件，
+ * 即使进程中断也不会移除 BOM，mtime、LF/CRLF 和原始字节均保持不变。
  *
  * filter 仅在 suppressCopyright 时含 -legal/copyright；无 filter 项时不传 --filter。
  * @param {string} filePath
@@ -76,15 +67,18 @@ function buildFilterArg(options = {}) {
  * @returns {Array<{line:number, category:string, message:string}>}
  */
 function runCpplint(filePath, options = {}) {
-  const python = resolvePython();
+  const failure = (message, category = 'runtime/cpplint') => [{ line: 0, category, message }];
+  let python;
+  try { python = (options.resolvePython || resolvePython)(); } catch (error) {
+    return failure(`无法检测 Python：${error.message || error}`);
+  }
   if (!python || !fs.existsSync(CPPLINT_PY)) {
-    process.stderr.write('[cpp-style-enforcer] python/cpplint 不可用，跳过 cpplint\n');
-    return [];
+    return failure('Python/cpplint 不可用，本次检查未执行');
   }
 
-  let raw;
-  try { raw = fs.readFileSync(filePath); } catch (_) { return []; }
-  const { hadBom, body } = stripBom(raw);
+  try { fs.accessSync(filePath, fs.constants.R_OK); } catch (_) {
+    return failure('无法读取待检查文件，本次检查未执行');
+  }
 
   const args = [CPPLINT_PY, '--quiet'];
   if (options.root) args.push('--root=' + options.root);
@@ -92,36 +86,29 @@ function runCpplint(filePath, options = {}) {
   if (filterArg) args.push(filterArg);
   args.push(filePath);
 
-  let violations = [];
-  let stripped = false;
   try {
-    // 仅当有 BOM 才原地剥除，避免 cpplint 误报 header_guard；无 BOM 时零写入。
-    if (hadBom) {
-      try { fs.writeFileSync(filePath, body); stripped = true; } catch (_) { /* 写失败则带 BOM 跑 */ }
-    }
-    const r = spawnSync(python.cmd, [...python.args, ...args], {
+    const r = (options.spawnSync || spawnSync)(python.cmd, [...python.args, ...args], {
       stdio: 'pipe',
       timeout: Math.max(1000, options.timeoutMs || 15000),
       maxBuffer: 16 * 1024 * 1024,
       windowsHide: isWindows,
     });
     if (r.error && r.error.code === 'ETIMEDOUT') {
-      violations = [{ line: 0, category: 'runtime/timeout', message: 'cpplint 执行超时，请缩小提交范围或稍后重试' }];
-    } else if (r.error) {
-      violations = [];
-    } else {
-      const stderr = (r.stderr || Buffer.alloc(0)).toString('utf-8');
-      violations = parseCpplintOutput(stderr);
+      return failure('cpplint 执行超时，检查未完成', 'runtime/timeout');
     }
-  } catch (_) {
-    violations = [];
-  } finally {
-    // 恢复原始字节（含 BOM）。stripped 才需要恢复，按原 hadBom 拼回。
-    if (stripped) {
-      try { fs.writeFileSync(filePath, restoreBom(true, body)); } catch (_) {}
+    if (r.error) return failure(`cpplint 无法执行：${r.error.code || r.error.message}`);
+    const stderr = (r.stderr || Buffer.alloc(0)).toString('utf-8');
+    const violations = parseCpplintOutput(stderr);
+    if (r.status !== 0 && violations.length === 0) {
+      return failure(`cpplint 异常结束（退出码 ${r.status}），检查未完成`);
     }
+    if (/Skipping input|Can't open for reading|Error reading config|Invalid configuration|Line length must be numeric/i.test(stderr)) {
+      return [...violations, ...failure('cpplint 未能读取源码或配置，检查未完成')];
+    }
+    return violations;
+  } catch (error) {
+    return failure(`cpplint 检查异常：${error.message || error}`);
   }
-  return violations;
 }
 
 /**

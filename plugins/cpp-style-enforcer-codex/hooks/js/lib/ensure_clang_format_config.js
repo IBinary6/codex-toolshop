@@ -22,10 +22,16 @@ NamespaceIndentation: None
 function ensureClangFormatConfig(root) {
   if (!root) return;
   try {
-    const target = path.join(root, '.clang-format');
-    const compat = path.join(root, '_clang-format');
-    if (fs.existsSync(target) || fs.existsSync(compat)) return;
-    fs.writeFileSync(target, Buffer.from(CONTENT, 'utf-8'));
+    // clang-format 向父目录继承配置；不要新建根配置遮盖已经适用的风格。
+    let current = path.resolve(root);
+    while (true) {
+      if (fs.existsSync(path.join(current, '.clang-format'))
+          || fs.existsSync(path.join(current, '_clang-format'))) return;
+      const parent = path.dirname(current);
+      if (parent === current) break;
+      current = parent;
+    }
+    fs.writeFileSync(path.join(root, '.clang-format'), Buffer.from(CONTENT, 'utf-8'), { flag: 'wx' });
   } catch (_) {
     // 生成失败不影响主流程
   }

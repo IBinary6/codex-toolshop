@@ -21,7 +21,7 @@ codex plugin add conversation-namer-codex@codex-toolshop
 codex plugin add system-proxy-codex@codex-toolshop
 ```
 
-安装或升级后，重新打开一个 Codex 会话，让 hooks、skills 和 MCP 配置重新加载。
+安装或升级后，重新打开一个 Codex 会话，让 hooks、skills 和 MCP 配置重新加载。宿主将新增或变更的 hook 标为未信任时，先在 `/hooks` 中审查并信任；启用插件不等于对应 hook 已获信任，插件不会自行写入信任哈希。
 
 ## 平台支持
 
@@ -41,13 +41,13 @@ codex plugin add system-proxy-codex@codex-toolshop
 | `codemap-boost-codex` | 自动接入 `code-review-graph` 代码结构图，提供符号、调用、引用和影响面检索能力。 | 新会话自动 bootstrap、自动 build/update。涉及代码结构时优先用 `mcp__code_review_graph__*` 工具。 |
 | `cpp-style-enforcer-codex` | 自动执行团队 C++ 风格流程，包括 clang-format、版权头、BOM、cpplint 和提交前检查。 | 正常编辑即可；写入 C/C++ 文件后 hook 自动处理，`git commit` 前会检查暂存区 C++ 文件。 |
 | `agent-dispatch-codex` | 让主代理负责决策和审查，并按任务为明确、有界的执行工作选择可写子代理及模型档位。 | 新会话自动注入调度策略；子代理直接执行、报告结果，并在整合后及时释放。 |
-| `local-knowledge-codex` | 为 Codex 提供本地索引知识，覆盖错误方案、用户偏好、事实、决策和工作流。 | 会话开始加载常驻偏好，提问或工具失败时按作用域和相关性召回；用户明确要求或方案验证后再保存。 |
-| `conversation-namer-codex` | 按创建日期、任务类型和实际主题生成统一的 Codex 会话标题。 | 每个新 Codex 主任务理解首条请求后立即命名或安全跳过，再开始主任务；批量整理当前项目时先预览两列表格，确认后才改标题。 |
+| `local-knowledge-codex` | 为 Codex 提供本地索引知识，覆盖错误方案、用户偏好、事实、决策和工作流。 | 按作用域和相关性只读召回；明确要求保存或存在已验证且获授权的可复用内容时，再按宿主策略写入。 |
+| `conversation-namer-codex` | 按创建日期、任务类型和实际主题生成统一的 Codex 会话标题。 | 新任务后台调用轻量模型命名，主任务继续工作；批量整理当前项目时先预览两列表格，确认后才改标题。 |
 | `system-proxy-codex` | 自动启用 Codex 系统代理支持，并用 Python 安全配置 `.env`。 | 默认使用系统代理；也可用 `system-proxy-setup` 自动检测或指定 `7897`、`7890` 等端口。 |
 
 ## 会话命名怎么用
 
-安装 `conversation-namer-codex` 后，hook 只把命名规则注入当前主模型。每个新建的 Codex 主任务在主模型理解首条请求、足以确定核心主题后，都会立即生成 `MMDD｜TYPE｜Topic`，通过任务标题接口完成命名或安全跳过，然后才开始用户要求的主任务；不会拖到最终回复，也不会因为请求短、简单或已可执行而省略。日期只取会话 `createdAt` 并转换为 `Asia/Shanghai`；默认类型代码为 `FEA`、`DES`、`FIX`、`OPT`、`REL`、`EXP`、`DOC` 或 `RES`。标题语义及 `read_thread` / `set_thread_title` 调用由当前主模型负责；只有工具不可用或主题确实无法可靠判断时才保留原标题，目标标题相同则不重复写入。
+安装 `conversation-namer-codex` 后，首条用户消息触发一次后台命名。插件从实时模型目录按 Spark、Mini、Luna 家族顺序选择支持低推理档位的轻量模型，生成 `MMDD｜TYPE｜Topic`；主模型继续处理用户请求，不等待命名。日期取会话 `createdAt` 并转换为 `Asia/Shanghai`，类型默认为 `FEA`、`DES`、`FIX`、`OPT`、`REL`、`EXP`、`DOC` 或 `RES`。命名仅处理当前主任务；用户禁止改名、标题已变化、主题不清楚或调用失败时保留原标题。模型选择、状态及宿主界面刷新限制见[插件说明](plugins/conversation-namer-codex/README.md)。
 
 批量整理当前项目时，可以直接说：
 
@@ -68,6 +68,8 @@ codex plugin add system-proxy-codex@codex-toolshop
 - 子代理收到独立指令后直接执行，不递归分派，并在结果中列出修改文件和验证命令。
 - 子代理结果已整合、阻塞或不再需要时立即停止，避免空闲智能体占用有限名额。
 - 搜索、规划和审查继续按职责选择专门角色；两个写代码角色默认继承主任务模型，不再固定为 Luna/max 或 Terra/ultra。
+- 角色配置是候选默认值，关键词不构成授权或强制分派。只覆盖模型时使用插件的适用推理默认值，不把父任务的 ultra 自动带入另一模型；显式模型与档位保留，实际可用组合由宿主核实。
+- 路由先识别只读、主代理限定、代理数量和已有计划；保留依赖查询、审查与实现各自的任务意图，不因“崩溃”把只读诊断转成修改，也不因文档提到 security 就升级模型。
 - 普通 Bash/agent 工具命令默认不产生 `PreToolUse` 路由提示；单条命令不再触发重复的模型建议。
 - 安装后无需手动运行 setup；新建任务会自动生成项目 Agent 并注入路由。`agent-dispatch-setup` 只用于查看或覆盖配置。
 - Windows 的 PowerShell/Git Bash 与 macOS 的 zsh/bash 都受支持；集成终端 Shell 的选择不会改变 Hook 的 Node.js 运行逻辑。
@@ -84,10 +86,11 @@ codex plugin add system-proxy-codex@codex-toolshop
 安装 `codemap-boost-codex` 后，新会话的 `SessionStart` 会主动做这些事：
 
 - 检查 `code-review-graph` 是否可用；缺失时先完成 bootstrap，再继续本次启动刷新。
-- 注册 Codex MCP，且使用 `--no-hooks --no-instructions --no-skills`，避免第三方安装器写入额外 hook 或提示词。
-- 写入 `$CODEX_HOME/AGENTS.md` 的托管块，提醒 Codex 优先使用图谱工具。
+- 通过插件自身 `.mcp.json` 暴露 MCP，不另注册一个同名全局服务器；运行时安装只准备所需依赖。
+- 更新 `$CODEX_HOME/AGENTS.md` 中边界明确的托管块，保留块外内容；边界损坏时报告问题，不猜测替换范围。
 - 当前目录是 Git 仓库时，同步完成 build/update；存在未跟踪源码时使用临时 Git index 做 full build。
-- 写文件或执行可能修改源码的 Bash 后同步刷新；`git status`、`rg`、测试等只读命令不会重复刷新。
+- 结构、依赖、调用链与影响面优先查询可用图工具，再读源码核对。SessionStart、结构请求和子代理入口保留规则；常见源码搜索前每用户轮补充一次短提醒，用户补充后复位，不阻断命令或重复刷新。
+- 源码修改后在后台合并刷新，读取图谱前通过同步 barrier 等待。已知文件、文件名与文本检索可直接读取或使用 `rg`，图不可用或覆盖不足时核对源码并说明限制。
 - 把 `.code-review-graph/` 和 `graphify-out/` 写入当前仓库的 `.git/info/exclude`，不改项目 `.gitignore`。
 
 如果想手动预热或排障，可以在 Codex 中说：
@@ -111,10 +114,11 @@ codex plugin list
 - `pinned` 用户偏好会在会话开始按当前工作区加载。
 - 普通问题会自动召回相关的偏好、事实、决策和工作流；需要显式查询时使用 `local-knowledge-recall`，无命中时不注入邻区内容。
 - 工具提供明确失败状态且确实失败时，才会自动查找历史错误方案；成功或状态未知的输出不会因包含示例错误文本而误触发。
-- 用户明确说“记住、保存、以后默认”等，或错误方案已经验证时，由 `local-knowledge-save` 选择类型、作用域、召回策略和线索后写入。
+- 自动召回以只读方式打开现有库，不创建数据库、建表或迁移；查询失败与无命中分别报告，环境准备或迁移使用对应技能。
+- “记住、保存”等关键词仅作提示，引用文本不构成授权。保存前核对当前用户要求、验证证据和宿主策略，再由 `local-knowledge-save` 选择类型、作用域、召回策略和线索。历史记录不能覆盖当前要求或授权边界。
 - 仓库和工作区知识按规范化绝对路径隔离；从仓库子目录工作时会继承对应的仓库/工作区知识，不会串到相邻目录。
 - 密码、令牌、API key、私钥等凭据默认拒绝保存；`confidential` 内容只允许显式召回。
-- 新的通用知识写入独立的 `knowledge_items` 表；新召回层继续读取历史错误记录，旧客户端不会因 `preference`、`fact` 等新类型而崩溃。
+- 更新已有条目时保留未显式修改的敏感级别、手动召回等元数据；通用知识与历史错误记录使用各自数据层。
 
 为保留既有数据，默认 SQLite 文件仍是 `~/.bugdb/bugs.db`。新配置优先使用 `LOCAL_KNOWLEDGE_HOME`，旧 `BUGDB_HOME` 继续兼容。旧记录仍在独立目录时使用 `local-knowledge-migrate`，迁移不会删除来源文件。
 
@@ -130,11 +134,12 @@ codex plugin list
 
 ## C++ Style 怎么用
 
-安装 `cpp-style-enforcer-codex` 后，新会话会准备 C++ 风格配置。之后正常让 Codex 编辑 C/C++ 文件即可：
+安装 `cpp-style-enforcer-codex` 后，新会话只准备全局模板；实际编辑 C/C++ 后才按需建立项目配置。之后正常让 Codex 编辑 C/C++ 文件即可：
 
 - `PostToolUse` 只记录本轮编辑的 C/C++ 文件，不立即改写源文件。
 - `Stop` 在本轮结束时统一处理格式化、BOM、版权头和 cpplint，并触发最终验证闭环。
 - `PreToolUse` 会识别真正的 `git commit`，只检查暂存区 C/C++ 文件，不在提交前改写。
+- 尊重项目已有 formatter 配置；只读检查不改写 BOM，检查失败不能报告为通过。
 - 全局模板在 `~/.codex/cpp-style-template.json`。
 - 项目级配置在 `.codex-cpp-style/cpp-style.json`。
 - 兼容已有 `.claude-cpp-style`，旧项目不需要迁移。

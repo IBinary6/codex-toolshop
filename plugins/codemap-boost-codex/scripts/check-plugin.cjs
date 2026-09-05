@@ -34,8 +34,9 @@ function main() {
   const plugin = readJson(path.join(pluginRoot, '.codex-plugin', 'plugin.json'), 'plugin.json');
   const packageJson = readJson(path.join(pluginRoot, 'package.json'), 'package.json');
   assert(plugin.name === 'codemap-boost-codex', 'plugin name is wrong');
-  assert(plugin.version === packageJson.version, 'package.json version must match plugin.json');
-  assert(/^\d+\.\d+\.\d+$/.test(plugin.version), 'plugin version must be plain patch semver');
+  const releaseVersion = plugin.version.split('+')[0];
+  assert(releaseVersion === packageJson.version, 'package.json must match the plugin release version');
+  assert(/^\d+\.\d+\.\d+(?:\+codex\.[a-z0-9-]+)?$/.test(plugin.version), 'plugin version must be semver with optional Codex cache metadata');
   assert(packageJson.engines && packageJson.engines.node === `>=${MINIMUM_NODE_MAJOR}.0.0`, 'package must declare the supported Node runtime');
 
   const repoRoot = findRepoRoot(pluginRoot);
@@ -44,7 +45,7 @@ function main() {
     assert(marketplace.name === 'codex-toolshop', 'marketplace name must be codex-toolshop');
     const entry = marketplace.plugins.find((item) => item.name === 'codemap-boost-codex');
     assert(entry, 'marketplace must include codemap-boost-codex');
-    assert(entry.version === plugin.version, 'marketplace version must match plugin.json');
+    assert(entry.version === releaseVersion, 'marketplace must match the plugin release version');
     assert(entry.source && entry.source.path === './plugins/codemap-boost-codex', 'marketplace source path is wrong');
   }
 

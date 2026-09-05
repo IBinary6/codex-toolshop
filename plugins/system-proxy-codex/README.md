@@ -28,13 +28,13 @@ py -3 install_system_proxy_codex.py --port 7890
 脚本源码：
 
 ```text
-https://raw.githubusercontent.com/IBinary6/codex-toolshop/system-proxy-codex-v0.1.1/scripts/install_system_proxy_codex.py
+https://raw.githubusercontent.com/IBinary6/codex-toolshop/system-proxy-codex-v0.1.2/scripts/install_system_proxy_codex.py
 ```
 
 下载到当前目录后，应先审查再运行。macOS 示例：
 
 ```text
-python3 -c "import urllib.request; open('install_system_proxy_codex.py','wb').write(urllib.request.urlopen('https://raw.githubusercontent.com/IBinary6/codex-toolshop/system-proxy-codex-v0.1.1/scripts/install_system_proxy_codex.py').read())"
+python3 -c "import urllib.request; open('install_system_proxy_codex.py','wb').write(urllib.request.urlopen('https://raw.githubusercontent.com/IBinary6/codex-toolshop/system-proxy-codex-v0.1.2/scripts/install_system_proxy_codex.py').read())"
 python3 install_system_proxy_codex.py --dry-run
 python3 install_system_proxy_codex.py
 ```
@@ -42,10 +42,10 @@ python3 install_system_proxy_codex.py
 Windows 将上面的 `python3` 替换为 `py -3`。确认仓库地址可信后，也可以直接执行一行 bootstrap：
 
 ```text
-python3 -c "import urllib.request; exec(compile(urllib.request.urlopen('https://raw.githubusercontent.com/IBinary6/codex-toolshop/system-proxy-codex-v0.1.1/scripts/install_system_proxy_codex.py').read(), 'install_system_proxy_codex.py', 'exec'))"
+python3 -c "import urllib.request; exec(compile(urllib.request.urlopen('https://raw.githubusercontent.com/IBinary6/codex-toolshop/system-proxy-codex-v0.1.2/scripts/install_system_proxy_codex.py').read(), 'install_system_proxy_codex.py', 'exec'))"
 ```
 
-发布脚本固定到 `system-proxy-codex-v0.1.1` 标签，并在执行前校验下载组件的 SHA-256。
+发布脚本固定到 `system-proxy-codex-v0.1.2` 标签，并在执行前校验下载组件的 SHA-256。
 
 也可以安装插件后在 Codex 中说：
 

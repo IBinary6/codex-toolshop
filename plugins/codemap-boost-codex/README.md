@@ -13,10 +13,10 @@
 | 会话启动维护图谱 | 原生 MCP 启动器准备运行时，`SessionStart` 同步 build/update | `SessionStart` 后台 build/update，缺 CLI 时提示 setup |
 | 修改后更新图谱 | `PostToolUse` 后台合并刷新 | `PostToolUse` / `CwdChanged` 后台刷新 |
 | 读取前屏障 | 图谱 MCP `PreToolUse` 同步刷新，失败则 deny | 图谱 MCP `PreToolUse` 同步刷新，失败则 deny |
-| grep/agent 引导 | `Bash` / prompt / subagent 软提示优先用图谱；subagent 不重复刷新 | `Grep` / `Agent` 强提示优先用图谱 |
+| 检索引导 | AGENTS、SessionStart、结构请求与子代理入口保留图优先规则；搜索前每用户轮一次短提醒 | `Grep` / `Agent` 强提示优先用图谱 |
 | 依赖安装 | 插件原生 MCP 首次加载时自动准备私有运行时 | 通过 `/codemap-boost-setup` 显式确认安装 |
 
-Codex 版会把 grep 注入这类 Claude 专属能力改写到 `AGENTS.md`、`UserPromptSubmit`、`SubagentStart` 和 Bash 提示里；这是平台机制不同，不是能力缺口。
+结构、调用、依赖和影响面查询优先使用可用图工具，再读取源码核对。`AGENTS.md` 持久保存规则，SessionStart 与 SubagentStart 在上下文入口补充规则，UserPromptSubmit 提醒结构性请求，命令行搜索前提供低频纠偏。已知文件直接读取，文件名与纯文本检索使用 `rg`；图工具不可用或不覆盖目标时读取源码核对关系并说明限制。
 
 ## 安装即用
 
@@ -127,16 +127,22 @@ py -3 -m pip install "graphifyy[all]"
 
 | Hook | 私有 CRG 运行环境健康后的作用 |
 | --- | --- |
-| `SessionStart` | 迁移旧版插件全局 MCP 覆盖，维护 `$CODEX_HOME/AGENTS.md` 的 CodeMap 托管块，并同步完成 build/update；不会修改项目 `.gitignore`。 |
+| `SessionStart` | 迁移旧版插件全局 MCP 覆盖，维护 `$CODEX_HOME/AGENTS.md` 的 CodeMap 托管块，同步维护图谱，并在启动、恢复或压缩后补充图优先规则。 |
 | `PostToolUse` | Codex 写文件或执行可能修改源码的 Bash 后启动后台合并刷新；同一源码状态不会重复 build/update，只读 Bash 命令不会触发刷新。 |
-| `PreToolUse:Bash` | 当 Bash 命令像是在做代码结构搜索时，向 Codex 注入图谱优先提示，不阻止命令。 |
-| `PreToolUse:MCP` | 调用 code-review-graph / codegraph / graphify MCP 前同步刷新图谱；CLI 不可用或刷新失败时阻止本次图谱读取。 |
-| `UserPromptSubmit` | 当用户问题涉及符号、调用、引用、影响面等结构问题时，提醒 Codex 优先使用图谱 MCP 工具。 |
+| `PreToolUse:MCP` | 调用 code-review-graph 项目图工具前同步刷新；CLI 不可用或刷新失败时阻止该读取。全局仓库注册表查询不依赖当前项目图。 |
+| `PreToolUse:Bash` | 常见源码搜索前补充一句条件式图优先提醒；同一用户轮内原子去重，不阻断/改写命令，不刷新图谱。明确的文件名、文档、配置和日志检索静默。 |
+| `UserPromptSubmit` | 结构问题只提示图谱能力，不同步构建；实际查询前由 MCP 屏障保证刷新。 |
 | `SubagentStart` | 子代理启动时只注入 CodeMap 使用规则，不重复 build/update；首次图谱读取仍由 `PreToolUse:MCP` 屏障同步兜底。 |
+
+搜索提醒按宿主的会话、轮次、会话目录及可选子代理标识隔离；每次用户补充消息都复位，即使仍在同一轮。状态仅在插件数据目录 `search-reminders/` 中保存散列文件名和空标记，不记录用户正文、命令或原始路径。缺少标识或状态不可写时使用无状态软提示，无法保证去重。命令识别是轻量启发式，不能据此判断实际工作目录、用户意图或权限。
+
+Codex 将 `exec_command`（含 Code Mode 内层调用）映射成 `Bash` 与 `tool_input.command`；不需要解析外层 JavaScript。提示后命令仍可执行；自动流程的验证应同时检查入口输出、提示频率和真实图查询，不能只看 Hook 退出码。
 
 ## 与 Agent Dispatch 协作
 
-两者同时安装时，Agent Dispatch 负责把有界搜索交给 Luna、广泛扫描交给 Terra；CodeMap Boost 负责图刷新、读取屏障和检索规则。搜索子代理启动时不会再次刷新图，随后第一次图谱 MCP 调用会经过同步屏障，因此既避免每个子代理重复 update，也不会读取过期图谱。
+两者同时安装时，Agent Dispatch 提供可覆盖的角色预设，主代理按任务、用户偏好和宿主可用模型决定是否委派；CodeMap Boost 负责图刷新、读取屏障和检索规则。子代理启动时不重复刷新，实际图谱读取由同步屏障兜底。
+
+例如“查 auth 模块被谁依赖”先做图查询，范围较大且分派有收益时再由 Dispatch 建议搜索角色；“只读诊断崩溃”保持只读；“按已有计划实现迁移”沿用方案。角色建议不改变 CodeMap 的检索优先级，也不把查询自动升级为修改任务。
 
 ## 生成文件
 

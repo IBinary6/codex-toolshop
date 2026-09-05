@@ -36,8 +36,8 @@ function matchLineEnding(formatted, source) {
  *
  * 模式（由 opts.isNew 决定，缺省视为新文件）：
  * - 新文件：整文件全格，-style=file -fallback-style=Google，include 正常排序。
- * - 老文件：仅格 git 改动行（--lines=s:e），-style 内联 SortIncludes:Never
- *   强制 include 不排序；无改动行则不格式化返回 false。
+ * - 老文件：仅格式化 git 改动行（--lines=s:e），读取项目风格并覆盖 include 排序开关；
+ *   无改动行则不格式化返回 false。
  *
  * 行号说明：--lines 作用于 stdin 输入（已剥 BOM 的正文）。剥 BOM 仅去掉文件最前
  * 3 字节（BOM 在第一行行首，不增减行），故 git diff 的改动行号可直接用作 --lines。
@@ -65,7 +65,7 @@ function applyClangFormat(filePath, opts) {
   } else {
     const ranges = changedLineRanges(filePath, root);
     if (!ranges || ranges.length === 0) return false; // 无改动行 → 不格式化
-    args = ['-style={BasedOnStyle: Google, SortIncludes: Never}', `-assume-filename=${filePath}`];
+    args = ['-style=file', '-fallback-style=Google', '--sort-includes=false', `-assume-filename=${filePath}`];
     for (const [s, e] of ranges) args.push(`--lines=${s}:${e}`);
   }
 

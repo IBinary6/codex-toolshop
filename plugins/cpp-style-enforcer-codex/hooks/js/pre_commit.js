@@ -267,7 +267,8 @@ async function main() {
   // loadConfig/findProjectConfig 从 path.dirname(filePath) 向上找；传 cwd 下的探针文件，
   // 使其 dirname 落在 cwd，从而包含 cwd 本身的 .codex-cpp-style/cpp-style.json。
   const config = loadConfig(path.join(cwd, '.cpp-style-probe'));
-  if (config.enabled === false || !config.checks.cpplint) return passSilent();
+  if (config.enabled === false || (!config.checks.cpplint
+      && (config.mode === 'full' || !config.legacyChecks.cpplint))) return passSilent();
 
   const root = repoRoot(cwd);
   if (!root) return passSilent();
@@ -278,12 +279,11 @@ async function main() {
   } catch (error) {
     return denyTool(`提交被阻止：无法枚举 Git 暂存区，未执行完整 cpplint 检查。${error && error.message ? ` ${error.message}` : ''}`);
   }
-  if (config.mode === 'incremental') {
-    files = files.filter((f) => isNew(f, root) !== false);
-  }
+  const fileChecks = new Map(files.map((file) => [file,
+    config.mode === 'full' || isNew(file, root) !== false ? config.checks : config.legacyChecks]));
+  files = files.filter((file) => fileChecks.get(file).cpplint);
   if (files.length === 0) return passSilent();
 
-  const suppressCopyright = !(config.copyrightInfo && config.copyrightInfo.company) || config.checks.copyright === false;
   const allViolations = [];
   const deadline = Date.now() + PRE_COMMIT_DEADLINE_MS;
   let snapshot;
@@ -302,6 +302,9 @@ async function main() {
         break;
       }
       try {
+        const effectiveChecks = fileChecks.get(path.resolve(root, stagedFile.relativePath));
+        const suppressCopyright = !(config.copyrightInfo && config.copyrightInfo.company)
+          || !effectiveChecks.copyright;
         const v = runCpplint(stagedFile.filePath, {
           root: snapshot.root,
           suppressCopyright,
@@ -310,7 +313,9 @@ async function main() {
         for (const item of v) allViolations.push({ ...item, file: stagedFile.relativePath });
         if (v.some((item) => item.category === 'runtime/timeout')) break;
       } catch (e) {
-        diag(`pre_commit cpplint 跳过 ${stagedFile.relativePath}: ${e && e.message ? e.message : e}`);
+        allViolations.push({ file: stagedFile.relativePath, line: 0,
+          category: 'runtime/cpplint',
+          message: `检查异常，未完成验证：${e && e.message ? e.message : e}` });
       }
     }
   } catch (e) {
@@ -335,8 +340,8 @@ async function main() {
 // 仅作为 hook 入口直接执行时运行流水线；被 require（测试）时只导出函数，避免读 stdin 挂死。
 if (require.main === module) {
   main().catch((e) => {
-    try { diag(`pre_commit 顶层异常兜底 passSilent: ${e && e.message ? e.message : e}`); } catch (_) {}
-    passSilent();
+    try { diag(`pre_commit 检查异常: ${e && e.message ? e.message : e}`); } catch (_) {}
+    denyTool('提交前 C++ 检查异常，未完成验证；修复检查环境后重试。');
   });
 }
 

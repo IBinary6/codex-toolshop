@@ -96,6 +96,18 @@ function mkTmpDir() {
 // 6) Codex apply_patch command 可包含多个文件；CMake 项目也必须补 UTF-8 BOM
 {
   const dir = mkTmpDir();
+  const file = path.join(dir, 'failed.cpp');
+  fs.writeFileSync(file, 'int  value;\n');
+  const before = fs.readFileSync(file);
+  const failed = runHook({ cwd: dir, tool_name: 'Edit',
+    tool_input: { file_path: file }, tool_response: { isError: true } });
+  assert.strictEqual(failed.status, 0);
+  assert.strictEqual(runStop(failed.payload).stdout, '{}', '失败的编辑不能排入后续自动修复');
+  assert.ok(fs.readFileSync(file).equals(before));
+}
+
+{
+  const dir = mkTmpDir();
   fs.writeFileSync(path.join(dir, 'CMakeLists.txt'), 'project(test)\n');
   fs.mkdirSync(path.join(dir, '.codex-cpp-style'));
   fs.writeFileSync(path.join(dir, '.codex-cpp-style', 'cpp-style.json'), JSON.stringify({

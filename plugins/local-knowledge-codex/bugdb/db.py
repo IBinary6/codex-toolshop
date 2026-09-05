@@ -150,8 +150,19 @@ MIGRATIONS = {1: _migrate_v0_to_v1, 2: _migrate_v1_to_v2, 3: _migrate_v2_to_v3}
 class BugDB:
     """SQLite BugDB DAL，按连接隔离事务。"""
 
-    def __init__(self, db_path: Path | str | None = None):
+    def __init__(self, db_path: Path | str | None = None, *, read_only: bool = False):
+        """只读召回跳过 schema 迁移；默认仍保留旧 CLI 的初始化行为。"""
         self._path = paths.get_db_path(db_path)
+        self._read_only = read_only
+        if read_only:
+            with self._connection() as conn:
+                if conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='knowledge'"
+                ).fetchone() is None:
+                    raise SchemaMigrationError(
+                        "legacy schema needs explicit setup before read-only recall"
+                    )
+            return
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_schema()
 
@@ -163,8 +174,12 @@ class BugDB:
     @contextmanager
     def _connection(self):
         """打开启用 WAL 和外键约束的事务连接。"""
-        conn = sqlite3.connect(str(self._path))
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = (sqlite3.connect(self._path.resolve().as_uri() + "?mode=ro", uri=True)
+                if self._read_only else sqlite3.connect(str(self._path)))
+        if self._read_only:
+            conn.execute("PRAGMA query_only=ON")
+        else:
+            conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
         conn.row_factory = sqlite3.Row
         try:

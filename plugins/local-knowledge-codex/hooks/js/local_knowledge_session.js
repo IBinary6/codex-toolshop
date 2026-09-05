@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('fs');
 const {
   detectPython,
   renderRecall,
@@ -20,6 +21,8 @@ function emit(additionalContext) {
 
 function main() {
   /** 检查运行时并在会话开始时加载当前作用域的常驻知识。 */
+  let input = null;
+  try { input = JSON.parse(fs.readFileSync(0, 'utf8')); } catch (_) {}
   const detected = detectPython();
   if (!detected.ok) {
     const where = detected.version
@@ -31,7 +34,7 @@ function main() {
   }
 
   const data = runCli(['recall', '--occasion', 'session_start',
-    ...workspaceScopeArgs(), '--no-legacy-bugs', '--limit', '5', '--max-chars', '2500']);
+    ...workspaceScopeArgs(input), '--no-legacy-bugs', '--limit', '5', '--max-chars', '2500']);
   const items = resultItems(data);
   if (items.length > 0) emit(renderRecall(items, 'session_start'));
 }

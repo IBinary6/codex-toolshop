@@ -34,12 +34,12 @@ try {
   const explorerContent = fs.readFileSync(explorer, 'utf8');
   assert.equal((explorerContent.match(/Do not run Git commands/g) || []).length, 1);
   assert.match(explorerContent, /CodeMap Boost graph tools/);
-  assert.match(explorerContent, /instead of starting another build\/update/);
-  assert.match(explorerContent, /text search only for literal text, comments, or strings/);
+  assert.match(explorerContent, /follow its refresh and retrieval rules/);
+  assert.match(explorerContent, /read source to verify relationships/);
   const mapper = path.join(root, '.codex', 'agents', 'dispatch_mapper.toml');
   const mapperContent = fs.readFileSync(mapper, 'utf8');
   assert.match(mapperContent, /CodeMap Boost graph tools/);
-  assert.match(mapperContent, /instead of starting another build\/update/);
+  assert.match(mapperContent, /follow its refresh and retrieval rules/);
   const expectedProfiles = {
     dispatch_explorer: ['gpt-5.6-luna', 'medium', 'read-only'],
     dispatch_mapper: ['gpt-5.6-terra', 'medium', 'read-only'],
@@ -102,6 +102,45 @@ try {
   const disabled = ensureAgentProfiles(root, config);
   assert.ok(disabled.removed.includes('.codex/agents/dispatch_worker.toml'));
   assert.equal(fs.existsSync(worker), false);
+
+  const tracked = path.join(root, '.codex', 'agents', 'dispatch_mapper.toml');
+  const trackedContent = fs.readFileSync(tracked, 'utf8');
+  execFileSync('git', ['add', '-f', '--', '.codex/agents/dispatch_mapper.toml'], { cwd: root });
+  config.agent_profiles.profiles.dispatch_mapper.model = 'user-tracked-model';
+  const trackedResult = ensureAgentProfiles(root, config);
+  assert.ok(trackedResult.preserved.includes('.codex/agents/dispatch_mapper.toml'));
+  assert.equal(fs.readFileSync(tracked, 'utf8'), trackedContent, 'tracked managed files are user-controlled');
+
+  const empty = path.join(root, '.codex', 'agents', 'dispatch_planner.toml');
+  fs.writeFileSync(empty, '');
+  ensureAgentProfiles(root, config);
+  assert.equal(fs.readFileSync(empty, 'utf8'), '', 'an empty user file is not a missing generated file');
+
+  const stale = path.join(root, '.codex', 'agents', 'retired_dispatch_role.toml');
+  fs.writeFileSync(stale, renderAgentProfile('retired_dispatch_role', {}));
+  const staleResult = ensureAgentProfiles(root, config);
+  assert.ok(staleResult.removed.includes('.codex/agents/retired_dispatch_role.toml'));
+  assert.equal(fs.existsSync(stale), false, 'retired managed roles must not remain loadable');
+
+  config.agent_profiles.enabled = false;
+  const allDisabled = ensureAgentProfiles(root, config);
+  assert.ok(allDisabled.removed.includes('.codex/agents/dispatch_explorer.toml'));
+  assert.equal(fs.existsSync(explorer), false);
+  assert.equal(fs.readFileSync(tracked, 'utf8'), trackedContent, 'disabling preserves tracked roles');
+  assert.match(fs.readFileSync(reviewer, 'utf8'), /^# user-owned/);
+  assert.equal(fs.readFileSync(empty, 'utf8'), '');
+
+  const outside = path.join(root, 'user-agents');
+  fs.mkdirSync(outside);
+  fs.writeFileSync(path.join(outside, 'dispatch_worker.toml'), 'user-owned target');
+  const linkedRepo = path.join(root, 'linked-repo');
+  fs.mkdirSync(path.join(linkedRepo, '.codex'), { recursive: true });
+  execFileSync('git', ['init', '-q'], { cwd: linkedRepo });
+  fs.symlinkSync(outside, path.join(linkedRepo, '.codex', 'agents'), process.platform === 'win32' ? 'junction' : 'dir');
+  const linkedResult = ensureAgentProfiles(linkedRepo, loadDefaults());
+  assert.ok(linkedResult.preserved.includes(path.join('.codex', 'agents')));
+  assert.deepEqual(fs.readdirSync(outside), ['dispatch_worker.toml']);
+  assert.equal(fs.readFileSync(path.join(outside, 'dispatch_worker.toml'), 'utf8'), 'user-owned target');
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
 }

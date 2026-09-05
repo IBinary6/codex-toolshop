@@ -8,6 +8,7 @@ const { spawnSync } = require('child_process');
 
 const pluginRoot = path.join(__dirname, '..', '..', '..');
 const entry = path.join(pluginRoot, 'scripts', 'run-hook.cjs');
+const { AGENTS_BLOCK, BLOCK_START, BLOCK_END, ensureAgentsBlock } = require('../lib/codemap');
 
 function runSession(cwd, codexHome, extraEnv = {}) {
   return spawnSync(process.execPath, [entry, 'session_start'], {
@@ -63,7 +64,10 @@ try {
 
   const first = runSession(repo, home, { CODEMAP_BOOST_ASSUME_CRG: '1' });
   assert.strictEqual(first.status, 0, first.stderr);
-  assert.ok(first.stdout === '' || first.stdout.includes('新开一个 Codex 任务'), 'MCP repair may request a new task');
+  const sessionHint = JSON.parse(first.stdout).hookSpecificOutput;
+  assert.strictEqual(sessionHint.hookEventName, 'SessionStart');
+  assert.match(sessionHint.additionalContext, /query available graph tools first/,
+    'new or resumed tasks receive graph-first guidance even if AGENTS was loaded before the hook');
   assert.strictEqual(first.stderr, '', 'SessionStart should keep stderr silent');
 
   const agents = path.join(home, 'AGENTS.md');
@@ -89,6 +93,21 @@ try {
   const again = fs.readFileSync(agents, 'utf8');
   assert.strictEqual((again.match(/codemap-boost-codex:start/g) || []).length, 1, 'managed block is idempotent');
   assert.ok(!fs.existsSync(path.join(repo, '.gitignore')), 'SessionStart does not dirty project .gitignore');
+
+  const prefix = '\ufeffcustom rules  \r\n\r\n';
+  const suffix = '\r\n\r\nuser suffix  \r\n';
+  fs.writeFileSync(agents, `${prefix}${BLOCK_START}\nold\n${BLOCK_END}${suffix}`);
+  assert.strictEqual(ensureAgentsBlock(home), true);
+  assert.strictEqual(fs.readFileSync(agents, 'utf8'), prefix + AGENTS_BLOCK.trimEnd() + suffix,
+    'managed update preserves all bytes outside the block');
+
+  for (const malformed of [BLOCK_START, BLOCK_END, `${BLOCK_END}\n${BLOCK_START}`,
+    `${BLOCK_START}\n${BLOCK_START}\n${BLOCK_END}`, `${BLOCK_START}\n${BLOCK_END}\n${BLOCK_END}`]) {
+    const original = `${prefix}${malformed}${suffix}`;
+    fs.writeFileSync(agents, original);
+    assert.strictEqual(ensureAgentsBlock(home), false, 'ambiguous managed boundaries must be rejected');
+    assert.strictEqual(fs.readFileSync(agents, 'utf8'), original, 'invalid markers must not overwrite user rules');
+  }
 
   console.log('agents.test.js PASS');
 } finally {

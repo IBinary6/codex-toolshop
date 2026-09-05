@@ -81,6 +81,8 @@ function deny(reason) {
 async function main() {
   if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') return passSilent();
   const input = await readStdinJson({ timeoutMs: 2000 });
+  // 仓库注册表等全局查询不读取当前项目图，不能因当前仓库无法刷新而阻塞。
+  if (!shouldInjectRepoRoot(input && input.tool_name)) return passSilent();
   const requestedRoot = input && input.tool_input && input.tool_input.repo_root;
   const cwd = typeof requestedRoot === 'string' && requestedRoot ? requestedRoot : hookCwd(input);
   const root = repoRoot(cwd);

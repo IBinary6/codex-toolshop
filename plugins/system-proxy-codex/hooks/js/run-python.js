@@ -140,9 +140,13 @@ function main() {
       timeout: 40000,
     }
   );
-  if (child.stdout) process.stdout.write(child.stdout);
   if (child.stderr) process.stderr.write(child.stderr);
-  if (child.error) hookMessage(`System Proxy for Codex 启动 Python 失败：${child.error.message}`);
+  if (child.error || child.status !== 0) {
+    hookMessage(`System Proxy for Codex 自动配置未完成：${child.error
+      ? child.error.message : `Python 退出码 ${child.status}`}`);
+    return;
+  }
+  if (child.stdout) process.stdout.write(child.stdout);
 }
 
 if (require.main === module) main();

@@ -2,6 +2,7 @@
 
 const { analyzeShellCommand } = require('./shell');
 const { profileSummary } = require('./agent_profiles');
+const { modelEffortWarnings } = require('./config');
 
 const REVIEW_TERMS = [
   '审查', '审核', '评审', 'review', 'audit', 'code review', 'reviewing',
@@ -33,7 +34,8 @@ const LOOKUP_TERMS = [
 ];
 const CROSS_FILE_TERMS = [
   '跨文件', '多文件', '多个文件', '调用链', '引用关系', '影响面', '依赖链',
-  'cross-file', 'multiple files', 'call chain', 'reference graph', 'impact radius',
+  '模块依赖', '依赖关系', 'cross-file', 'multiple files', 'call chain',
+  'reference graph', 'impact radius', 'callers', 'callees', 'depends on', 'dependencies',
 ];
 const BROAD_SCAN_TERMS = [
   '跨模块', '全仓', '全仓库', '全局扫描', '全面扫描', '广泛扫描', '大范围',
@@ -56,7 +58,10 @@ const TRIVIAL_EDIT_TERMS = [
 ];
 
 function includesAny(text, terms) {
-  return terms.some((term) => text.includes(term));
+  return terms.some((term) => {
+    if (!/^[a-z][a-z -]*$/i.test(term)) return text.includes(term);
+    return new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text);
+  });
 }
 
 function normalizedPrompt(prompt) {
@@ -106,7 +111,7 @@ function roleFallback(config, names) {
   const fallback = lowerCost.length
     ? `${lowerCost.join(' 或 ')} 或主代理`
     : '主代理';
-  return `必须启动 ${profileLabel(config, selected)} 子代理；仅在角色已启用且账号/工作区可用时使用，模型不可用时按账号策略回退到 ${fallback}。`;
+  return `需要独立有界子任务时可选 ${profileLabel(config, selected)}；主代理根据已有上下文、分派收益和用户显式偏好决定是否委派。先核对宿主实际支持的模型/推理组合；默认组合不可用时可选 ${fallback}，用户明确指定的模型不得擅自替换。`;
 }
 
 /**
@@ -127,7 +132,7 @@ function dynamicWriterGuidance(config) {
   if (!hasWritableProfile) {
     return '当前没有启用的可写执行角色，由主代理直接完成。';
   }
-  return '主代理依据任务复杂度、上下文范围、风险、账号/工作区可用性和用户显式偏好，自主选择可写执行角色、模型和推理强度；显式指定优先。';
+  return '主代理依据任务复杂度、上下文范围、风险、账号/工作区可用性和用户显式偏好，自主选择可写执行角色、模型和推理强度；显式指定优先，先核对宿主支持的模型/推理组合。';
 }
 
 function exactNarrowLookup(text) {
@@ -138,19 +143,34 @@ function exactNarrowLookup(text) {
 }
 
 /**
- * Classify a prompt without making a dispatch decision.
- *
- * The order is intentionally risk-first so overlapping words cannot select a
- * cheaper role before a security or production review is recognized.
+ * 先提取明确范围，再进行关键词建议；关键词不构成写入或委派授权。
+ * @example promptConstraints('只读诊断崩溃，只用主代理')
  */
+function promptConstraints(text) {
+  const primaryOnly = /只(?:用|由|让)?主代理|仅(?:用|由|让)?主代理|(?:不要|禁止|不用|不允许)(?:再)?(?:委派|分派|子代理|子任务)|\b(?:primary agent only|main agent only|no subagents?|no delegation|do not delegate|don't delegate)\b/.test(text);
+  const limitedAgents = /(?:只|仅|最多).{0,8}(?:一个|一名|1 个|1名)(?:子)?代理|不要多个代理|不要并行|\b(?:only one agent|at most one subagent|no parallel agents|do not parallelize)\b/.test(text);
+  const explicitReadOnly = /只读|仅(?:分析|诊断|审查)|(?:先)?(?:不要|禁止|不允许|不得)(?:修改|改动|编辑|写入)|不修改|\b(?:read[- ]only|do not (?:edit|modify|write)|don't (?:edit|modify|write)|diagnosis only)\b/.test(text);
+  const writeIntent = /实现|修复|迁移|重构|编码|\b(?:implement|fix|migrate|refactor|edit|modify|develop)\b/.test(text);
+  const diagnosis = /诊断|排查|根因|\b(?:diagnos\w*|investigate|root cause|debug)\b/.test(text);
+  const existingPlan = /已有(?:计划|方案)|现有(?:计划|方案)|不要重新规划|无需重新规划|\b(?:existing plan|approved plan|do not replan|don't replan)\b/.test(text);
+  const narrow = /(?:只|仅).{0,12}(?:一个|单个|单|这个)文件|单文件|\b(?:one file|single file|this file only)\b/.test(text);
+  const wordingOnly = /(?:拼写|措辞|标点|\b(?:spelling|wording|typo|punctuation)\b)/.test(text)
+    && /readme|changelog|markdown|文档|注释|\b(?:docs?|comments?)\b/.test(text)
+    && /仅|只|\bonly\b/.test(text);
+  return { primaryOnly, limitedAgents, readOnly: explicitReadOnly || (diagnosis && !writeIntent), existingPlan, narrow, wordingOnly };
+}
+
+/** 按范围、任务意图、风险选择候选路线，不直接启动代理。@example routePrompt('查找调用链', config) */
 function routePrompt(prompt, config) {
   const text = normalizedPrompt(prompt);
   if (!text) {
     return { category: 'generic', route: 'generic', shouldDispatch: false };
   }
 
-  const review = includesAny(text, REVIEW_TERMS);
-  const highRisk = review && includesAny(text, HIGH_RISK_TERMS);
+  const constraints = promptConstraints(text);
+  const review = includesAny(text, REVIEW_TERMS)
+    || /\b(?:inspect|check)\b.{0,40}\b(?:patch|changes?|diff)\b.{0,30}\bregressions?\b/.test(text);
+  const highRisk = !constraints.wordingOnly && includesAny(text, HIGH_RISK_TERMS);
   const hard = includesAny(text, HARD_TERMS)
     || (includesAny(text, ['调试', 'debug', '排查', 'diagnose'])
       && includesAny(text, ['复杂', '疑难', '困难', 'complex', 'difficult', 'hard']));
@@ -158,57 +178,49 @@ function routePrompt(prompt, config) {
   const lookup = includesAny(text, LOOKUP_TERMS);
   const broad = includesAny(text, BROAD_SCAN_TERMS);
   const crossFile = includesAny(text, CROSS_FILE_TERMS);
-  const implementation = includesAny(text, IMPLEMENT_TERMS);
-  const nonTrivialPlan = plan && (
+  const implementation = !constraints.readOnly && includesAny(text, IMPLEMENT_TERMS);
+  const inspectArchitecture = /(?:分析|梳理|了解|解释).{0,20}(?:架构|模块)|\b(?:explain|inspect|map|understand)\b.{0,30}\b(?:architecture|modules?)\b/.test(text);
+  const nonTrivialPlan = plan && !constraints.existingPlan && !inspectArchitecture && (
     text.length >= 80
     || includesAny(text, NON_TRIVIAL_PLAN_TERMS)
     || crossFile
     || broad
   );
 
-  if (highRisk) return { category: 'high-risk-review', route: 'high-risk-review', shouldDispatch: true };
-  if (hard) {
-    return {
-      category: 'hard-task',
-      route: 'hard-task',
-      shouldDispatch: true,
-      requiresPlanner: nonTrivialPlan,
-    };
+  const needsGraph = !constraints.wordingOnly && (crossFile || broad || inspectArchitecture || review);
+  const result = (category, extra = {}) => ({ category, route: category, shouldDispatch: true, needsGraph, ...constraints, ...extra });
+  if (constraints.primaryOnly) return result('primary-only', { shouldDispatch: false });
+  if (constraints.wordingOnly) return result('generic', { shouldDispatch: false, reason: 'wording-only document edit/review' });
+  if (constraints.narrow || (!review && exactNarrowLookup(text))) {
+    return result(highRisk ? 'primary-risk' : 'generic', {
+      shouldDispatch: false, reason: 'explicit narrow scope is primary-agent work',
+    });
   }
-  if (nonTrivialPlan) return { category: 'plan', route: 'plan', shouldDispatch: true };
-  if (exactNarrowLookup(text)) {
-    return {
-      category: 'generic',
-      route: 'generic',
-      shouldDispatch: false,
-      reason: 'exact single-symbol or single-file lookup is primary-agent work',
-    };
+  if (review) return result(highRisk ? 'high-risk-review' : 'review');
+  if (constraints.readOnly) {
+    return result(broad ? 'broad-search' : (crossFile ? 'bounded-search' : 'diagnosis'));
+  }
+  if (nonTrivialPlan && !hard) return result('plan');
+  if (implementation && highRisk) return result('high-risk-implementation');
+  if (hard) {
+    return result('hard-task', { requiresPlanner: nonTrivialPlan });
+  }
+  if (implementation) {
+    return result('implementation', { shouldDispatch: !includesAny(text, TRIVIAL_EDIT_TERMS) });
   }
   if (broad || (lookup && includesAny(text, ['全局', '全面', '广泛', 'wide', 'broad']))) {
-    return { category: 'broad-search', route: 'broad-search', shouldDispatch: true };
+    return result('broad-search');
   }
-  if (crossFile || (lookup && includesAny(text, ['多个', 'many', 'several']))) {
-    return { category: 'bounded-search', route: 'bounded-search', shouldDispatch: true };
-  }
-  if (review) return { category: 'review', route: 'review', shouldDispatch: true };
-  if (implementation && !includesAny(text, TRIVIAL_EDIT_TERMS)) {
-    return { category: 'implementation', route: 'implementation', shouldDispatch: true };
-  }
-  if (implementation && includesAny(text, TRIVIAL_EDIT_TERMS)) {
-    return {
-      category: 'generic',
-      route: 'generic',
-      shouldDispatch: false,
-      reason: 'trivial edit is primary-agent work',
-    };
+  if (crossFile || inspectArchitecture || (lookup && includesAny(text, ['多个', 'many', 'several']))) {
+    return result('bounded-search', { needsGraph: crossFile || inspectArchitecture });
   }
 
   const configured = configuredKeywordMatch(text, config);
   return {
     category: 'generic',
     route: 'generic',
-    shouldDispatch: configured || text.length >= 160,
-    reason: configured ? 'configured prompt keyword' : 'long prompt requiring primary-agent triage',
+    shouldDispatch: configured,
+    reason: configured ? 'configured prompt keyword' : 'no task-specific routing signal',
   };
 }
 
@@ -220,8 +232,24 @@ function routePrompt(prompt, config) {
  */
 function promptGuidance(prompt, config) {
   const route = routePrompt(prompt, config);
+  if (route.category === 'primary-risk') return `任务路由：单文件风险检查/修复，由主代理处理。先核对权限、安全或并发契约的证据与现有授权，按实际风险验证，不扩大用户指定范围。${route.readOnly ? '保持只读，不执行修复。' : ''}`;
   if (!route.shouldDispatch) return '';
+  const graph = route.needsGraph
+    ? ' 涉及结构、依赖或审查上下文时优先图查询，再读源码核对；图刷新由 CodeMap Boost 负责，不要重复 build/update。'
+    : '';
+  const agentLimit = route.limitedAgents
+    ? ' 用户声明的代理数量或并行限制优先于默认并发额度；复用已有合适角色或由主代理处理，不把候选列表变成多个必须启动的代理。'
+    : '';
+  return routeGuidance(route, config) + graph + agentLimit;
+}
+
+/** 生成与已解析范围一致的角色建议。@example routeGuidance(route, config) */
+function routeGuidance(route, config) {
   switch (route.category) {
+    case 'diagnosis':
+      return `任务路由：只读诊断。仅收集现象、根因证据和验证办法，不执行修复。${roleFallback(config, ['dispatch_explorer', 'dispatch_mapper'])} 子任务必须保持只读。`;
+    case 'high-risk-implementation':
+      return `任务路由：涉及安全、权限或并发等风险的实现。主代理先核对真实调用路径、契约、已有授权和验收标准；明确边界后才委派有界修改，不因关键词扩大权限或重复请求已有授权。${dynamicWriterGuidance(config)} 按实际风险决定是否需要独立审查。`;
     case 'high-risk-review':
       return `任务路由：高风险审查。${roleFallback(config, ['dispatch_deep_reviewer', 'dispatch_reviewer'])}`;
     case 'hard-task': {
@@ -229,19 +257,14 @@ function promptGuidance(prompt, config) {
       if (!route.requiresPlanner) {
         return `任务路由：困难实现/复杂调试。主代理先固定范围和验收标准；${writer} 实现完成后由主代理验收并整合。不要仅因任务困难启动规划角色。`;
       }
-      const planner = firstEnabled(config, ['dispatch_planner']);
-      const plannerLabel = planner ? profileLabel(config, planner) : '主代理';
-      const planningAvailability = planner
-        ? '规划角色仅在启用且账号/工作区可用时使用，模型不可用时按账号策略回退到主代理。'
-        : '没有启用的规划角色，由主代理完成规划。';
-      return `任务路由：需要专门规划的困难任务。必须串行两阶段：1) ${plannerLabel} 制定计划；停止并整合；2) ${writer} 非必要不并行。${planningAvailability} 实现完成后由主代理验收并整合。`;
+      return `任务路由：包含规划的困难任务。先核对现有方案，主代理负责架构和接口决策。${roleFallback(config, ['dispatch_planner'])} 已有可执行方案时直接推进，无需重复规划；委派分析后先整合结果，再执行依赖它的修改。${writer} 实现完成后由主代理验收并整合。`;
     }
     case 'plan':
       return `任务路由：非琐碎计划/架构。${roleFallback(config, ['dispatch_planner'])}`;
     case 'broad-search':
-      return `任务路由：广泛/跨模块读重型搜索。${roleFallback(config, ['dispatch_mapper', 'dispatch_explorer'])} 若 CodeMap Boost 可用，优先图查询；图刷新由 CodeMap Boost 负责，不要重复 build/update。`;
+      return `任务路由：广泛/跨模块只读搜索。${roleFallback(config, ['dispatch_mapper', 'dispatch_explorer'])} 不在搜索子任务中修改文件。`;
     case 'bounded-search':
-      return `任务路由：跨文件/调用链搜索。${roleFallback(config, ['dispatch_explorer'])} 若 CodeMap Boost 可用，优先图查询；图刷新由 CodeMap Boost 负责，不要重复 build/update。精确单符号/单文件快速查找由主代理直接完成。`;
+      return `任务路由：跨文件/调用链只读搜索。${roleFallback(config, ['dispatch_explorer'])} 不在搜索子任务中修改文件；精确单符号/单文件快速查找由主代理直接完成。`;
     case 'implementation':
       return `任务路由：常规实现。${dynamicWriterGuidance(config)} 实现完成后由主代理验收并整合。`;
     case 'review':
@@ -255,17 +278,20 @@ function promptGuidance(prompt, config) {
 function mainAgentGuidance(config, compact = false) {
   const maxParallel = Number(config.policy.max_parallel_subagents) || 3;
   const profiles = profileSummary(config);
+  const modelWarnings = modelEffortWarnings(config);
   if (compact) {
     const lines = [
       'Agent Dispatch：你是主代理。需求澄清、架构/接口决策、任务拆分、结果审查和最终整合由主代理负责；',
       '明确、有界的编码、重构和修 bug 可交给可写执行子代理，即使步骤串行也可委派；琐碎读取、小改和强耦合步骤直接完成。',
-      '按任务范围、复杂度、上下文、风险和账号可用性选择合适角色；编码执行角色、模型和推理强度由主代理动态决定，显式用户偏好优先。',
-      '代码搜索若可用 CodeMap Boost，应优先用图；Agent Dispatch 只负责选代理，图刷新和检索规则由 CodeMap Boost 负责，不要重复 build/update。CodeMap MCP 可能 deferred，不在静态/顶层 schema；声称未加载前可用时检查 ALL_TOOLS 中的 mcp__code_review_graph__* 或实际调用，不能仅凭顶层列表判断。',
+      '角色配置是候选默认值；所有角色的模型和推理强度均按宿主实际能力、任务和显式用户偏好选择。关键词路由是建议，不覆盖当前授权、只读范围或已有方案。',
+      '启动前核对模型/推理组合，不把主任务的 ultra 强加给不支持它的模型；默认组合不可用时选受支持组合或由主代理处理，用户明确指定的模型不得擅自替换。',
+      '代码结构查询优先使用可用图工具；Agent Dispatch 只负责选代理，图刷新和检索规则由 CodeMap Boost 负责，不要重复 build/update。',
       `独立且并行有收益时委派；最多 ${maxParallel} 个子代理并发。所有 Git 命令均由主代理串行执行，不委派、不并行拆分。`,
-      '普通结果由主代理自行审查；用户明确要求独立审查时用 Terra high，高风险审查才用 Sol xhigh。',
+      '普通结果由主代理验收；需要独立审查时按风险与有效配置选 reviewer，无需每项工作另起规划和审查。',
       '子代理须报告修改文件、验证和阻塞；结果已整合或不再需要时立即停止子代理，避免占用有限智能体名额。',
     ];
-    if (profiles.length) lines.push(`可用角色：${profiles.join('；')}。`);
+    if (profiles.length) lines.push(`配置候选角色（以宿主实际加载为准）：${profiles.join('；')}。`);
+    if (modelWarnings.length) lines.push(`模型配置校验：${modelWarnings.join(' ')}`);
     return lines.join('');
   }
   const lines = [
@@ -273,11 +299,12 @@ function mainAgentGuidance(config, compact = false) {
     '- Keep requirements clarification, architecture and interface decisions, task decomposition, result review, and final integration in the primary agent.',
     '- Prefer a workspace-write execution agent for concrete, bounded implementation, refactoring, and bug-fix work once the steps and acceptance criteria are clear, even when that work is sequential.',
     '- Choose roles, models, and reasoning strength from task scope, complexity, context, risk, account/workspace availability, and explicit user preference; keep the established search, planning, and review boundaries.',
-    '- For code search, prefer CodeMap Boost graph tools when available. Agent Dispatch selects the agent; CodeMap Boost owns graph refresh and retrieval policy, so do not duplicate build/update. Its MCP tools may be deferred and absent from static or top-level schemas; before claiming unavailable, inspect ALL_TOOLS for mcp__code_review_graph__* when available or make an actual call, rather than relying on the top-level list alone.',
+    '- Profile defaults and keyword routes are suggestions, not proof of runtime availability or permission to override user scope. Verify the host-supported model/effort pair before spawning; never carry ultra blindly into a model that does not support it. Fall back from unavailable defaults to supported settings or primary-agent work, but do not silently replace an explicitly requested model.',
+    '- For structural code queries, prefer available graph tools. Agent Dispatch selects the agent; CodeMap Boost owns graph refresh and retrieval policy, so do not duplicate build/update.',
     '- Delegate independent bounded subtasks in parallel when useful.',
     `- Use no more than ${maxParallel} subagents concurrently unless the user explicitly requests more.`,
     '- Keep trivial reads, small edits, tightly coupled steps, and final integration in the primary agent.',
-    '- Review normal execution results in the primary agent; use Terra high for requested routine independent review and Sol xhigh only for high-risk review.',
+    '- Review normal execution results in the primary agent; choose an independent reviewer from the effective configuration when it adds value or the user requests it. Do not require separate planning and review for every task, or repeat a plan that is already actionable.',
     '- Stop subagents promptly after their result is integrated, or when they are blocked or no longer needed; do not leave idle agents occupying limited slots.',
     '- Execute all Git commands in the primary agent, one at a time; never delegate or parallelize Git operations.',
     '- Delegation does not broaden filesystem, network, approval, or external-action authority.',
@@ -285,9 +312,10 @@ function mainAgentGuidance(config, compact = false) {
     '- Do not delegate vague design decisions; give execution agents a concrete scope, file ownership, acceptance criteria, and validation target.',
   ];
   if (profiles.length) {
-    lines.push(`- Prefer the matching project custom agent when available: ${profiles.join('; ')}.`);
+    lines.push(`- Configured role candidates (check actual host loading): ${profiles.join('; ')}.`);
     lines.push('- Generated custom-agent model settings take effect in a newly opened Codex task.');
   }
+  for (const warning of modelWarnings) lines.push(`- Model configuration check: ${warning}`);
   return lines.join('\n');
 }
 
@@ -297,7 +325,7 @@ function subagentGuidance(config) {
     '- Execute the assigned bounded task directly and stay within its scope.',
     '- Do not spawn or delegate to more agents unless the user or primary agent explicitly asked you to do so.',
     '- Do not run Git commands; leave all Git operations to the primary agent.',
-    '- Agent Dispatch selects the agent; CodeMap Boost owns graph refresh and retrieval. Its MCP tools may be deferred and absent from static or top-level schemas; before claiming unavailable, inspect ALL_TOOLS for mcp__code_review_graph__* when available or make an actual call, rather than relying on the top-level list alone.',
+    '- Agent Dispatch selects the agent; CodeMap Boost owns graph refresh and retrieval. Follow its rules when present; do not duplicate build/update.',
   ];
   if (config.policy.require_changed_file_report) {
     lines.push('- Report every file you changed, or state explicitly that you made no changes.');
@@ -318,7 +346,7 @@ function toolNudge(input, config) {
   if (toolName.startsWith('mcp__')) {
     const allowed = (config.whitelist.mcp_prefixes || []).some((prefix) => toolName.startsWith(prefix));
     if (allowed) return '';
-    return `Agent Dispatch：${toolName} 不在主代理轻量 MCP 白名单中。若这是可独立的有界工作，主代理必须委派子代理；若当前已是子代理，则直接执行分配任务。`;
+    return `Agent Dispatch：${toolName} 不在轻量 MCP 列表中；主代理按实际任务判断分派收益，不能仅因工具名称委派。若当前已是子代理，直接执行分配任务。`;
   }
   if (toolName === 'Bash') {
     const command = input.tool_input && input.tool_input.command;

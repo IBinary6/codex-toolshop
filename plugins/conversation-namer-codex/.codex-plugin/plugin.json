@@ -1,6 +1,6 @@
 {
   "name": "conversation-namer-codex",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Automatically name new Codex conversations and safely batch-normalize titles in the current project.",
   "author": {
     "name": "IBinary6",

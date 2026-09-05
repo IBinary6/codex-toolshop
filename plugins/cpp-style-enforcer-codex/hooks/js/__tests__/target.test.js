@@ -90,4 +90,12 @@ assert.strictEqual(
   path.resolve('/proj', 'src/c.cc'),
   'relative_path 分支不变');
 
+assert.deepStrictEqual(resolveFilePaths({
+  cwd: '/proj', tool_name: 'apply_patch', tool_input: [
+    '*** Begin Patch', '*** Update File: src/a.cpp',
+    '*** Move to: src/renamed.cpp', '*** Add File: include/new.hpp', '*** End Patch',
+  ].join('\n'),
+}), [path.resolve('/proj', 'src/a.cpp'), path.resolve('/proj', 'src/renamed.cpp'),
+  path.resolve('/proj', 'include/new.hpp')], 'freeform apply_patch 文本应识别所有目标文件');
+
 console.log('target.test.js PASS');
