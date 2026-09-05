@@ -1,7 +1,7 @@
 {
   "name": "conversation-namer-codex",
-  "version": "0.1.2",
-  "description": "Automatic and confirmation-gated Codex conversation title normalization.",
+  "version": "0.1.3",
+  "description": "Automatic Codex conversation naming with a lightweight background model.",
   "license": "MIT",
   "private": true,
   "engines": {

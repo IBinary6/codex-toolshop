@@ -38,7 +38,7 @@ function findRepoRoot(start) {
 }
 
 /**
- * 校验发布清单、hook、skill、共享策略与跨平台运行时不变量。
+ * 校验发布清单、hook 与跨平台运行时不变量。
  *
  * @returns {void}
  * @example
@@ -57,8 +57,6 @@ function main() {
     'hooks/js/lib/state.js',
     'hooks/js/lib/naming.js',
     'hooks/js/lib/app_server.js',
-    'skills/conversation-title-manager/SKILL.md',
-    'skills/conversation-title-manager/references/title-policy.md',
   ];
   for (const relative of required) {
     assert.ok(fs.existsSync(path.join(root, relative)), `missing ${relative}`);
@@ -72,7 +70,7 @@ function main() {
   assert.equal(packageJson.version, releaseVersion);
   assert.match(manifest.version, /^\d+\.\d+\.\d+(?:\+codex\.[a-z0-9-]+)?$/);
   assert.equal(packageJson.engines && packageJson.engines.node, '>=18');
-  assert.equal(manifest.skills, './skills/');
+  assert.ok(!Object.hasOwn(manifest, 'skills'), 'automatic naming must not expose a manual skill');
   assert.ok(!Object.hasOwn(manifest, 'hooks'), 'default hook discovery must be used');
   assert.ok(Array.isArray(manifest.interface.defaultPrompt));
   assert.deepEqual(manifest.interface.capabilities, ['Read', 'Write']);
@@ -97,27 +95,6 @@ function main() {
   assert.ok(!hookText.includes('/Users/') && !hookText.includes('/home/'), 'hooks must not contain user paths');
   assert.doesNotMatch(JSON.stringify(packageJson.scripts), /\b(?:python|bash|sh)\b/i,
     'runtime checks and tests must use Node.js only');
-
-  const skill = fs.readFileSync(path.join(root, 'skills', 'conversation-title-manager', 'SKILL.md'), 'utf8');
-  const policy = fs.readFileSync(
-    path.join(root, 'skills', 'conversation-title-manager', 'references', 'title-policy.md'),
-    'utf8',
-  );
-  assert.match(skill, /^---\r?\nname: conversation-title-manager\r?\n/);
-  assert.ok(!skill.includes('[TODO:'), 'skill contains a TODO placeholder');
-  assert.match(skill, /\| Before \| After \|/);
-  assert.match(skill, /explicit confirmation/i);
-  assert.match(skill, /projectId/);
-  assert.match(skill, /limit of at least `200`/);
-  assert.match(skill, /Codex task\/thread entries/);
-  assert.match(skill, /Exclude ChatGPT conversations/);
-  assert.match(skill, /hostId/);
-  assert.doesNotMatch(skill, /every automatic proposal/);
-  assert.match(policy, /createdAt/);
-  assert.match(policy, /Asia\/Shanghai/);
-  for (const type of ['FEA', 'DES', 'FIX', 'OPT', 'REL', 'EXP', 'DOC', 'RES']) {
-    assert.match(policy, new RegExp(`\\b${type}\\b`), `missing ${type} mapping`);
-  }
 
   const guidance = fs.readFileSync(path.join(root, 'hooks', 'js', 'lib', 'guidance.js'), 'utf8');
   assert.doesNotMatch(guidance, /mandatory pre-task gate|already contains an assistant turn|set_thread_title/,

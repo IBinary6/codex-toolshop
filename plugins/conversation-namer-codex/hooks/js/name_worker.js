@@ -1,6 +1,5 @@
 'use strict';
 
-const path = require('path');
 const { readStdinJson } = require('./lib/protocol');
 const { validatedSessionId } = require('./lib/guidance');
 const { loadConfig, readState, writeState } = require('./lib/state');
@@ -17,7 +16,6 @@ async function nameSession(input, { env = process.env, clientFactory } = {}) {
     const result = await client.generateName({
       sessionId,
       prompt: input.prompt,
-      pluginRoot: env.PLUGIN_ROOT || path.resolve(__dirname, '..', '..'),
     });
     if (result.skipped) {
       writeState(sessionId, { status: 'skipped', reason: result.skipped }, env);
@@ -28,10 +26,7 @@ async function nameSession(input, { env = process.env, clientFactory } = {}) {
       writeState(sessionId, { status: 'done', title: result.title, model: result.model }, env);
       return;
     }
-    if (current.originalTitle !== result.originalTitle) {
-      writeState(sessionId, { status: 'skipped', reason: 'title_changed' }, env);
-      return;
-    }
+    // 首次命名以插件结果为准；宿主可能在模型生成期间先写入默认标题。
     await client.writeThreadName(sessionId, result.title);
     const verified = await client.readThreadName(sessionId);
     if (verified.originalTitle !== result.title) throw new Error('Title verification failed');

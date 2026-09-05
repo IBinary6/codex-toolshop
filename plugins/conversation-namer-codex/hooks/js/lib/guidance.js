@@ -1,8 +1,5 @@
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
-
 const SESSION_ID_PATTERN = /^[A-Za-z0-9._:-]{1,256}$/;
 
 /**
@@ -32,27 +29,7 @@ function identityGuidance(input) {
   return `Codex task identity metadata: the current session/thread id is ${JSON.stringify(sessionId)}. Treat this id as platform metadata and use it exactly when a workflow needs to identify the current task.`;
 }
 
-/**
- * 从插件内加载自动与批量模式共用的标题策略。
- *
- * @param {string} pluginRoot 插件根目录。
- * @returns {string} 共享策略正文。
- * @example
- * const policy = loadTitlePolicy('/opt/conversation-namer-codex');
- */
-function loadTitlePolicy(pluginRoot) {
-  const policyFile = path.join(
-    path.resolve(pluginRoot),
-    'skills',
-    'conversation-title-manager',
-    'references',
-    'title-policy.md',
-  );
-  return fs.readFileSync(policyFile, 'utf8').trim();
-}
-
 module.exports = {
   identityGuidance,
-  loadTitlePolicy,
   validatedSessionId,
 };

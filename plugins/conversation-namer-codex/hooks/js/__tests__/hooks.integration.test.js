@@ -63,13 +63,13 @@ async function main() {
   armSession({ source: 'startup', session_id: 'recursive' }, { ...env, CONVERSATION_NAMER_WORKER: '1' });
   assert.equal(readState('recursive', env), null);
 
-  // 验证写回目标、人工改名冲突、相同标题、模型失败及写回未生效。
+  // 宿主在推理期间生成默认标题仍须写回；也验证去重、失败及用户跳过。
   for (const scenario of ['normal', 'changed', 'same', 'model-failed', 'write-failed', 'skip']) {
     const sessionId = `result-${scenario}`;
     armSession({ source: 'startup', session_id: sessionId }, env);
     claimSession(sessionId, env);
     const title = '0905｜FIX｜登录错误';
-    let current = scenario === 'changed' ? '用户手动标题' : scenario === 'same' ? title : '旧标题';
+    let current = scenario === 'changed' ? '宿主生成的默认标题' : scenario === 'same' ? title : '旧标题';
     let writes = 0;
     let closes = 0;
     const clientFactory = () => ({
@@ -89,11 +89,12 @@ async function main() {
     });
     await nameSession({ sessionId, prompt: '修复登录错误' }, { env, clientFactory });
     const expected = {
-      normal: 'done', changed: 'skipped', same: 'done', 'model-failed': 'failed',
+      normal: 'done', changed: 'done', same: 'done', 'model-failed': 'failed',
       'write-failed': 'failed', skip: 'skipped',
     };
     assert.equal(readState(sessionId, env).status, expected[scenario]);
-    assert.equal(writes, ['normal', 'write-failed'].includes(scenario) ? 1 : 0);
+    assert.equal(writes, ['normal', 'changed', 'write-failed'].includes(scenario) ? 1 : 0);
+    if (expected[scenario] === 'done') assert.equal(current, title);
     assert.equal(closes, 1);
     assert.equal(claimSession(sessionId, env), false);
     assert.doesNotMatch(fs.readFileSync(stateFile(sessionId, env), 'utf8'), /secret|prompt/);
