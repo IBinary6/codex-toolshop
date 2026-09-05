@@ -25,15 +25,12 @@ const BOOTSTRAP_LOCK_STALE_MS = 30 * 60 * 1000;
 const REFRESH_LOCK_WAIT_MS = 2 * 60 * 1000;
 const REFRESH_WAIT_MS = 10 * 60 * 1000;
 const SOURCE_STATE_FILE = '.codemap-boost-source-state';
-const SOURCE_EXTENSIONS = new Set([
-  '.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx',
-  '.cs', '.go', '.java', '.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx',
-  '.kt', '.kts', '.php', '.py', '.rb', '.rs', '.scala', '.swift', '.vue', '.svelte',
-]);
 const BLOCK_START = '<!-- codemap-boost-codex:start -->';
 const BLOCK_END = '<!-- codemap-boost-codex:end -->';
 const AGENTS_BLOCK = `${BLOCK_START}
 ## CodeMap Boost
+
+图能力仅对 Git 工作树生效：通过 Git 识别当前目录或父级仓库，支持普通 .git 目录及 worktree 的 .git 文件；每个 worktree 使用自己的根目录和图数据，非 Git 目录直接使用源码与文本工具。
 
 涉及代码结构、符号关系、调用链、模块依赖、引用、影响面或代码审查上下文时，优先查询可用的 code-review-graph 图工具，再读取相关源码核对；图刷新由 CodeMap Boost hooks 统一负责：
 
@@ -227,32 +224,47 @@ function gitResult(cwd, args, options = {}) {
   }
 }
 
-function untrackedSourceFiles(root) {
+function untrackedFiles(root) {
   const result = gitResult(root, ['ls-files', '--others', '--exclude-standard', '-z']);
   if (result.error || result.status !== 0) return [];
   return String(result.stdout || '')
     .split('\0')
-    .filter(Boolean)
-    .filter((file) => SOURCE_EXTENSIONS.has(path.extname(file).toLowerCase()));
+    .filter(Boolean);
 }
 
 function sourceStateFingerprint(root) {
   const head = gitResult(root, ['rev-parse', '--verify', 'HEAD']);
+  const branch = gitResult(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
   const status = gitResult(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
-  if (head.error || head.status !== 0 || status.error || status.status !== 0) return null;
+  if (head.error || head.status !== 0 || branch.error || branch.status !== 0
+    || status.error || status.status !== 0) return null;
   const rawStatus = String(status.stdout || '');
   const hash = crypto.createHash('sha256');
+  // 新版入口会核对图内容；旧版仅依赖 CLI 退出码的 marker 必须重新验证。
+  hash.update('verified-graph-v1\0');
   hash.update(String(head.stdout || '').trim());
+  hash.update('\0');
+  hash.update(String(branch.stdout || '').trim());
   hash.update('\0');
   hash.update(rawStatus);
   for (const entry of rawStatus.split('\0').filter(Boolean)) {
     const relative = /^[ MADRCU?!]{2} /.test(entry) ? entry.slice(3) : entry;
-    if (!SOURCE_EXTENSIONS.has(path.extname(relative).toLowerCase())) continue;
     const target = path.join(root, relative);
     hash.update('\0');
     hash.update(relative);
     try {
-      hash.update(fs.readFileSync(target));
+      // 不维护与 CRG 重复且易漏项的语言白名单；分块读取避免大文件占满内存。
+      if (!fs.lstatSync(target).isFile()) continue;
+      const fd = fs.openSync(target, 'r');
+      try {
+        const buffer = Buffer.alloc(64 * 1024);
+        let size;
+        while ((size = fs.readSync(fd, buffer, 0, buffer.length, null)) > 0) {
+          hash.update(buffer.subarray(0, size));
+        }
+      } finally {
+        fs.closeSync(fd);
+      }
     } catch (_) {
       hash.update('<missing>');
     }
@@ -298,6 +310,8 @@ function withTemporaryGitIndex(root, callback) {
 
 function runCrgDefault(args, options = {}) {
   const command = crgCommand(options);
+  const python = path.join(path.dirname(command), process.platform === 'win32' ? 'python.exe' : 'python');
+  const adapter = path.resolve(__dirname, '../../../scripts/refresh_graph.py');
   const common = {
     cwd: options.cwd,
     env: options.env || process.env,
@@ -305,25 +319,30 @@ function runCrgDefault(args, options = {}) {
     windowsHide: process.platform === 'win32',
     timeout: options.timeout || REFRESH_WAIT_MS,
   };
-  return spawnSync(command, args, common);
+  return spawnSync(python, ['-I', '-B', adapter, ...args], common);
 }
 
 function refreshCrgUnlocked(root, options = {}) {
+  root = repoRoot(root);
+  if (!root) return false;
   ensureGitInfoExclude(root);
   const hasGraph = fs.existsSync(path.join(root, '.code-review-graph'));
   const sourceState = sourceStateFingerprint(root);
   if (hasGraph && sourceState && readSourceState(root) === sourceState) return true;
-  const hasUntrackedSource = untrackedSourceFiles(root).length > 0;
+  // 将工作树交给 CRG 自身筛选，避免遗漏它支持但 JS 未列举的文件类型。
+  const hasUntrackedSource = untrackedFiles(root).length > 0;
   const args = [hasGraph && !hasUntrackedSource ? 'update' : 'build', '--repo', root];
   const runCrg = options.runCrg || runCrgDefault;
   const invoke = (env) => {
+    try { fs.rmSync(sourceStatePath(root), { force: true }); } catch (_) { return false; }
     const result = runCrg(args, {
       cwd: root,
       env,
       stdio: 'ignore',
       timeout: options.timeout || REFRESH_WAIT_MS,
     });
-    const ok = !!result && !result.error && result.status === 0;
+    const ok = !!result && !result.error && result.status === 0
+      && sourceStateFingerprint(root) === sourceState;
     if (ok) writeSourceState(root, sourceState);
     return ok;
   };
@@ -332,10 +351,10 @@ function refreshCrgUnlocked(root, options = {}) {
 
 function refreshCrgSync(cwd, options = {}) {
   if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') return false;
-  const canUse = options.canUseCrg || canUseCrg;
-  if (!canUse()) return false;
   const root = repoRoot(cwd);
   if (!root) return false;
+  const canUse = options.canUseCrg || canUseCrg;
+  if (!canUse()) return false;
   const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-refresh', root));
   if (!acquireRefreshLock(lockFile, options.waitMs ?? REFRESH_LOCK_WAIT_MS)) return false;
   try {
@@ -389,14 +408,10 @@ function startCrgBuild(cwd, options = {}) {
   const command = crgCommand(options);
   const code = `
     const fs = require('fs');
-    const { spawnSync } = require('child_process');
+    const codemap = require(${JSON.stringify(__filename)});
     try {
       try { fs.writeFileSync(${JSON.stringify(lockFile)}, String(process.pid)); } catch (_) {}
-      spawnSync(${JSON.stringify(command)}, ['build', '--repo', ${JSON.stringify(root)}], {
-        cwd: ${JSON.stringify(root)},
-        stdio: 'ignore',
-        windowsHide: true
-      });
+      codemap.refreshCrgUnlocked(${JSON.stringify(root)}, { crgCommand: ${JSON.stringify(command)} });
     } finally {
       try { fs.unlinkSync(${JSON.stringify(lockFile)}); } catch (_) {}
     }
@@ -769,6 +784,7 @@ function removeLegacyCrgMcp(options = {}) {
 }
 
 const CONTEXT = [
+  'Graph features apply only inside a Git worktree, resolved from the current directory or its parents. A worktree .git file is valid; keep each worktree graph under its own root. Use source/text inspection outside Git.',
   'CodeMap Boost maintains code-review-graph freshness through hooks and the graph-read barrier. Do not start a duplicate build/update unless repair or an explicit rebuild is needed. SubagentStart injects these rules without refreshing again.',
   'For code structure, symbol relationships, calls, dependencies, impact and review context, query available graph tools first, then verify relevant source: semantic_search_nodes_tool, query_graph_tool, get_impact_radius_tool or review-context tools. When the task is clear, query directly. Use a minimal overview once when needed; do not repeat minimal, escalate to detail_level="standard" if insufficient.',
   'MCP may be deferred: the top-level tool list alone does not prove absence. If the current tool list does not expose mcp__code_review_graph__, inspect available ALL_TOOLS/tool discovery before you report that the MCP tools are unavailable.',

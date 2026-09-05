@@ -20,7 +20,7 @@
     },
     {
       "name": "codemap-boost-codex",
-      "version": "0.1.23",
+      "version": "0.1.24",
       "description": "Install-ready CodeMap workflow for Codex with a bundled code-review-graph MCP and synchronized graph-read barriers.",
       "source": {
         "source": "local",
@@ -48,7 +48,7 @@
     },
     {
       "name": "local-knowledge-codex",
-      "version": "0.2.4",
+      "version": "0.2.5",
       "description": "Local indexed knowledge for Codex with relevant recall of fixes, preferences, facts, decisions, and workflows.",
       "source": {
         "source": "local",

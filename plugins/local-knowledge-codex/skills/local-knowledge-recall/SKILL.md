@@ -17,6 +17,8 @@ node "<plugin-root>/scripts/python-launcher.cjs" "<plugin-root>/local_knowledge/
 
 `<plugin-root>` 是本 skill 所在插件目录（从当前 `SKILL.md` 向上两级）。显式查询用户要求手工保存的内容时增加 `--explicit`。
 
+只查询错误方案时，在上述命令中追加 `--kind bug`；查询特定偏好时可用 `--kind preference`。类型、作用域和召回策略会在数量限制前筛选；省略 `--kind` 保持通用召回。错误 Hook 已自动限定 `bug`，避免相关事实或偏好挤掉错误方案。
+
 ## 使用结果
 
 - `source=local_knowledge`：按 `kind` 区分用户偏好、事实、决策、工作流或新保存的错误方案。

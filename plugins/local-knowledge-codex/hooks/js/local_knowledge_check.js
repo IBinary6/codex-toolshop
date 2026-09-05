@@ -54,7 +54,7 @@ function recallKnownSolution(query, input) {
   /** 只召回与真实失败行相关的错误方案，不调用邻区兜底。 */
   const payload = Buffer.from(query, 'utf8').toString('base64');
   const data = runCli(['recall', '--query-b64', payload, '--occasion', 'tool_failure',
-    ...workspaceScopeArgs(input), '--limit', '3', '--max-chars', '2200']);
+    ...workspaceScopeArgs(input), '--kind', 'bug', '--limit', '3', '--max-chars', '2200']);
   return resultItems(data).filter((item) => item.kind === 'bug'
     || item.entry_kind === 'bug' || item.source === 'legacy_bug');
 }

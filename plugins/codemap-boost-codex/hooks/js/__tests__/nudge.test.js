@@ -11,6 +11,13 @@ const runner = path.join(pluginRoot, 'scripts', 'run-hook.cjs');
 const subagentSource = fs.readFileSync(path.join(pluginRoot, 'hooks', 'js', 'subagent_start.js'), 'utf8');
 const { promptLooksStructural } = require('../lib/codemap');
 
+function initRepo(cwd) {
+  const result = spawnSync('git', ['init', '--quiet'], {
+    cwd, encoding: 'utf8', windowsHide: process.platform === 'win32',
+  });
+  assert.strictEqual(result.status, 0, result.stderr);
+}
+
 assert.ok(!subagentSource.includes('refreshCrgSync'), 'SubagentStart must not launch a duplicate graph refresh');
 for (const prompt of ['请分析 auth 模块的依赖关系', 'review these changes', 'What depends on auth?', 'Find all callers of Foo', '梳理当前模块架构']) {
   assert.equal(promptLooksStructural(prompt), true, prompt);
@@ -22,6 +29,7 @@ for (const prompt of ['写一个函数返回版本号', 'write a class to store 
 function runHook(name, payload, extraEnv = {}, enabled = true) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-nudge-'));
   try {
+    initRepo(tmp);
     const pluginData = path.join(tmp, 'data');
     fs.mkdirSync(pluginData, { recursive: true });
     fs.writeFileSync(path.join(pluginData, '.codemap-boost-enabled'), '1', 'utf8');
@@ -34,6 +42,7 @@ function runHook(name, payload, extraEnv = {}, enabled = true) {
       encoding: 'utf8',
       env: {
         ...process.env,
+        CODEX_HOME: path.join(tmp, 'codex-home'),
         PLUGIN_ROOT: pluginRoot,
         PLUGIN_DATA: pluginData,
         CODEMAP_BOOST_DISABLE_BOOTSTRAP: '1',
@@ -95,6 +104,7 @@ console.log('nudge.test.js PASS');
 {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-phase-'));
   try {
+    initRepo(tmp);
     const env = { ...process.env, PLUGIN_ROOT: pluginRoot, PLUGIN_DATA: tmp,
       CODEX_HOME: tmp, CODEMAP_BOOST_DISABLE_BOOTSTRAP: '1', CODEMAP_BOOST_ASSUME_CRG: '1' };
     delete env.CODEMAP_BOOST_DISABLE_GRAPH;

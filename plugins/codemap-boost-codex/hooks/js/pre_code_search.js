@@ -1,6 +1,6 @@
 'use strict';
 
-const { additionalContext, passSilent, readStdinJson } = require('./lib/runtime');
+const { additionalContext, hookCwd, passSilent, readStdinJson, repoRoot } = require('./lib/runtime');
 const { isCodeMapEnabled } = require('./lib/codemap');
 const { SEARCH_CONTEXT, looksLikeCodeSearch, claimSearchReminder } = require('./lib/search_reminder');
 
@@ -8,7 +8,8 @@ const { SEARCH_CONTEXT, looksLikeCodeSearch, claimSearchReminder } = require('./
 async function main() {
   const input = await readStdinJson({ timeoutMs: 2000 });
   // 普通命令先静默返回，避免每个 shell 调用都探测图运行时。
-  if (!looksLikeCodeSearch(input) || !isCodeMapEnabled()) return passSilent();
+  if (!looksLikeCodeSearch(input) || !repoRoot(hookCwd(input))) return passSilent();
+  if (!isCodeMapEnabled()) return passSilent();
   if (!claimSearchReminder(input)) return passSilent();
   return additionalContext('PreToolUse', SEARCH_CONTEXT);
 }

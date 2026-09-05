@@ -701,7 +701,7 @@ class KnowledgeBase:
     def _candidate_rows(self, conn: sqlite3.Connection, cue: str,
                         policies: tuple[str, ...], scope_sql: str,
                         scope_params: list[str], explicit: bool,
-                        limit: int) -> list[sqlite3.Row]:
+                        limit: int, kind: str | None = None) -> list[sqlite3.Row]:
         """优先用 FTS 索引选候选；只有短线索或索引异常才做范围内扫描。
 
         Example:
@@ -712,6 +712,9 @@ class KnowledgeBase:
         where = ("status='active' "
                  f"AND recall_policy IN ({placeholders}){sensitivity_sql}{scope_sql}")
         params: list[Any] = [*policies, *scope_params]
+        if kind is not None:
+            where += " AND kind=?"
+            params.append(kind)
         candidate_limit = max(limit * 20, 100)
         query = (_fts_query(cue) if self._fts_mode == "trigram"
                  else _unicode_fts_query(cue))
@@ -863,7 +866,8 @@ class KnowledgeBase:
                scope_key: str | None = None, policy: str | None = None,
                occasion: str | None = None, explicit: bool = False,
                include_legacy_bugs: bool = True, limit: int = 5,
-               max_chars: int | None = 4000) -> list[dict[str, Any]]:
+               max_chars: int | None = 4000,
+               kind: str | None = None) -> list[dict[str, Any]]:
         """按场景、范围和本地词法相关性召回知识。
 
         Example:
@@ -873,6 +877,8 @@ class KnowledgeBase:
             1
         """
         cue = _clean_text(cue)
+        if kind is not None:
+            kind = _value(kind, _KINDS, "kind")
         try:
             limit = int(limit)
         except (TypeError, ValueError) as error:
@@ -885,12 +891,12 @@ class KnowledgeBase:
             scope_sql, scope_params = self._scope_sql(scope_kind, scope_key)
             with self._connection() as conn:
                 rows = self._candidate_rows(conn, cue, policies, scope_sql,
-                                            scope_params, explicit, limit)
+                                            scope_params, explicit, limit, kind)
             for row in rows:
                 result = self._row_candidate(row, cue)
                 if result is not None:
                     results.append(result)
-        if include_legacy_bugs and cue:
+        if include_legacy_bugs and cue and kind in (None, "bug"):
             results.extend(self._legacy_results(cue, max(limit * 2, limit)))
         results.sort(key=lambda item: (-float(item.get("score", 0)), -int(item.get("id", 0))))
         return self._fit_budget(results[:limit], max_chars)

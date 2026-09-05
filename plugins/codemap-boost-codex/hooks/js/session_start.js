@@ -1,6 +1,6 @@
 'use strict';
 
-const { additionalContext, readStdinJson, hookCwd, passSilent } = require('./lib/runtime');
+const { additionalContext, readStdinJson, hookCwd, passSilent, repoRoot } = require('./lib/runtime');
 const {
   CONTEXT,
   cleanLegacyCrgGitHook,
@@ -16,7 +16,9 @@ const {
 
 async function main() {
   const input = await readStdinJson({ timeoutMs: 2000 });
-  const cwd = hookCwd(input);
+  // Git 自身解析父目录与 worktree 的 .git 文件，非工作区不探测运行时或写入配置。
+  const cwd = repoRoot(hookCwd(input));
+  if (!cwd) return passSilent();
   let bootstrapStarted = false;
   try { bootstrapStarted = startAutoBootstrap(cwd); } catch (_) {}
   let mcpNotice = '';

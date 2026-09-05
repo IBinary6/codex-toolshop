@@ -39,6 +39,12 @@ jobs:
         working-directory: plugins/codemap-boost-codex
         run: npm test
 
+      - name: Install CodeMap integration test runtime
+        run: python -m pip install "code-review-graph[communities,enrichment]==2.3.8"
+
+      - name: Verify CodeMap against real CRG
+        run: python -I -B plugins/codemap-boost-codex/scripts/test_refresh_graph.py
+
       - name: Validate local-knowledge-codex
         working-directory: plugins/local-knowledge-codex
         run: npm test

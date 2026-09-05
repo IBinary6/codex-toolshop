@@ -76,6 +76,9 @@ def build_parser() -> argparse.ArgumentParser:
     recall.add_argument("query", nargs="?", default="")
     recall.add_argument("--query", dest="query_option", default=None)
     recall.add_argument("--query-b64", default=None)
+    recall.add_argument("--kind", default=None,
+                        choices=("bug", "preference", "fact", "note", "decision", "workflow"),
+                        help="在候选数量限制前筛选知识类型；省略时查询所有类型")
     recall.add_argument("--scope-kind", default=None,
                         choices=("global", "workspace", "repository"))
     recall.add_argument("--scope-key", default=None)
@@ -148,7 +151,7 @@ def _execute(args: argparse.Namespace) -> dict[str, Any]:
             query, scope_kind=args.scope_kind, scope_key=args.scope_key,
             policy=args.policy, occasion=args.occasion, explicit=args.explicit,
             include_legacy_bugs=not args.no_legacy_bugs,
-            limit=args.limit, max_chars=args.max_chars,
+            limit=args.limit, max_chars=args.max_chars, kind=args.kind,
         )}
     if args.command == "get":
         return base.get(args.id)

@@ -36,7 +36,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-refresh-'));
 const oldDisable = process.env.CODEMAP_BOOST_DISABLE_GRAPH;
 try {
   assert.ok(ROOT_SCOPED_CRG_TOOLS.has('semantic_search_nodes_tool'));
-  assert.strictEqual(
+  assert.deepStrictEqual(
     shouldInjectRepoRoot('mcp__code_review_graph__query_graph_tool'),
     true,
     'project graph tools receive the task repository root instead of the plugin launcher cwd'
@@ -64,11 +64,16 @@ try {
     repoRootUpdate(
       'mcp__code_review_graph__semantic_search_nodes_tool',
       { query: 'auth', repo_root: 'D:/explicit' },
-      'C:/workspace/repo'
+      'D:/explicit'
     ),
     null,
-    'an explicit repository chosen by the caller is preserved'
+    'an explicit repository already equal to its resolved Git root is preserved'
   );
+  assert.deepStrictEqual(repoRootUpdate(
+    'mcp__code_review_graph__query_graph_tool',
+    { target: 'main', repo_root: 'D:/explicit/nested' },
+    'D:/explicit'
+  ), { target: 'main', repo_root: 'D:/explicit' }, 'explicit subdirectories use the same Git root as the refresh barrier');
 
   assert.ok(postToolSource.includes('startCrgUpdate'), 'PostToolUse must refresh in the background');
   assert.ok(!postToolSource.includes('refreshCrgSync(cwd)'), 'PostToolUse must not block on a synchronous refresh');
@@ -159,6 +164,42 @@ try {
   }), true);
   assert.ok(!linkedCalls.some((call) => canonicalPath(call.cwd) === canonicalPath(repo)), 'already-fresh main graph is skipped');
   assert.ok(linkedCalls.some((call) => canonicalPath(call.cwd) === canonicalPath(worktree)), 'new worktree graph refreshed');
+
+  const stateFile = path.join(repo, '.code-review-graph', '.codemap-boost-source-state');
+  fs.writeFileSync(path.join(repo, 'tracked.js'), 'function beforeRefresh() {}\n');
+  assert.strictEqual(refreshCrgSync(repo, {
+    canUseCrg: () => true,
+    runCrg: () => {
+      fs.writeFileSync(path.join(repo, 'tracked.js'), 'function duringRefresh() {}\n');
+      return { status: 0 };
+    },
+  }), false, 'a successful child exit cannot verify a concurrently changed source state');
+  assert.ok(!fs.existsSync(stateFile), 'a concurrent change removes the old success marker');
+  assert.strictEqual(refreshCrgSync(repo, {
+    canUseCrg: () => true,
+    runCrg: () => ({ status: 1 }),
+  }), false, 'adapter failure leaves the graph unverified');
+  assert.ok(!fs.existsSync(stateFile));
+  assert.strictEqual(refreshCrgSync(repo, options), true, 'the stable next attempt can recover');
+
+  fs.writeFileSync(stateFile, 'legacy-unverified-state\n');
+  const beforeMigration = calls.length;
+  assert.strictEqual(refreshCrgSync(repo, options), true, 'an old marker is revalidated through the new adapter');
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls.length, beforeMigration + 1, 'the migrated stable state is cached again');
+
+  git(repo, ['switch', '-c', 'same-head-branch']);
+  const beforeBranch = calls.length;
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls.length, beforeBranch + 1, 'a same-SHA branch switch still refreshes provenance');
+
+  fs.writeFileSync(path.join(repo, 'schema.proto'), 'syntax = "proto3";\nmessage Example {}\n');
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.ok(calls.at(-1).files.split(/\r?\n/).includes('schema.proto'), 'CRG selects languages from all non-ignored untracked files');
+  const beforeUnknownEdit = calls.length;
+  fs.writeFileSync(path.join(repo, 'schema.proto'), 'syntax = "proto3";\nmessage Changed {}\n');
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls.length, beforeUnknownEdit + 1, 'content changes outside the old JS extension list invalidate the marker');
 
   console.log('refresh.test.js PASS');
 } finally {

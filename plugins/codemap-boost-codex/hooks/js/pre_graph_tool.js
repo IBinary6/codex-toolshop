@@ -59,11 +59,11 @@ function shouldInjectRepoRoot(toolName) {
 }
 
 /**
- * 为未指定仓库的 CRG 工具生成完整输入；不适用时返回 null。
+ * 将当前目录或调用者显式选择的目录规范为已解析的 Git 工作区根；无需改写时返回 null。
  * @example repoRootUpdate('mcp__code_review_graph__query_graph_tool', { target: 'main' }, '/workspace/repo')
  */
 function repoRootUpdate(toolName, toolInput, root) {
-  if (!shouldInjectRepoRoot(toolName) || toolInput.repo_root) return null;
+  if (!shouldInjectRepoRoot(toolName) || toolInput.repo_root === root) return null;
   return { ...toolInput, repo_root: root };
 }
 
@@ -79,14 +79,18 @@ function deny(reason) {
 }
 
 async function main() {
-  if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') return passSilent();
   const input = await readStdinJson({ timeoutMs: 2000 });
   // 仓库注册表等全局查询不读取当前项目图，不能因当前仓库无法刷新而阻塞。
   if (!shouldInjectRepoRoot(input && input.tool_name)) return passSilent();
   const requestedRoot = input && input.tool_input && input.tool_input.repo_root;
   const cwd = typeof requestedRoot === 'string' && requestedRoot ? requestedRoot : hookCwd(input);
   const root = repoRoot(cwd);
-  if (!root) return passSilent();
+  if (!root) {
+    return deny('CodeMap graph tool blocked because the target directory is not inside a Git working tree. Use source/text tools here, or select a valid Git repository or worktree with repo_root.');
+  }
+  if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') {
+    return deny('CodeMap graph tool blocked because graph support is explicitly disabled for this session.');
+  }
   if (!canUseCrg()) {
     try { startAutoBootstrap(cwd); } catch (_) {}
     return deny('CodeMap graph tool blocked because code-review-graph is not ready. Wait for bootstrap or run codemap-boost-setup, then retry.');

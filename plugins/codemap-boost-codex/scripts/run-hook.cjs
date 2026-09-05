@@ -38,9 +38,6 @@ function main() {
   const root = pluginRoot();
   const target = path.join(root, rel);
   const dataDir = pluginDataDir({ pluginRoot: root });
-  try {
-    fs.mkdirSync(dataDir, { recursive: true });
-  } catch (_) {}
 
   const child = spawnSync(process.execPath, [target], {
     cwd: process.cwd(),
@@ -50,12 +47,20 @@ function main() {
       PLUGIN_DATA: dataDir,
     },
     input: readStdin(),
-    stdio: ['pipe', 'inherit', 'inherit'],
+    stdio: ['pipe', hookName === 'pre_graph_tool' ? 'pipe' : 'inherit', 'inherit'],
     windowsHide: process.platform === 'win32',
   });
 
   if (child.error) {
     process.stderr.write(`[codemap-boost-codex] hook failed to start: ${child.error.message}\n`);
+  }
+  if (hookName === 'pre_graph_tool') {
+    if (child.error || child.status !== 0) {
+      process.stdout.write(JSON.stringify({ hookSpecificOutput: {
+        hookEventName: 'PreToolUse', permissionDecision: 'deny',
+        permissionDecisionReason: 'CodeMap refresh barrier could not complete. Use source inspection or repair the plugin before retrying.',
+      } }));
+    } else if (child.stdout) process.stdout.write(child.stdout);
   }
   process.exit(0);
 }
