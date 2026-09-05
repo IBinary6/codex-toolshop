@@ -54,6 +54,8 @@ function main() {
     'scripts/run-hook.cjs',
     'hooks/js/user_prompt_submit.js',
     'hooks/js/name_worker.js',
+    'hooks/js/startup_observer.js',
+    'hooks/js/lib/first_prompt.js',
     'hooks/js/lib/state.js',
     'hooks/js/lib/naming.js',
     'hooks/js/lib/app_server.js',

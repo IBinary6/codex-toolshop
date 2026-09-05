@@ -8,13 +8,25 @@ const { spawnSync } = require('child_process');
 const { armSession, claimSession, readState, loadConfig, stateFile } = require('../lib/state');
 const { queueNaming } = require('../user_prompt_submit');
 const { nameSession } = require('../name_worker');
+const { main: sessionStart } = require('../session_start');
 
 const pluginRoot = path.resolve(__dirname, '..', '..', '..');
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'conversation-namer-hooks-'));
 const env = { ...process.env, PLUGIN_DATA: temporary, PLUGIN_ROOT: pluginRoot };
 delete env.CONVERSATION_NAMER_WORKER;
+let observations = 0;
 
 function runHook(name, input) {
+  if (name === 'session_start' && input.source === 'startup') {
+    let output = '';
+    sessionStart(input, { env,
+      observe() { observations += 1; },
+      writeContext(hookEventName, additionalContext) {
+        output = JSON.stringify({ hookSpecificOutput: { hookEventName, additionalContext } });
+      },
+    });
+    return output;
+  }
   const result = spawnSync(process.execPath, [path.join(pluginRoot, 'scripts/run-hook.cjs'), name], {
     cwd: pluginRoot, env, input: JSON.stringify(input), encoding: 'utf8', timeout: 5000,
   });
@@ -33,6 +45,8 @@ async function main() {
     assert.equal(readState(sessionId, env)?.status, source === 'startup' ? 'pending' : undefined);
   }
   assert.equal(runHook('session_start', { source: 'startup', session_id: '../bad' }), '');
+  runHook('session_start', { source: 'startup', session_id: 'task-startup' });
+  assert.equal(observations, 1, '只有首次 startup 启动观察器，重复启动及 resume 不启动');
   assert.equal(runHook('user_prompt_submit', { session_id: 'old-task', prompt: '后续消息' }), '');
   assert.equal(runHook('user_prompt_submit', { session_id: 'task-startup', prompt: '' }), '');
   assert.equal(readState('task-startup', env).status, 'skipped');

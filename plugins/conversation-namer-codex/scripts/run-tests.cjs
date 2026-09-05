@@ -7,6 +7,8 @@ const tests = [
   'guidance.test.js',
   'app_server.test.js',
   'naming.test.js',
+  'first_prompt.test.js',
+  'startup_observer.test.js',
   'hooks.integration.test.js',
 ];
 const testDirectory = path.resolve(__dirname, '..', 'hooks', 'js', '__tests__');

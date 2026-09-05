@@ -3,7 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { createHash } = require('crypto');
+const { createHash, randomUUID } = require('crypto');
 const { validatedSessionId } = require('./guidance');
 
 /** 插件状态只写入数据目录，不修改安装目录或项目文件。 */
@@ -25,18 +25,27 @@ function readState(sessionId, env = process.env) {
 }
 
 function writeState(sessionId, value, env = process.env) {
-  fs.writeFileSync(stateFile(sessionId, env), JSON.stringify(value), { mode: 0o600 });
+  const file = stateFile(sessionId, env);
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(value), { flag: 'wx', mode: 0o600 });
+    fs.renameSync(temporary, file);
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
 }
 
 /** 仅 startup 登记一次；恢复、压缩及重复启动均不会重置命名状态。 */
 function armSession(input, env = process.env) {
   const sessionId = validatedSessionId(input);
-  if (!sessionId || input.source !== 'startup' || env.CONVERSATION_NAMER_WORKER === '1') return;
+  if (!sessionId || input.source !== 'startup' || env.CONVERSATION_NAMER_WORKER === '1') return false;
   const file = stateFile(sessionId, env);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   try {
     fs.writeFileSync(file, JSON.stringify({ status: 'pending' }), { flag: 'wx', mode: 0o600 });
+    return true;
   } catch (error) { if (error.code !== 'EEXIST') throw error; }
+  return false;
 }
 
 /** 原子领取首条消息；并发 hook、恢复及 worker 失败都不会再次调用模型。 */

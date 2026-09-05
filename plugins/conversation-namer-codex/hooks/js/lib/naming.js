@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const { createAppServer, isolatedConfig } = require('./app_server');
 const { validatedSessionId } = require('./guidance');
+const { firstPrompt } = require('./first_prompt');
 
 const TYPES = ['FEA', 'DES', 'FIX', 'OPT', 'REL', 'EXP', 'DOC', 'RES',
   '功能', '设计', '修复', '优化', '发布', '探索', '文档', '研究'];
@@ -172,6 +173,13 @@ function createNamingClient(options = {}) {
 
   return {
     readThreadName,
+    async readFirstPrompt(sessionId) {
+      if (!validatedSessionId({ session_id: sessionId })) throw new Error('invalid_session_id');
+      const client = await start();
+      const result = await client.request('thread/read', { threadId: sessionId, includeTurns: true });
+      if (!result.thread || result.thread.id !== sessionId) throw new Error('thread_mismatch');
+      return firstPrompt(result.thread);
+    },
     async writeThreadName(sessionId, title) {
       if (!validatedSessionId({ session_id: sessionId }) || !validTitleText(title, 120)) {
         throw new Error('invalid_title_write');

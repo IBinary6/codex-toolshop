@@ -160,6 +160,21 @@ async function main() {
   assert.equal(fs.existsSync(fake.configuration.cwd), false);
   await assert.rejects(client.readThreadName('current'), /naming_client_closed/);
 
+  const firstMessage = fakeServer({ thread: { turns: [{ items: [{
+    type: 'functionCallOutput', namespace: 'codex_app', name: 'create_thread',
+    output: '<codex_delegation><source_thread_id>parent</source_thread_id><input>工具建立的任务</input></codex_delegation>',
+  }] }] } });
+  const reader = createNamingClient({ appServerFactory: firstMessage.appServerFactory });
+  assert.equal(await reader.readFirstPrompt('current'), '工具建立的任务');
+  assert.deepEqual(firstMessage.calls.find((call) => call.method === 'thread/read').params,
+    { threadId: 'current', includeTurns: true });
+  assert.equal(firstMessage.calls.some((call) => call.method === 'model/list'), false);
+  await reader.close();
+  const wrong = fakeServer({ thread: { id: 'another-task', turns: [{ items: [] }] } });
+  const wrongReader = createNamingClient({ appServerFactory: wrong.appServerFactory });
+  await assert.rejects(wrongReader.readFirstPrompt('current'), /thread_mismatch/);
+  await wrongReader.close();
+
   for (const thread of [{ ephemeral: true }, { source: { subAgent: 'review' } }, { parentThreadId: 'parent' }]) {
     const stub = fakeServer({ thread });
     assert.deepEqual(await generateName({ sessionId: 'current', prompt: '题目', pluginRoot, appServerFactory: stub.appServerFactory }), { skipped: 'not_main_thread' });

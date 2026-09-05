@@ -4,6 +4,7 @@
 const { identityGuidance } = require('./lib/guidance');
 const { readStdinJson, writeHookContext } = require('./lib/protocol');
 const { armSession } = require('./lib/state');
+const { queueStartupObservation } = require('./startup_observer');
 
 /**
  * 提供当前 task 身份，并为新会话登记一次待命名状态。
@@ -12,17 +13,20 @@ const { armSession } = require('./lib/state');
  * @example
  * main();
  */
-function main() {
-  const input = readStdinJson();
+function main(input = readStdinJson(), {
+  env = process.env, observe = queueStartupObservation, writeContext = writeHookContext,
+} = {}) {
   const identity = identityGuidance(input);
   if (!input || !identity) return;
 
   try {
-    armSession(input);
+    if (armSession(input, env)) observe(input.session_id, { env });
   } catch (_) {
     process.stderr.write('[conversation-namer-codex] Could not register automatic naming.\n');
   }
-  writeHookContext('SessionStart', identity);
+  writeContext('SessionStart', identity);
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { main };
