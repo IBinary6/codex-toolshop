@@ -27,7 +27,7 @@ function selectModel(models, requested = 'auto') {
   if (requested !== 'auto') {
     return available.find((model) => model.model === requested || model.id === requested) || null;
   }
-  for (const family of ['mini', 'luna', 'spark']) {
+  for (const family of ['spark', 'mini', 'luna']) {
     const candidate = available.find((model) => model.model.toLowerCase().split(/[-_ ]/).includes(family)
       && lowestEffort(model));
     if (candidate) return candidate;

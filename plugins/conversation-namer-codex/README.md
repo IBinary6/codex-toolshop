@@ -27,7 +27,7 @@ MMDD｜TYPE｜Topic
 
 ## 轻量模型与状态
 
-默认从实时 `model/list` 中按 Mini、Luna、Spark 家族顺序选择可用模型，不写死版本号；只使用模型声明支持的 `none`、`minimal`、`low` 中最低档位。没有合适模型时保留原标题。
+默认从实时 `model/list` 中按 Spark、Mini、Luna 家族顺序选择可用模型，不写死版本号；当前对应 GPT-5.3 Codex Spark → GPT-5.4 Mini → GPT-5.6 Luna。只使用模型声明支持的 `none`、`minimal`、`low` 中最低档位。前一个模型未列入可用目录或不支持低推理档位时，使用后面的模型；没有合适模型时保留原标题。
 
 可在插件 `PLUGIN_DATA/config.json` 中指定模型或超时，缺省无需配置：
 
