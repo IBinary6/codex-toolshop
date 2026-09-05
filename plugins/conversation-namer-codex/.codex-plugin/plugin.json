@@ -1,0 +1,38 @@
+{
+  "name": "conversation-namer-codex",
+  "version": "0.1.1",
+  "description": "Automatically name new Codex conversations and safely batch-normalize titles in the current project.",
+  "author": {
+    "name": "IBinary6",
+    "url": "https://github.com/IBinary6"
+  },
+  "homepage": "https://github.com/IBinary6/codex-toolshop/tree/main/plugins/conversation-namer-codex",
+  "repository": "https://github.com/IBinary6/codex-toolshop",
+  "license": "MIT",
+  "keywords": [
+    "conversation",
+    "title",
+    "naming",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Conversation Namer",
+    "shortDescription": "Give Codex conversations consistent, date-prefixed titles.",
+    "longDescription": "Uses the first request to name a new conversation as MMDD｜TYPE｜Topic, and provides a confirmation-gated skill for batch-normalizing conversation titles in the current Codex project. It changes titles only and never changes project names or conversation organization.",
+    "developerName": "IBinary6",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "按默认英文类型规范当前 Codex 项目的会话标题。",
+      "使用中文类型规范当前 Codex 项目的会话标题。",
+      "说明 Conversation Namer 的自动命名规则。"
+    ],
+    "brandColor": "#0F766E",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/logo.svg"
+  }
+}

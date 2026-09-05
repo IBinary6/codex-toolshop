@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Conversation Namer icon</title>
+  <rect width="64" height="64" rx="14" fill="#0F766E"/>
+  <path d="M15 17h34a5 5 0 0 1 5 5v20a5 5 0 0 1-5 5H31l-11 8v-8h-5a5 5 0 0 1-5-5V22a5 5 0 0 1 5-5Z" fill="#CCFBF1"/>
+  <path d="M20 27h24M20 36h16" fill="none" stroke="#0F766E" stroke-width="5" stroke-linecap="round"/>
+</svg>

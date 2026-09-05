@@ -43,6 +43,10 @@ jobs:
         working-directory: plugins/local-knowledge-codex
         run: npm test
 
+      - name: Validate conversation-namer-codex
+        working-directory: plugins/conversation-namer-codex
+        run: npm test
+
       - name: Validate system-proxy-codex
         working-directory: plugins/system-proxy-codex
         run: npm test

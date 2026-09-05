@@ -1,0 +1,16 @@
+{
+  "name": "conversation-namer-codex",
+  "version": "0.1.1",
+  "description": "Automatic and confirmation-gated Codex conversation title normalization.",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "check:syntax": "node --check scripts/run-hook.cjs && node --check scripts/check-plugin.cjs && node --check scripts/run-tests.cjs && node --check hooks/js/session_start.js && node --check hooks/js/lib/guidance.js && node --check hooks/js/lib/protocol.js",
+    "check": "node scripts/check-plugin.cjs",
+    "test:unit": "node scripts/run-tests.cjs",
+    "test": "npm run check:syntax && npm run check && npm run test:unit"
+  }
+}

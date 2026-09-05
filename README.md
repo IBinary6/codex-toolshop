@@ -17,6 +17,7 @@ codex plugin add codemap-boost-codex@codex-toolshop
 codex plugin add cpp-style-enforcer-codex@codex-toolshop
 codex plugin add agent-dispatch-codex@codex-toolshop
 codex plugin add local-knowledge-codex@codex-toolshop
+codex plugin add conversation-namer-codex@codex-toolshop
 codex plugin add system-proxy-codex@codex-toolshop
 ```
 
@@ -41,7 +42,20 @@ codex plugin add system-proxy-codex@codex-toolshop
 | `cpp-style-enforcer-codex` | 自动执行团队 C++ 风格流程，包括 clang-format、版权头、BOM、cpplint 和提交前检查。 | 正常编辑即可；写入 C/C++ 文件后 hook 自动处理，`git commit` 前会检查暂存区 C++ 文件。 |
 | `agent-dispatch-codex` | 让主代理负责决策和审查，并按任务为明确、有界的执行工作选择可写子代理及模型档位。 | 新会话自动注入调度策略；子代理直接执行、报告结果，并在整合后及时释放。 |
 | `local-knowledge-codex` | 为 Codex 提供本地索引知识，覆盖错误方案、用户偏好、事实、决策和工作流。 | 会话开始加载常驻偏好，提问或工具失败时按作用域和相关性召回；用户明确要求或方案验证后再保存。 |
+| `conversation-namer-codex` | 按创建日期、任务类型和实际主题生成统一的 Codex 会话标题。 | 每个新 Codex 主任务理解首条请求后立即命名或安全跳过，再开始主任务；批量整理当前项目时先预览两列表格，确认后才改标题。 |
 | `system-proxy-codex` | 自动启用 Codex 系统代理支持，并用 Python 安全配置 `.env`。 | 默认使用系统代理；也可用 `system-proxy-setup` 自动检测或指定 `7897`、`7890` 等端口。 |
+
+## 会话命名怎么用
+
+安装 `conversation-namer-codex` 后，hook 只把命名规则注入当前主模型。每个新建的 Codex 主任务在主模型理解首条请求、足以确定核心主题后，都会立即生成 `MMDD｜TYPE｜Topic`，通过任务标题接口完成命名或安全跳过，然后才开始用户要求的主任务；不会拖到最终回复，也不会因为请求短、简单或已可执行而省略。日期只取会话 `createdAt` 并转换为 `Asia/Shanghai`；默认类型代码为 `FEA`、`DES`、`FIX`、`OPT`、`REL`、`EXP`、`DOC` 或 `RES`。标题语义及 `read_thread` / `set_thread_title` 调用由当前主模型负责；只有工具不可用或主题确实无法可靠判断时才保留原标题，目标标题相同则不重复写入。
+
+批量整理当前项目时，可以直接说：
+
+```text
+重命名当前 Codex 项目中的会话标题
+```
+
+批量模式只处理当前项目里的会话，并先输出 `Before / After` 两列表格。只有确认后才会逐项复查并修改会话标题；不会改项目名、会话内容、项目归属、顺序、置顶或归档状态。需要中文类型标签时，在请求中明确说明“使用中文类型”。
 
 ## Agent Dispatch 怎么用
 
@@ -147,6 +161,7 @@ codex plugin add codemap-boost-codex@codex-toolshop
 codex plugin add cpp-style-enforcer-codex@codex-toolshop
 codex plugin add agent-dispatch-codex@codex-toolshop
 codex plugin add local-knowledge-codex@codex-toolshop
+codex plugin add conversation-namer-codex@codex-toolshop
 codex plugin add system-proxy-codex@codex-toolshop
 ```
 
@@ -163,6 +178,7 @@ codex plugin list
 - CodeMap 完全不工作：检查是否设置了 `CODEMAP_BOOST_DISABLE_GRAPH=1` 或 `CODEMAP_BOOST_DISABLE_BOOTSTRAP=1`。
 - C++ 风格检查没有格式化：确认 `clang-format` 可用；缺失时格式化会跳过，但 cpplint 等流程仍继续。
 - Agent Dispatch 没有生效：新建任务后打开 `/hooks`，审查并信任当前插件 Hook 哈希。
+- 新会话没有自动命名：确认 `conversation-namer-codex` 已启用；新建任务后打开 `/hooks`，审查并信任当前插件 Hook 哈希。升级 hook 后需要重新新建任务。
 - Local Knowledge 查不到历史记录：先运行 `local-knowledge-setup`；确认 `~/.bugdb/bugs.db` 存在，并检查 `LOCAL_KNOWLEDGE_HOME` 或旧兼容变量 `BUGDB_HOME` 是否覆盖了路径。旧版数据仍在独立目录时运行 `local-knowledge-migrate`。
 
 ## 协议
