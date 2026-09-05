@@ -6,6 +6,7 @@ const { spawnSync } = require('child_process');
 
 const HOOKS = {
   session_start: path.join('hooks', 'js', 'session_start.js'),
+  user_prompt_submit: path.join('hooks', 'js', 'user_prompt_submit.js'),
 };
 
 /**

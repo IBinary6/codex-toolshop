@@ -11,6 +11,17 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" user_prompt_submit",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

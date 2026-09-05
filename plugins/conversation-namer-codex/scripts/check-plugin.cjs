@@ -52,6 +52,11 @@ function main() {
     'hooks/hooks.json',
     'hooks/codex-hooks.json',
     'scripts/run-hook.cjs',
+    'hooks/js/user_prompt_submit.js',
+    'hooks/js/name_worker.js',
+    'hooks/js/lib/state.js',
+    'hooks/js/lib/naming.js',
+    'hooks/js/lib/app_server.js',
     'skills/conversation-title-manager/SKILL.md',
     'skills/conversation-title-manager/references/title-policy.md',
   ];
@@ -63,8 +68,9 @@ function main() {
   const packageJson = readJson('package.json');
   assert.equal(manifest.name, 'conversation-namer-codex');
   assert.equal(packageJson.name, manifest.name);
-  assert.equal(packageJson.version, manifest.version);
-  assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+  const releaseVersion = manifest.version.split('+')[0];
+  assert.equal(packageJson.version, releaseVersion);
+  assert.match(manifest.version, /^\d+\.\d+\.\d+(?:\+codex\.[a-z0-9-]+)?$/);
   assert.equal(packageJson.engines && packageJson.engines.node, '>=18');
   assert.equal(manifest.skills, './skills/');
   assert.ok(!Object.hasOwn(manifest, 'hooks'), 'default hook discovery must be used');
@@ -80,12 +86,12 @@ function main() {
   const legacyHooks = readJson('hooks/codex-hooks.json');
   assert.deepEqual(hooks, legacyHooks, 'hook manifests must stay identical');
   assert.ok(Array.isArray(hooks.hooks.SessionStart));
-  assert.deepEqual(Object.keys(hooks.hooks), ['SessionStart'], 'only SessionStart may be registered');
+  assert.deepEqual(Object.keys(hooks.hooks), ['SessionStart', 'UserPromptSubmit']);
   assert.equal(hooks.hooks.SessionStart[0].matcher, 'startup|resume|clear|compact');
   const hookText = JSON.stringify(hooks);
   assert.ok(hookText.includes('${PLUGIN_ROOT}'));
   assert.ok(!hookText.includes('Stop'), 'Stop hook must not be registered');
-  assert.ok(!hookText.includes('UserPromptSubmit'), 'UserPromptSubmit must not be registered');
+  assert.ok(Array.isArray(hooks.hooks.UserPromptSubmit));
   assert.ok(!hookText.includes('"async"'), 'Codex command hooks must not be async');
   assert.doesNotMatch(hookText, /[A-Za-z]:[\\/]/, 'hooks must not contain absolute Windows paths');
   assert.ok(!hookText.includes('/Users/') && !hookText.includes('/home/'), 'hooks must not contain user paths');
@@ -114,27 +120,8 @@ function main() {
   }
 
   const guidance = fs.readFileSync(path.join(root, 'hooks', 'js', 'lib', 'guidance.js'), 'utf8');
-  assert.match(guidance, /mandatory pre-task gate for every newly created Codex main task/);
-  assert.match(guidance, /act immediately/);
-  assert.match(guidance, /before starting the requested work/);
-  assert.match(guidance, /before calling any unrelated tool/);
-  assert.match(guidance, /short, simple, or already actionable/);
-  assert.match(guidance, /Do not defer this until the final response/);
-  assert.match(guidance, /current title already exactly equals the target title/);
-  assert.doesNotMatch(guidance, /Before your final response/);
-  const guidanceMarkers = [
-    'Batch precedence:',
-    'First call mcp__codex_app__read_thread',
-    'Otherwise, immediately call mcp__codex_app__set_thread_title',
-    'Only after this naming gate has completed or safely skipped may you start the requested work',
-  ];
-  const guidanceIndexes = guidanceMarkers.map((marker) => guidance.indexOf(marker));
-  assert.ok(guidanceIndexes.every((index) => index >= 0), 'automatic naming gate markers are missing');
-  assert.deepEqual(
-    [...guidanceIndexes].sort((left, right) => left - right),
-    guidanceIndexes,
-    'automatic naming gate order is invalid',
-  );
+  assert.doesNotMatch(guidance, /mandatory pre-task gate|already contains an assistant turn|set_thread_title/,
+    'automatic naming must not be delegated to the main task prompt');
 
   const repoRoot = findRepoRoot(root);
   if (repoRoot) {
@@ -144,7 +131,7 @@ function main() {
     ));
     const entry = marketplace.plugins.find((item) => item.name === manifest.name);
     assert.ok(entry, 'marketplace must include conversation-namer-codex');
-    assert.equal(entry.version, manifest.version, 'marketplace version must match plugin.json');
+    assert.equal(entry.version, releaseVersion, 'marketplace must match the plugin release version');
     assert.equal(entry.source && entry.source.path, './plugins/conversation-namer-codex');
   }
 

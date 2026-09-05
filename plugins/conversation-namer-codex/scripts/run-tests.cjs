@@ -5,6 +5,8 @@ const { spawnSync } = require('child_process');
 
 const tests = [
   'guidance.test.js',
+  'app_server.test.js',
+  'naming.test.js',
   'hooks.integration.test.js',
 ];
 const testDirectory = path.resolve(__dirname, '..', 'hooks', 'js', '__tests__');
