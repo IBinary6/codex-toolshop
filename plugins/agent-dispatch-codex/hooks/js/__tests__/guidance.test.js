@@ -101,6 +101,57 @@ const existingPlan = promptGuidance('按已有计划实现跨模块接口迁移�
 assert.match(existingPlan, /常规实现/);
 assert.match(existingPlan, /优先图查询/);
 assert.doesNotMatch(existingPlan, /dispatch_planner|非琐碎计划/);
+for (const prompt of [
+  '按已有实现计划实现跨模块迁移',
+  '已有实现方案，继续实现跨模块迁移',
+  '按已有执行计划实现跨模块迁移',
+  '已有执行方案，继续实现跨模块迁移',
+  '按现有实现计划实现跨模块迁移',
+  '现有实现方案，继续实现跨模块迁移',
+  '按现有执行计划实现跨模块迁移',
+  '现有执行方案，继续实现跨模块迁移',
+  'Implement the cross-module migration using the existing implementation plan.',
+  'Implement the cross-module migration using the existing execution plan.',
+  'Implement the cross-module migration using the approved implementation plan.',
+  'Implement the cross-module migration using the approved execution plan.',
+]) {
+  const route = routePrompt(prompt, config);
+  assert.equal(route.existingPlan, true, prompt);
+  assert.equal(route.category, 'implementation', prompt);
+  assert.match(promptGuidance(prompt, config), /常规实现/, prompt);
+  assert.doesNotMatch(promptGuidance(prompt, config), /dispatch_planner|非琐碎计划/, prompt);
+}
+for (const prompt of [
+  '还没有实现计划，请规划跨模块迁移',
+  '请制定实现计划，然后实现跨模块迁移',
+  '请制定执行方案，然后实现跨模块迁移',
+  'Create an implementation plan for the cross-module migration.',
+  'Create an execution plan for the cross-module migration.',
+]) {
+  assert.equal(routePrompt(prompt, config).existingPlan, false, prompt);
+  assert.equal(routePrompt(prompt, config).category, 'plan', prompt);
+  assert.match(promptGuidance(prompt, config), /dispatch_planner/, prompt);
+}
+for (const prompt of [
+  '按已有实现计划只读分析跨模块迁移，禁止修改文件',
+  'Inspect the cross-module migration using the approved execution plan, read-only.',
+]) {
+  const route = routePrompt(prompt, config);
+  assert.equal(route.existingPlan, true, prompt);
+  assert.equal(route.category, 'broad-search', prompt);
+  assert.equal(route.readOnly, true, prompt);
+  assert.doesNotMatch(promptGuidance(prompt, config), /可写执行角色|dispatch_planner/, prompt);
+}
+for (const prompt of [
+  '只用主代理，按现有执行方案实现跨模块迁移',
+  'Main agent only: implement the cross-module migration using the existing implementation plan.',
+]) {
+  const route = routePrompt(prompt, config);
+  assert.equal(route.existingPlan, true, prompt);
+  assert.equal(route.category, 'primary-only', prompt);
+  assert.equal(route.shouldDispatch, false, prompt);
+  assert.equal(promptGuidance(prompt, config), '', prompt);
+}
 for (const prompt of ['What depends on the auth module?', 'Find all callers of authService.', '请分析 auth 模块的依赖关系']) {
   assert.match(promptGuidance(prompt, config), /dispatch_explorer/);
   assert.match(promptGuidance(prompt, config), /优先图查询/);

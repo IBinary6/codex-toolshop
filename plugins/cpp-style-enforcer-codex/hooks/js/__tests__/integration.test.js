@@ -1,6 +1,6 @@
 'use strict';
 
-// 集成回归测试（spec §10）：在临时 git 仓库 spawnSync 子进程跑入口脚本，
+// 集成回归测试（spec §10）：在临时 Git 仓库或无 Git 目录 spawnSync 子进程跑入口脚本，
 // 喂 stdin，断言 (exit/stdout/stderr) 固化崩溃修复后的行为契约。
 // PostToolUse 延迟记录 + Stop 统一处理场景 a-e + pre_commit denyTool/passSilent。
 
@@ -28,14 +28,32 @@ const env = {
 };
 
 const repos = [];
-function newRepo(prefix) {
+function newDirectory(prefix) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), prefix || 'cse-int-'));
   repos.push(tmp);
+  return tmp;
+}
+
+function newRepo(prefix) {
+  const tmp = newDirectory(prefix);
   sh(['init'], tmp);
   sh(['config', 'user.email', 't@t.com'], tmp);
   sh(['config', 'user.name', 't'], tmp);
   sh(['config', 'commit.gpgsign', 'false'], tmp);
   return tmp;
+}
+
+function configureCpplintOnly(root) {
+  const cfgDir = path.join(root, '.codex-cpp-style');
+  fs.mkdirSync(cfgDir, { recursive: true });
+  fs.writeFileSync(path.join(cfgDir, 'cpp-style.json'), JSON.stringify({
+    checks: { clangFormat: false, copyright: false, cpplint: true, bom: false },
+  }));
+}
+
+function writeHeader(filePath, guard) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `#ifndef ${guard}\n#define ${guard}\n\n#endif  // ${guard}\n`);
 }
 
 let turnCounter = 0;
@@ -177,6 +195,59 @@ try {
     assert.strictEqual(parsed.decision, 'block', '场景b: 新文件违规 → decision:block JSON');
     assert.ok(typeof parsed.reason === 'string' && parsed.reason.length > 0, '场景b: reason 非空');
     assert.ok(/casting/.test(parsed.reason), '场景b: reason 含 readability/casting 违规');
+  }
+
+  // 无 Git 项目：真实 Stop 使用任务目录推导稳定 guard，并拒绝机器绝对路径 guard。
+  if (hasPython) {
+    const workspace = newDirectory('cse-no-git-guard-');
+    configureCpplintOnly(workspace);
+    const f = path.join(workspace, 'work_cpp_smoke', 'batch_collector.h');
+    const guard = 'WORK_CPP_SMOKE_BATCH_COLLECTOR_H_';
+    writeHeader(f, guard);
+    const originalBytes = fs.readFileSync(f);
+
+    const { post, stop } = runDeferred({ cwd: workspace, tool_name: 'Write', tool_input: { file_path: f } });
+    assert.strictEqual(post.status, 0, '无 Git guard: PostToolUse exit 0');
+    assert.strictEqual((post.stdout || '').trim(), '', '无 Git guard: 编辑阶段仅记录');
+    assert.strictEqual(stop.status, 0, '无 Git guard: Stop exit 0');
+    assert.deepStrictEqual(JSON.parse(stop.stdout), {}, '无 Git guard: 项目相对路径 guard 通过');
+    assert.ok(fs.readFileSync(f).equals(originalBytes), '无 Git guard: 检查不改写头文件');
+
+    const absoluteGuard = f.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase() + '_';
+    writeHeader(f, absoluteGuard);
+    const { stop: invalidStop } = runDeferred({
+      cwd: workspace, tool_name: 'Edit', tool_input: { file_path: f },
+    });
+    assert.strictEqual(invalidStop.status, 0, '绝对路径 guard: Stop exit 0');
+    const invalid = JSON.parse(invalidStop.stdout);
+    assert.strictEqual(invalid.decision, 'block', '绝对路径 guard: 必须拒绝');
+    assert.ok(invalid.reason.includes('[build/header_guard]'), '绝对路径 guard: 保留 guard 检查');
+    assert.ok(invalid.reason.includes(`please use: ${guard}`), '绝对路径 guard: 提示稳定的项目相对路径宏名');
+
+    // cwd 与文件目录共享名称前缀，但两者互不包含，必须回退到文件所在目录。
+    const cwd = path.join(workspace, 'project');
+    fs.mkdirSync(cwd);
+    const external = path.join(workspace, 'project-other', 'include', 'batch_collector.h');
+    writeHeader(external, 'BATCH_COLLECTOR_H_');
+    const { stop: externalStop } = runDeferred({
+      cwd, tool_name: 'Write', tool_input: { file_path: external },
+    });
+    assert.strictEqual(externalStop.status, 0, '同名前缀目录: Stop exit 0');
+    assert.deepStrictEqual(JSON.parse(externalStop.stdout), {},
+      '同名前缀目录: 不把 cwd 当作包含根，使用文件所在目录的 guard');
+  }
+
+  // Git 根目录优先于任务 cwd：从子目录编辑头文件仍使用仓库相对路径 guard。
+  if (hasPython) {
+    const repo = newRepo('cse-git-guard-');
+    configureCpplintOnly(repo);
+    const f = path.join(repo, 'work_cpp_smoke', 'batch_collector.h');
+    writeHeader(f, 'WORK_CPP_SMOKE_BATCH_COLLECTOR_H_');
+    const { stop } = runDeferred({
+      cwd: path.dirname(f), tool_name: 'Write', tool_input: { file_path: f },
+    });
+    assert.strictEqual(stop.status, 0, 'Git guard: Stop exit 0');
+    assert.deepStrictEqual(JSON.parse(stop.stdout), {}, 'Git guard: 真实 Git 根目录优先于 cwd');
   }
 
   // ---- pre_commit 集成：暂存含违规 .cpp + 真 git commit 命令 → denyTool（exit0 + permissionDecision:deny）----

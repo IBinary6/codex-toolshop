@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "cpp-style-enforcer-codex",
-      "version": "0.1.11",
+      "version": "0.1.12",
       "description": "C++ style enforcement workflow with tracked-file encoding preservation and staged-content cpplint checks.",
       "source": {
         "source": "local",
@@ -34,7 +34,7 @@
     },
     {
       "name": "agent-dispatch-codex",
-      "version": "0.1.14",
+      "version": "0.1.15",
       "description": "Role-aware routing with task-selected writer models, serial primary-agent Git, and bounded subagent lifecycle management.",
       "source": {
         "source": "local",

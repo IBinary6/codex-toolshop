@@ -40,6 +40,15 @@ Project settings override global defaults field by field.
 - Commit-time cpplint checks staged source files and staged `CPPLINT.cfg`, not possibly different working-tree versions.
 - SessionStart prepares only the plugin's user template; project files are initialized after an actual C++ edit, not merely by opening a repository for inspection.
 - cpplint reads BOM files without rewriting them. Missing runtime, nonzero exit without parsed diagnostics, or an incomplete staged check cannot count as a pass.
+- Stop checks use the Git root for header guards. Without Git, they use a containing task working directory, then the source file's directory; guards must not depend on a user's absolute machine path.
+
+The plugin bundles `hooks/js/cpplint/cpplint.py`; a missing `cpplint` command on `PATH` does not mean its Hook check is unavailable. For a targeted manual check, use the bundled script and the same root as the Hook:
+
+```bash
+python3 <plugin-root>/hooks/js/cpplint/cpplint.py --root=<project-root> <source-file>
+```
+
+On Windows, use the available Python 3 launcher, such as `py -3`. Preserve the project's `CPPLINT.cfg` and effective filters; a direct invocation without those settings may report checks intentionally configured differently in the Hook.
 
 ## Dependencies
 

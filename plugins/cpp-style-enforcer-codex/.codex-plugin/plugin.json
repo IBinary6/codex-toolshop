@@ -1,6 +1,6 @@
 {
   "name": "cpp-style-enforcer-codex",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "C++ code style enforcement for Codex with tracked-file encoding preservation and staged-content commit checks.",
   "author": {
     "name": "IBinary6"

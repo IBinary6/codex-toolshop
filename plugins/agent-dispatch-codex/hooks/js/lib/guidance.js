@@ -152,7 +152,7 @@ function promptConstraints(text) {
   const explicitReadOnly = /只读|仅(?:分析|诊断|审查)|(?:先)?(?:不要|禁止|不允许|不得)(?:修改|改动|编辑|写入)|不修改|\b(?:read[- ]only|do not (?:edit|modify|write)|don't (?:edit|modify|write)|diagnosis only)\b/.test(text);
   const writeIntent = /实现|修复|迁移|重构|编码|\b(?:implement|fix|migrate|refactor|edit|modify|develop)\b/.test(text);
   const diagnosis = /诊断|排查|根因|\b(?:diagnos\w*|investigate|root cause|debug)\b/.test(text);
-  const existingPlan = /已有(?:计划|方案)|现有(?:计划|方案)|不要重新规划|无需重新规划|\b(?:existing plan|approved plan|do not replan|don't replan)\b/.test(text);
+  const existingPlan = /(?:已有|现有)(?:实现|执行)?(?:计划|方案)|不要重新规划|无需重新规划|\b(?:(?:existing|approved) (?:(?:implementation|execution) )?plan|do not replan|don't replan)\b/.test(text);
   const narrow = /(?:只|仅).{0,12}(?:一个|单个|单|这个)文件|单文件|\b(?:one file|single file|this file only)\b/.test(text);
   const wordingOnly = /(?:拼写|措辞|标点|\b(?:spelling|wording|typo|punctuation)\b)/.test(text)
     && /readme|changelog|markdown|文档|注释|\b(?:docs?|comments?)\b/.test(text)

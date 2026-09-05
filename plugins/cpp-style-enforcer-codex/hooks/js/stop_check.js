@@ -35,6 +35,25 @@ function displayPath(filePath, root) {
   return root ? path.relative(root, filePath) : filePath;
 }
 
+/** 仅为 cpplint 选择根目录，避免无 Git 项目的 header guard 包含机器绝对路径。 */
+function lintRootForFile(filePath, root, cwd) {
+  if (root) return root;
+
+  const candidates = [cwd];
+  try { candidates.push(process.cwd()); } catch (_) {}
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string' || !path.isAbsolute(candidate)) continue;
+    try {
+      if (!fs.statSync(candidate).isDirectory()) continue;
+      const relative = path.relative(candidate, filePath);
+      if (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) {
+        return path.resolve(candidate);
+      }
+    } catch (_) {}
+  }
+  return path.dirname(filePath);
+}
+
 async function main() {
   const input = await readStdinJson({ timeoutMs: 5000 });
   if (!input) return finish();
@@ -78,8 +97,9 @@ async function main() {
     if (changed) changedFiles.push(displayPath(filePath, root));
 
     if (effectiveChecks.cpplint) {
+      const lintRoot = lintRootForFile(filePath, root, input.cwd);
       const suppressCopyright = !(copyrightInfo && copyrightInfo.company) || checks.copyright === false;
-      const violations = step('cpplint', () => runCpplint(filePath, { root, suppressCopyright })) || [];
+      const violations = step('cpplint', () => runCpplint(filePath, { root: lintRoot, suppressCopyright })) || [];
       for (const violation of violations) {
         allViolations.push({ ...violation, file: displayPath(filePath, root) });
       }
