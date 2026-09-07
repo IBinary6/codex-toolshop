@@ -8,6 +8,7 @@ const path = require('path');
 const DEFAULT_CONFIG = {
   enabled: true,
   mode: 'incremental',
+  lineEnding: 'preserve',
   checks: { clangFormat: true, copyright: true, cpplint: true, bom: true },
   legacyChecks: { clangFormat: false, copyright: false, cpplint: false, bom: false },
   copyrightInfo: { company: '', author: '', dateFormat: 'YYYY/MM/DD HH:mm' },
@@ -89,6 +90,7 @@ function normalize(base, override) {
   return {
     enabled: merged.enabled !== false,
     mode: merged.mode === 'full' ? 'full' : 'incremental',
+    lineEnding: ['lf', 'crlf'].includes(merged.lineEnding) ? merged.lineEnding : 'preserve',
     checks,
     legacyChecks,
     copyrightInfo,

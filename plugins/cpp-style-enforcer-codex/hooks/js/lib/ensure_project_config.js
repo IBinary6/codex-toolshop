@@ -39,6 +39,14 @@ legacyChecks (object)
   legacyChecks.bom         (boolean, 默认 false) — 保留兼容；老文件始终保持原 BOM 状态。
   示例：老文件也加 copyright → "legacyChecks": { "copyright": true, "bom": false }
 
+lineEnding (string, 默认 "preserve")
+  Visual Studio 源工程的已编辑 C/C++ 文件强制 CRLF，包括已被误改成 LF 的文件。
+  其他工程可选 "lf"、"crlf"、"preserve"；preserve 按正文占多数的行尾，平票按首个，无行尾按 LF。
+  非空文件缺少末尾换行时补同种换行，独立于 clang-format 和 legacyChecks 开关。
+  最近的 CMakeLists.txt 优先于上层 VS 标志；CMake 生成的 VS 文件不作为原生 VS 工程。
+  同目录双构建入口按 CMake 处理，需要 CRLF 时显式设置 "lineEnding": "crlf"。
+  只修复本轮编辑文件，保留编码与 BOM，不改 Git 暂存区；enabled=false 关闭全部处理。
+
 copyrightInfo (object)
   版权头的内容配置。company 空时不生成版权头。
   copyrightInfo.company    (string, 默认 "") — 公司/组织名，版权行内容。
@@ -67,7 +75,7 @@ copyrightInfo (object)
 常见场景
 -----------------------------------------------------------
 
-场景 1：老项目，老文件保持原编码和格式，新文件全套（默认行为，无需修改）
+场景 1：老项目，老文件不运行高层格式化，新文件全套；基础行尾规则仍适用（默认行为）
   {
     "mode": "incremental",
     "legacyChecks": { "clangFormat": false, "copyright": false, "cpplint": false, "bom": false }

@@ -1,6 +1,6 @@
 {
   "name": "agent-dispatch-codex",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "Role-aware Codex routing with configurable execution candidates and strong independent review.",
   "license": "MIT",
   "private": true,

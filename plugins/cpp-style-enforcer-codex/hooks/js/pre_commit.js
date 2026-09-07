@@ -9,6 +9,7 @@ const { loadConfig } = require('./lib/config');
 const { repoRoot, isNew } = require('./lib/git');
 const { createStagedSnapshot } = require('./lib/staged_snapshot');
 const { shouldHandle } = require('./lib/target');
+const { isVisualStudioSource } = require('./lib/line_endings');
 const { runCpplint, formatViolations } = require('./steps/cpplint');
 
 const isWindows = process.platform === 'win32';
@@ -308,6 +309,8 @@ async function main() {
         const v = runCpplint(stagedFile.filePath, {
           root: snapshot.root,
           suppressCopyright,
+          // 快照不一定包含工程文件；从原路径判断工程类型，源码仍只读取 index。
+          preserveIncludeOrder: isVisualStudioSource(path.resolve(root, stagedFile.relativePath), root),
           timeoutMs: Math.min(15000, remainingMs),
         });
         for (const item of v) allViolations.push({ ...item, file: stagedFile.relativePath });

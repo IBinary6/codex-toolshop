@@ -51,6 +51,13 @@ try {
   assert.strictEqual(cfg.copyrightInfo.company, 'OVERRIDE', '项目覆盖 company');
   assert.strictEqual(cfg.copyrightInfo.author, 'kevin', '未覆盖 author 回退全局');
   assert.strictEqual(cfg.enabled, true, 'enabled 缺省 true');
+  assert.strictEqual(cfg.lineEnding, 'preserve');
+  fs.writeFileSync(path.join(cfgDir, 'cpp-style.json'), JSON.stringify({ lineEnding: 'crlf' }));
+  assert.strictEqual(loadConfig(srcFile, userPath).lineEnding, 'crlf');
+  fs.writeFileSync(path.join(cfgDir, 'cpp-style.json'), JSON.stringify({ lineEnding: 'lf' }));
+  assert.strictEqual(loadConfig(srcFile, userPath).lineEnding, 'lf');
+  fs.writeFileSync(path.join(cfgDir, 'cpp-style.json'), JSON.stringify({ lineEnding: 'invalid' }));
+  assert.strictEqual(loadConfig(srcFile, userPath).lineEnding, 'preserve');
 
   // ---- loadConfig：旧 Claude 路径仍兼容 ----
   const legacyProj = mkTmp('legacy-proj-');

@@ -65,6 +65,8 @@ assert.ok(
   String(buildFilterArg({ suppressCopyright: false })).includes('-whitespace/indent_namespace'),
   '不抑制版权时仍保留团队默认 filter',
 );
+assert.ok(buildFilterArg({ preserveIncludeOrder: true }).includes('-build/include_order'));
+assert.ok(!buildFilterArg({}).includes('-build/include_order'));
 
 // 运行时失败不能冒充零违规，不依赖本机 Python 或 Git。
 assert.ok(runCpplint(__filename, { resolvePython: () => null })

@@ -109,6 +109,9 @@ assert.match(promptGuidance('请审查这段代码的正确性', config), /gpt-6
 
 for (const name of ['dispatch_reviewer', 'dispatch_deep_reviewer']) {
   const instructions = config.agent_profiles.profiles[name].developer_instructions;
+  assert.match(instructions, /Exclude vendored third-party implementations/);
+  assert.match(instructions, /thridpart/);
+  assert.match(instructions, /Preserve local clang-format protection/);
   assert.match(instructions, /task intent, build configuration, real entry point and call contract, and actual execution path/);
   assert.match(instructions, /Block only defects that concrete evidence shows affect the current acceptance target/);
   assert.match(instructions, /Missing context, hypothetical concurrency, and style suggestions are non-blocking/);

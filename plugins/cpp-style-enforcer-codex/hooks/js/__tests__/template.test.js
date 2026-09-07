@@ -24,7 +24,7 @@ assert.strictEqual(tpl.copyrightInfo.dateFormat, 'YYYY/MM/DD HH:mm', 'dateFormat
 const pj = JSON.parse(fs.readFileSync(path.join(pluginRoot, '.codex-plugin', 'plugin.json'), 'utf-8'));
 const pkg = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'package.json'), 'utf-8'));
 assert.strictEqual(pj.name, 'cpp-style-enforcer-codex', 'Codex 插件名应正确');
-assert.strictEqual(pj.version, pkg.version, 'Codex 插件版本应与 package.json 同步');
+assert.strictEqual(pj.version.split('+')[0], pkg.version, 'Codex 插件发布版本应与 package.json 同步，允许本地缓存标识');
 assert.strictEqual(Object.hasOwn(pj, 'hooks'), false, 'Codex 插件 manifest 不应包含不受支持的 hooks 字段');
 assert.strictEqual(pj.skills, './skills/', 'Codex 插件应声明 skills 目录');
 

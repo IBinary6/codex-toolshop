@@ -22,6 +22,18 @@ try {
     assert.ok(fs.readFileSync(f).equals(before), 'clang-format 缺失 → 文件不动');
     console.log('clang_format.test.js PASS (clang-format absent, degrade-only)');
   } else {
+    // VS 新文件同样保留依赖敏感 include 顺序；项目即便要求排序也不重排。
+    const vsDir = path.join(tmp, 'vs');
+    fs.mkdirSync(vsDir);
+    fs.writeFileSync(path.join(vsDir, 'app.vcxproj'), '<Project />');
+    fs.writeFileSync(path.join(vsDir, '.clang-format'), 'BasedOnStyle: Google\nSortIncludes: CaseSensitive\nIncludeBlocks: Regroup\n');
+    const vsFile = path.join(vsDir, 'main.cpp');
+    fs.writeFileSync(vsFile, '#include <windows.h>\n#include <LdsLog/lds_log.h>\n\nint  f( ){return 0;}\n');
+    assert.strictEqual(applyClangFormat(vsFile, { isNew: true, root: vsDir }), true);
+    const vsText = fs.readFileSync(vsFile, 'utf8');
+    assert.ok(vsText.indexOf('<windows.h>') < vsText.indexOf('<LdsLog/lds_log.h>'));
+    fs.rmSync(vsDir, { recursive: true, force: true });
+
     // 有变化 → 写回（杂乱格式被规范化）
     const messy = write('a.cpp', Buffer.from('int  main( ){return 0;}\n', 'utf-8'));
     const changed1 = applyClangFormat(messy);

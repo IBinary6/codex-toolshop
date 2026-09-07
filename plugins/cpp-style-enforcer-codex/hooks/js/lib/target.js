@@ -10,6 +10,9 @@ const EXCLUDED_DIRS = new Set([
   'node_modules', 'build', 'dist', 'out', 'bin', 'obj',
   '.git', 'target', 'third_party', 'thirdparty', 'external',
   'vendor', 'deps', 'packages',
+  '3rd', '3rdparty', '3rd_party', '3rd-party',
+  'thirdpart', 'third-party', 'third_part', 'third-part',
+  'thridpart', 'thridparty', 'thrid_party', 'thrid-party',
 ]);
 
 /** 跳过的特定文件名（VS 自动生成 / 不该被风格化） */
@@ -68,10 +71,13 @@ function shouldHandle(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (!CPP_EXTENSIONS.has(ext)) return false;
   if (SKIPPED_FILES.has(path.basename(filePath).toLowerCase())) return false;
-  for (const part of filePath.split(/[/\\]/)) {
-    if (EXCLUDED_DIRS.has(part.toLowerCase())) return false;
-  }
-  return true;
+  return !isExcludedPath(filePath);
 }
 
-module.exports = { resolveFilePath, resolveFilePaths, shouldHandle, CPP_EXTENSIONS, EXCLUDED_DIRS, SKIPPED_FILES };
+/** 按完整目录段匹配，不因业务目录含 vendor/thirdparty 子串就排除。 */
+function isExcludedPath(filePath) {
+  return typeof filePath === 'string' && filePath.split(/[/\\]/).slice(0, -1)
+    .some((part) => EXCLUDED_DIRS.has(part.toLowerCase()));
+}
+
+module.exports = { resolveFilePath, resolveFilePaths, shouldHandle, isExcludedPath, CPP_EXTENSIONS, EXCLUDED_DIRS, SKIPPED_FILES };

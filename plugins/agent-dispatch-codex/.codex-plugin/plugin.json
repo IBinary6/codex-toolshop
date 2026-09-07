@@ -1,6 +1,6 @@
 {
   "name": "agent-dispatch-codex",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "Codex-native task routing with configurable execution candidates, strong independent review, automatic hooks, and serial primary-agent Git.",
   "author": {
     "name": "IBinary6"

@@ -16,6 +16,7 @@ const { applyClangFormat } = require('./steps/clang_format');
 const { applyBom } = require('./steps/bom');
 const { applyCopyright } = require('./steps/copyright');
 const { runCpplint, formatViolations } = require('./steps/cpplint');
+const { resolveLineEnding, applyLineEndings, isVisualStudioSource } = require('./lib/line_endings');
 
 function step(name, fn) {
   try {
@@ -76,12 +77,14 @@ async function main() {
     const fileIsNew = step('isNew', () => isNew(filePath, root));
     const isNewFile = fileIsNew !== false;
     const effectiveChecks = (mode === 'full' || isNewFile) ? checks : legacyChecks;
-    if (!Object.values(effectiveChecks).some(Boolean)) continue;
+    const hasChecks = Object.values(effectiveChecks).some(Boolean);
+    // 在格式化/版权头可能产生新换行之前固定目标；VS 工程不再跟随被误改的 LF。
+    const eol = resolveLineEnding(filePath, fs.readFileSync(filePath), config, root);
 
     if (effectiveChecks.clangFormat && (mode === 'full' || isNewFile)) {
       step('ensure_clang_format_config', () => ensureClangFormatConfig(root));
     }
-    step('ensure_project_config', () => ensureProjectConfig(root));
+    if (hasChecks) step('ensure_project_config', () => ensureProjectConfig(root));
 
     let changed = false;
     if (effectiveChecks.clangFormat) {
@@ -94,12 +97,21 @@ async function main() {
     if (effectiveChecks.copyright && copyrightInfo && copyrightInfo.company) {
       changed = step('copyright', () => applyCopyright(filePath, copyrightInfo, root)) === true || changed;
     }
+    // 基础行尾修复独立于新老文件风格开关和 clang-format 的安装状态，不修改 Git index。
+    try {
+      changed = applyLineEndings(filePath, eol) || changed;
+    } catch (error) {
+      allViolations.push({ file: displayPath(filePath, root), line: 0,
+        category: 'runtime/line_endings', message: `行尾修复未完成：${error.message || error}` });
+    }
     if (changed) changedFiles.push(displayPath(filePath, root));
 
     if (effectiveChecks.cpplint) {
       const lintRoot = lintRootForFile(filePath, root, input.cwd);
       const suppressCopyright = !(copyrightInfo && copyrightInfo.company) || checks.copyright === false;
-      const violations = step('cpplint', () => runCpplint(filePath, { root: lintRoot, suppressCopyright })) || [];
+      const violations = step('cpplint', () => runCpplint(filePath, {
+        root: lintRoot, suppressCopyright, preserveIncludeOrder: isVisualStudioSource(filePath, root),
+      })) || [];
       for (const violation of violations) {
         allViolations.push({ ...violation, file: displayPath(filePath, root) });
       }
@@ -114,7 +126,7 @@ async function main() {
       formatChangedFiles(changedFiles));
   }
   if (allViolations.length > 0) reasons.push(formatViolations(allViolations));
-  reasons.push('请检查最终 diff，修复剩余违规，并重新运行相关验证；不要跳过闭环检查。');
+  reasons.push('请检查最终 diff，修复剩余违规，并重新运行相关验证；不要跳过闭环检查。Visual Studio 源工程保持 CRLF，其他工程遵循 lineEnding 配置；缺少末尾换行应补同种换行，不要统一改成 LF。');
   const reason = reasons.join('\n\n');
 
   if (input.stop_hook_active) {

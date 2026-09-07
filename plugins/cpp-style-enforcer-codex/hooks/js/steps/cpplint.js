@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { resolvePython } = require('../lib/python');
+const { isExcludedPath } = require('../lib/target');
 
 const isWindows = process.platform === 'win32';
 const MAX_ERRORS_SHOWN = 5;
@@ -33,12 +34,13 @@ const DEFAULT_FILTERS = ['-whitespace/indent_namespace'];
  * 合并 filter：默认禁用项 + 按需 -legal/copyright + 调用方额外项，
  * 去重后拼成单个逗号分隔的 --filter 值
  * （cpplint 只接受一个 --filter）。无任何 filter 项时返回 null，由调用方决定不传 --filter。
- * @param {{suppressCopyright?:boolean, extraFilters?:string[]}} options
+ * @param {{suppressCopyright?:boolean, preserveIncludeOrder?:boolean, extraFilters?:string[]}} options
  * @returns {string|null}
  */
 function buildFilterArg(options = {}) {
   const filters = [...DEFAULT_FILTERS];
   if (options.suppressCopyright) filters.push('-legal/copyright');
+  if (options.preserveIncludeOrder) filters.push('-build/include_order');
   if (Array.isArray(options.extraFilters)) filters.push(...options.extraFilters);
   const uniq = [];
   const seen = new Set();
@@ -61,12 +63,15 @@ function buildFilterArg(options = {}) {
  * 随附 cpplint 使用 utf-8-sig 读取源码，直接忽略 BOM；本步骤从不写文件，
  * 即使进程中断也不会移除 BOM，mtime、LF/CRLF 和原始字节均保持不变。
  *
- * filter 仅在 suppressCopyright 时含 -legal/copyright；无 filter 项时不传 --filter。
+ * VS 调用方传 preserveIncludeOrder，避免与保留头文件依赖顺序的 formatter 策略冲突；
+ * 其他工程仍按项目 cpplint 配置检查顺序，其余检查项不受此开关影响。
  * @param {string} filePath
- * @param {{root?:string, suppressCopyright?:boolean, extraFilters?:string[], timeoutMs?:number}} options
+ * @param {{root?:string, suppressCopyright?:boolean, preserveIncludeOrder?:boolean, extraFilters?:string[], timeoutMs?:number}} options
  * @returns {Array<{line:number, category:string, message:string}>}
  */
 function runCpplint(filePath, options = {}) {
+  // Hook 入口已有筛选；直接调用此封装时也不启动第三方/产物目录的 linter。
+  if (isExcludedPath(filePath)) return [];
   const failure = (message, category = 'runtime/cpplint') => [{ line: 0, category, message }];
   let python;
   try { python = (options.resolvePython || resolvePython)(); } catch (error) {
@@ -132,6 +137,10 @@ function formatViolations(violations) {
     return `  - ${where} [${v.category}] ${v.message}`;
   });
   let reason = 'cpplint 检测到以下 C++ 风格违规，请修复：\n' + lines.join('\n');
+  if (unique.some((v) => v.category === 'whitespace/ending_newline'
+      || (v.category === 'whitespace/newline' && /Mixed LF and CRLF/.test(v.message)))) {
+    reason += '\n行尾按项目规则修复：Visual Studio 源工程使用 CRLF，其他工程遵循 lineEnding 配置或原格式；末尾只需补同种换行。提交检查只读暂存区，工作区修复后需按原暂存范围更新 index，不要覆盖未暂存修改。';
+  }
   const remaining = unique.length - shown.length;
   if (remaining > 0) {
     reason += `\n  ... 还有 ${remaining} 条违规未显示，修复以上后重新编辑该文件以重新检查`;

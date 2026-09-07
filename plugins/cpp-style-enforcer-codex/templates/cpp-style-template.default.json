@@ -1,6 +1,7 @@
 {
   "enabled": true,
   "mode": "incremental",
+  "lineEnding": "preserve",
   "checks": { "clangFormat": true, "copyright": true, "cpplint": true, "bom": true },
   "legacyChecks": { "clangFormat": false, "copyright": false, "cpplint": false, "bom": false },
   "copyrightInfo": {

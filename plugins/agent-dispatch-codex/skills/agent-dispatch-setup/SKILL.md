@@ -81,6 +81,8 @@ Supported list overrides:
 
 ## Important boundaries
 
+- Exclude vendored implementations under directory segments such as `3rd`, `3rdparty`, `third_party`, `third-party`, `thirdpart`, `thridpart`, `thridparty`, `vendor`, `external`, `deps`, and `packages` unless the user explicitly includes them. Review first-party integration and caller contracts; read dependency interfaces only as needed. Do not initiate dependency-wide review, formatting or cpplint. Preserve local clang-format protection for dependency-sensitive includes.
+
 - Codex `PreToolUse` may include `agent_id`; absence is not proof of primary-agent origin. The nudge is disabled by default; when explicitly enabled, keep ordinary Bash calls silent and do not convert the remaining soft nudge into a blanket deny rule.
 - Git commands bypass Agent Dispatch classification, including destructive Git subcommands. This is an orchestration rule only; it does not replace the Codex sandbox, user authorization, Hook trust, or Git safety checks.
 - Continue classifying non-Git segments in a compound shell command even when another segment is Git.

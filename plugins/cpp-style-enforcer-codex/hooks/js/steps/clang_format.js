@@ -5,6 +5,7 @@ const { spawnSync } = require('child_process');
 const { stripBom, restoreBom } = require('../lib/bom_util.js');
 const { changedLineRanges } = require('../lib/git.js');
 const { detectClangFormat } = require('../lib/ensure_deps.js');
+const { isVisualStudioSource } = require('../lib/line_endings.js');
 
 const isWindows = process.platform === 'win32';
 
@@ -35,7 +36,8 @@ function matchLineEnding(formatted, source) {
  * → 仅变化时 restoreBom 写回。clang-format 缺失/失败静默返回 false。不用 -i。
  *
  * 模式（由 opts.isNew 决定，缺省视为新文件）：
- * - 新文件：整文件全格，-style=file -fallback-style=Google，include 正常排序。
+ * - 新文件：整文件格式化，-style=file -fallback-style=Google；VS 源工程保留 include
+ *   顺序，其他工程使用项目排序配置。已有局部 clang-format off/on 保护保持有效。
  * - 老文件：仅格式化 git 改动行（--lines=s:e），读取项目风格并覆盖 include 排序开关；
  *   无改动行则不格式化返回 false。
  *
@@ -62,6 +64,8 @@ function applyClangFormat(filePath, opts) {
   let args;
   if (isNew) {
     args = ['-style=file', '-fallback-style=Google', `-assume-filename=${filePath}`];
+    // VS 头文件可能依赖前置类型/宏，不能因文件尚未提交就自动重排 include。
+    if (isVisualStudioSource(filePath, root)) args.push('--sort-includes=false');
   } else {
     const ranges = changedLineRanges(filePath, root);
     if (!ranges || ranges.length === 0) return false; // 无改动行 → 不格式化

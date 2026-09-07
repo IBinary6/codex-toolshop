@@ -48,6 +48,14 @@ assert.ok(SKIPPED_FILES.has('resource.h'), 'resource.h 在跳过集');
 assert.strictEqual(shouldHandle('/proj/mybuild/a.cpp'), true, 'mybuild 非排除目录');
 assert.strictEqual(shouldHandle('/proj/buildtools/a.cpp'), true, 'buildtools 非排除目录');
 assert.strictEqual(shouldHandle('/proj/build/a.cpp'), false, 'build 排除目录');
+for (const dir of ['3rd', '3rdparty', '3rd_party', '3rd-party', 'thirdparty', 'third_party',
+  'third-party', 'thirdpart', 'third_part', 'third-part', 'thridpart', 'thridparty',
+  'thrid_party', 'thrid-party', 'vendor', 'external', 'deps', 'packages']) {
+  assert.strictEqual(shouldHandle(`/proj/${dir}/lib/a.cpp`), false, dir);
+  assert.strictEqual(shouldHandle(`C:\\proj\\${dir.toUpperCase()}\\lib\\a.cpp`), false, dir);
+}
+assert.strictEqual(shouldHandle('/proj/third_party_adapter/a.cpp'), true);
+assert.strictEqual(shouldHandle('/proj/vendor_manager/a.cpp'), true);
 
 // 回归：扩展名大小写不敏感
 assert.strictEqual(shouldHandle('/p/a.CPP'), true, '.CPP 大小写不敏感命中');

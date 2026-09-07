@@ -139,7 +139,8 @@ codex plugin list
 安装 `cpp-style-enforcer-codex` 后，新会话只准备全局模板；实际编辑 C/C++ 后才按需建立项目配置。之后正常让 Codex 编辑 C/C++ 文件即可：
 
 - `PostToolUse` 只记录本轮编辑的 C/C++ 文件，不立即改写源文件。
-- `Stop` 在本轮结束时统一处理格式化、BOM、版权头和 cpplint，并触发最终验证闭环。
+- `Stop` 在本轮结束时统一处理格式化、BOM、版权头、行尾和 cpplint，并触发最终验证闭环。
+- Visual Studio 源工程的已编辑 C/C++ 文件强制 CRLF，其他工程通过 `lineEnding` 选择 `lf`、`crlf` 或 `preserve`；缺少末尾换行自动补同种换行，关闭 clang-format 或旧文件风格检查也能生效。
 - `PreToolUse` 会识别真正的 `git commit`，只检查暂存区 C/C++ 文件，不在提交前改写。
 - 尊重项目已有 formatter 配置；只读检查不改写 BOM，检查失败不能报告为通过。
 - 全局模板在 `~/.codex/cpp-style-template.json`。

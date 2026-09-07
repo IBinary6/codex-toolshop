@@ -6,17 +6,17 @@
 
 ## 与 Claude Code 版的语义对应
 
-两边执行同一套 C++ 规范语义：**新文件/新项目走全套，老项目老文件保持原编码和行尾；提交前 cpplint 检查暂存区快照且不改写工作区；CRLF/LF 不通过过滤器规避**。
+插件兼容团队已有配置：新文件/新项目走全套，老文件按 `legacyChecks` 选择格式化和 lint；提交前 cpplint 检查暂存区快照且不改写工作区。Codex 版额外提供独立行尾修复：**Visual Studio 源工程强制 CRLF，其他工程按配置处理；缺少末尾换行自动补齐，不通过过滤器规避**。
 
 | 语义能力 | Codex 版 | Claude Code 版 |
 | --- | --- | --- |
 | 编辑后处理 | `PostToolUse` 记录触碰文件，`Stop` 批量处理 | `PostToolUse` 串行处理本次编辑文件 |
 | 提交前检查 | 识别真正的 `git commit`，只检查暂存区 C++ 文件 | 同样识别 `git commit` 并检查暂存区 |
 | 新老文件策略 | `.codex-cpp-style/cpp-style.json`，兼容 `.claude-cpp-style` | `.claude-cpp-style/cpp-style.json` + 全局模板 |
-| cpplint 行尾 | 保持原始 LF/CRLF；不屏蔽 `whitespace/newline` | 同样保持原始 LF/CRLF；不屏蔽 `whitespace/newline` |
+| cpplint 行尾 | lint 前按项目规则统一行尾并补末尾换行；不屏蔽换行检查 | 原有保持 LF/CRLF 的行为 |
 | 依赖安装 | 运行期只检测，不自动 `pip/npm install` | 运行期只检测，不自动 `pip/npm install` |
 
-因此两边在触发时机上不同，但对用户代码的最终约束一致。
+旧配置继续兼容；上述 Codex 行尾处理不代表已修改或发布 Claude Code 版。
 
 ## 安装
 
@@ -42,7 +42,7 @@ codex plugin add cpp-style-enforcer-codex@codex-toolshop
 | --- | --- | --- |
 | `SessionStart` | Codex 会话启动、恢复或清理上下文后 | 准备缺失的用户模板；不写项目文件，不做网络安装。 |
 | `PostToolUse` | Codex 写入或编辑文件后 | 只把本轮编辑的 C/C++ 文件记录到插件数据目录，不读取或改写源文件。 |
-| `Stop` | Codex 准备结束当前轮次时 | 对本轮编辑文件统一执行格式化、BOM、版权头和 cpplint；发生改写或仍有违规时让 Codex 继续完成最终验证。 |
+| `Stop` | Codex 准备结束当前轮次时 | 对本轮编辑文件统一执行格式化、BOM、版权头、项目行尾修复和 cpplint；发生改写或仍有违规时让 Codex 继续完成最终验证。 |
 | `PreToolUse` | Codex 执行 Bash 命令前 | 识别真正的 `git commit`，只检查暂存区 C/C++ 文件，违规时阻止提交，不在提交前改写文件。 |
 
 核心流程继承团队新版 `cpp-style-enforcer` 规范，重点覆盖：
@@ -112,10 +112,26 @@ hook 默认保持安静，只在需要阻止操作或提示关键问题时输出
 
 项目配置只在实际编辑后按需生成。新旧文件都优先采用已有 `.clang-format` / `_clang-format`，包括父目录继承的配置；Google 只作缺省风格。cpplint 对 BOM 文件也完全只读，缺少运行时、异常退出或检查不完整时不能当作验证通过。
 
+VS 源工程的新文件和所有已跟踪文件都保留 include 顺序，避免把 `windows.h` 移到依赖其类型或宏的头文件后面；其他工程的新文件仍遵循项目排序配置。已有局部 `clang-format off/on` 保护应保留。VS 的 Stop 和提交检查同步禁用 cpplint 的 `build/include_order`，其余检查继续执行。
+
+自动编辑处理、Stop 和提交检查均排除第三方目录，直接调用插件 cpplint 封装也会排除：`3rd`、`3rdparty`、`3rd_party`、`3rd-party`、`thirdparty`、`third_party`、`third-party`、`thirdpart`、`third_part`、`third-part`、`thridpart`、`thridparty`、`thrid_party`、`thrid-party`、`vendor`、`external`、`deps`、`packages`。匹配完整目录段且不区分大小写，不会因 `third_party_adapter` 等业务名称包含子串就排除。上述目录不会被自动补 BOM、换行、版权、格式化或 lint。未列出的自定义目录名需明确识别为第三方后再决定操作范围；手动运行原始 Python cpplint 时也须先筛选文件，原始 CLI 不带此目录过滤。
+
 ## 行尾策略
 
-`cpplint` 不负责统一 LF/CRLF，本插件也不会因为运行 cpplint 改写行尾。格式化和版权头步骤会按每个文件的原始行尾分别保持 CRLF 或 LF，已跟踪文件也不会被强制增加或删除 BOM。
+`Stop` 在格式化、BOM、版权头之后、cpplint 之前执行独立的行尾修复。Visual Studio 源工程的本轮编辑文件强制 CRLF，即使它之前已被改成 LF；其他工程通过全局模板或项目配置的 `lineEnding` 选择 `"lf"`、`"crlf"` 或 `"preserve"`（默认）。`preserve` 保留原正文占多数的行尾，数量相同时按首个行尾，无行尾时采用 LF；混合行尾统一到选定风格。
+
+项目识别只沿源文件祖先目录查找最近的项目标志：`.vcxproj`、`.vcproj`、`.sln`、`.slnx` 表示 VS 源工程；最近的 `CMakeLists.txt` 表示 CMake 源工程。CMake 生成目录中的 VS 文件不会作为原生 VS 标志，也不会扫描旁支 build 目录。两种构建入口在同一目录时按 CMake 处理，可用项目 `lineEnding: "crlf"` 明确需要的行尾；项目标志位于祖先之外时同样可以显式配置。
+
+例如 CMake 工程需要 LF，可以配置：
+
+```json
+{ "lineEnding": "lf" }
+```
+
+非空正文缺少末尾换行时只补一个同种换行，不增加额外空白行、不移除已有末尾空行。基础行尾规则也适用于关闭 `legacyChecks` 的已编辑旧文件，不依赖 clang-format 是否安装；`enabled: false` 仍关闭全部处理。修复只涉及本轮编辑文件，不启动全仓转换。
+
+独立行尾步骤按字节保留 UTF-8、GBK 和带 BOM 的 UTF-16 编码与 BOM；未识别的含 NUL 内容不冒险转码。已有 BOM 策略保持不变，已跟踪文件不强制增删 BOM。
 
 提交前检查读取 Git 暂存区 blob，并在临时目录中按仓库相对路径运行 cpplint；项目中的 `CPPLINT.cfg` 同样取自暂存区。这样即使 Visual Studio 工作区使用 CRLF、Git 暂存区因 `core.autocrlf` 使用 LF，或者暂存后工作区又有未暂存修改，检查结果仍与实际提交内容一致，工作区文件不会被临时改写。
 
-行尾统一应交给 Git 属性、项目规范、`clang-format` 或版权头步骤处理，不通过屏蔽 `whitespace/newline` 来规避；该类别仍用于真正的换行风格违规。
+不屏蔽 `whitespace/ending_newline` 或整个 `whitespace/newline`。内置 cpplint 接受纯 LF 和纯 CRLF，混合行尾提示遵循项目规则，不再建议统一转成 LF；`whitespace/newline` 中其他代码布局检查仍有效。如果缺末尾换行的版本已经暂存，工作区自动修复不会改变 index，需按原暂存范围更新后再检查，保留未暂存修改。
