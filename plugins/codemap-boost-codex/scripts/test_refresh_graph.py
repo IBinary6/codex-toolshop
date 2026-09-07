@@ -3,6 +3,7 @@
 import importlib.util
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -54,11 +55,11 @@ class RefreshTest(unittest.TestCase):
         parsed_at = self.metadata("last_updated")
         self.git("add", "sample.js")
         self.git("commit", "--quiet", "-m", "source already indexed")
-        # 先重现上游 no-op：状态成功但提交编号仍旧。
-        upstream = build_or_update_graph(repo_root=str(self.root))
-        self.assertEqual(upstream["files_updated"], 0)
+        # 固定上游 no-op 合约：不同 CRG 版本可能重解析已提交文件，
+        # 此处明确验证零更新响应下适配器仍会推进元数据且不改解析时间。
+        upstream = {"status": "ok", "files_updated": 0}
         self.assertNotEqual(self.metadata("git_head_sha"), self.git("rev-parse", "HEAD"))
-        with patch("code_review_graph.tools.build.build_or_update_graph", wraps=build_or_update_graph) as build:
+        with patch("code_review_graph.tools.build.build_or_update_graph", return_value=upstream) as build:
             result = ADAPTER.refresh(self.root)
         self.assertEqual(build.call_count, 1)
         self.assertFalse(build.call_args.kwargs["full_rebuild"])
@@ -156,8 +157,33 @@ class RefreshTest(unittest.TestCase):
             result = ADAPTER.refresh(self.root)
         self.assertEqual(build.call_count, 1)
         self.assertFalse(build.call_args.kwargs["full_rebuild"])
-        self.assertEqual(result["files_updated"], 0)
+        self.assertFalse(result.get("errors"))
         self.assertEqual(self.metadata("git_head_sha"), self.git("rev-parse", "HEAD"))
+
+    def test_runtime_probe_is_read_only(self):
+        with tempfile.TemporaryDirectory(prefix="codemap-runtime-probe-") as target:
+            command = [sys.executable, "-I", "-B", str(Path(ADAPTER.__file__).resolve()), "--check-runtime"]
+            probe = subprocess.run(command, cwd=target, capture_output=True, text=True, timeout=30)
+            self.assertEqual(probe.returncode, 0, probe.stderr)
+            self.assertIn('"status": "ok"', probe.stdout)
+            rejected = subprocess.run(command + ["build", "--repo", target], cwd=target,
+                                      capture_output=True, text=True, timeout=30)
+            self.assertEqual(rejected.returncode, 2)
+            self.assertEqual(list(Path(target).iterdir()), [])
+
+    def test_graph_paths_accept_native_and_posix_separators(self):
+        store, _ = _get_store(str(self.root))
+        try:
+            for stored in store.get_all_files():
+                store._conn.execute("UPDATE nodes SET file_path = ? WHERE file_path = ?",
+                                    (Path(stored).as_posix(), stored))
+            store.commit()
+            snapshot = ADAPTER.source_snapshot(self.root)
+            self.assertTrue(ADAPTER.graph_matches(self.root, store, snapshot[0]))
+            self.source.write_text("function changedAgain() {}\n", encoding="utf-8")
+            self.assertFalse(ADAPTER.graph_matches(self.root, store, ADAPTER.source_snapshot(self.root)[0]))
+        finally:
+            store.close()
 
     def test_verification_holds_sqlite_write_lock(self):
         import sqlite3

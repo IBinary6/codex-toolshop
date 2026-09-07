@@ -96,6 +96,53 @@ function readNativeMcpConfig() {
 }
 
 /**
+ * 用 managed Python 只读核对刷新适配器与当前 CRG API，避免 CLI 健康但刷新入口已失配。
+ * @example checkRefreshAdapter(crgRuntimePaths()).ok
+ */
+function checkRefreshAdapter(managed, runtimeOk) {
+  if (!runtimeOk) {
+    return { ok: false, reason: '私有运行时未通过，未执行兼容性检查' };
+  }
+  const adapter = path.join(__dirname, 'refresh_graph.py');
+  let result;
+  try {
+    result = spawnSync(managed.python, ['-I', '-B', adapter, '--check-runtime'], {
+      cwd: path.resolve(__dirname, '..'),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 15000,
+      windowsHide: process.platform === 'win32',
+    });
+  } catch (error) {
+    result = { status: null, error, stdout: '', stderr: '' };
+  }
+  const errorCode = result && result.error && result.error.code;
+  if (errorCode === 'ETIMEDOUT') {
+    return { ok: false, reason: '兼容性检查超时（ETIMEDOUT）' };
+  }
+  if (!result || result.error || result.status !== 0 || result.signal) {
+    const diagnostic = String(result && (result.stderr || result.stdout) || '').trim();
+    const outcome = result && result.error
+      ? `执行错误（${errorCode || 'UNKNOWN'}）`
+      : result && result.signal
+        ? `被信号 ${result.signal} 终止`
+        : `退出码 ${result && result.status != null ? result.status : '未知'}`;
+    return { ok: false, reason: diagnostic ? `${outcome}：${diagnostic}` : outcome };
+  }
+  const output = String(result.stdout || '').trim();
+  try {
+    const parsed = JSON.parse(output);
+    if (parsed && parsed.status === 'ok') {
+      const version = parsed.crg_version ? `，CRG ${parsed.crg_version}` : '';
+      return { ok: true, reason: `适配器接口与解析探针通过${version}` };
+    }
+    return { ok: false, reason: `返回结果未通过：${output || '空输出'}` };
+  } catch (_) {
+    return { ok: false, reason: `返回的 JSON 无效：${output || '空输出'}` };
+  }
+}
+
+/**
  * 执行只读健康检查并用退出码表达是否需要修复。
  * @example runDoctor(process.cwd())
  */
@@ -114,6 +161,7 @@ function runDoctor(cwd) {
   const versionText = String(codexVersion && codexVersion.stdout ? codexVersion.stdout : '').trim();
   const runtimeDiagnostics = [];
   const runtimeOk = probeCrgRuntime({ diagnostics: runtimeDiagnostics });
+  const refreshAdapter = checkRefreshAdapter(managed, runtimeOk);
   const nativeMcp = readNativeMcpConfig();
   const resolvedMcp = codexOk
     ? readMcpConfig(cwd, { codexCommand: codexPath })
@@ -176,6 +224,7 @@ function runDoctor(cwd) {
   log(`插件数据目录:      ${data}`);
   log(`私有运行时:        ${runtimeOk ? 'PASS' : 'FAIL'}  ${managed.command}`);
   if (!runtimeOk && runtimeDiagnostics.length > 0) log(`运行时诊断:        ${runtimeDiagnostics.slice(-2).join('；')}`);
+  log(`刷新适配器:        ${refreshAdapter.ok ? 'PASS' : 'FAIL'}  ${refreshAdapter.reason}`);
   log(`MCP 原生配置:      ${nativeMcp.ok ? 'PASS' : 'FAIL'}  ${nativeMcp.ok ? `启动超时 ${nativeMcp.config.startup_timeout_sec} 秒` : nativeMcp.diagnostic || '声明缺失或无效'}`);
   log(`Codex MCP 解析:    ${!codexOk ? 'UNKNOWN' : resolvedIsNative ? 'PASS' : 'FAIL'}  ${!codexOk
     ? '独立 CLI 不可用，无法读取有效配置；插件启动不依赖 CLI'
@@ -200,7 +249,7 @@ function runDoctor(cwd) {
   log(`CRG status:        ${graphStatus}`);
   log('当前任务工具:      UNKNOWN  CLI 无法读取已启动任务的工具快照，请在新任务中确认 mcp__code_review_graph__ 工具。');
 
-  const needsRepair = !nodeStatus.ok || !runtimeOk || !nativeMcp.ok || (codexOk && !resolvedIsNative) || graphStatus === 'STATUS_ERROR';
+  const needsRepair = !nodeStatus.ok || !runtimeOk || !refreshAdapter.ok || !nativeMcp.ok || (codexOk && !resolvedIsNative) || graphStatus === 'STATUS_ERROR';
   const needsProject = !root;
   const needsRetry = !!root && (graphStatus === 'TIMEOUT' || graphStatus === 'UNAVAILABLE');
   const needsBuild = !!root && graphStatus === 'MISSING_OR_EXPLICIT_FAILURE';
@@ -214,9 +263,10 @@ function runDoctor(cwd) {
   if (legacyOverride) log(`  - 自动移除旧版全局覆盖：node "${path.join(__dirname, 'setup.cjs')}" --build`);
   else if (hasGlobalOverride) log('  - 检查 `codex mcp get code-review-graph --json`，确认所有权后重命名或移除同名 MCP。');
   if (!runtimeOk && codexOk) log(`  - 在目标仓库重建私有运行时：node "${path.join(__dirname, 'setup.cjs')}" --build`);
+  else if (!refreshAdapter.ok) log('  - 刷新适配器与私有 CRG 运行时不兼容；请同步插件与运行时后重试 --doctor，不要据此重建项目图谱。');
   else if (graphStatus === 'STATUS_ERROR') log(`  - CRG status 执行失败（${graphStatusErrorCode || 'UNKNOWN'}），请先修复运行时错误后重试；不要据此重建图谱。`);
   else if (needsRetry) log(`  - CRG status ${graphStatus === 'TIMEOUT' ? '超时' : '状态暂不可得'}，稍后重试 --doctor；不要据此重建图谱。`);
-  else if (codexOk && runtimeOk && nativeMcp.ok && needsBuild) log(`  - MCP 已就绪；运行：node "${path.join(__dirname, 'setup.cjs')}" --build`);
+  else if (codexOk && runtimeOk && refreshAdapter.ok && nativeMcp.ok && needsBuild) log(`  - MCP 已就绪；运行：node "${path.join(__dirname, 'setup.cjs')}" --build`);
   if (needsRepair) log('  - 修复后完整退出 Codex，并创建一个全新任务；旧任务不会动态补载 MCP 工具。');
   else log('  - 原生 MCP 状态正常；若当前任务没有图工具，请完整重启 Codex 后创建新任务。');
   const finalStatus = needsRepair

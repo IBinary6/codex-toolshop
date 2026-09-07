@@ -82,6 +82,9 @@ node "<plugin-root>/scripts/setup.cjs" --doctor
 
 `--doctor` 是只读诊断，不安装依赖、不执行 MCP add/remove、不构建图谱，也不修改 `AGENTS.md`、`.gitignore` 或插件 marker。它会分别报告：
 
+- 刷新适配器与当前 CRG 的接口及解析器兼容性；`CRG status` 成功仅表示数据库状态可读取，不代表刷新校验能执行。适配器探针不写入图数据库。
+- 图工具屏障会区分刷新锁等待超时与刷新执行失败；执行失败会附上有限长度的底层错误，不能仅靠等待消除的故障不再统一提示等待后台刷新。
+
 - 当前 Node.js 版本是否满足 `>=18.0.0`；这项检查基于实际启动 doctor 的 Node，不猜测 Homebrew、nvm 或其他安装位置。
 - 可执行的独立 Codex CLI 路径、版本、`CODEX_HOME` 和插件数据目录；CLI 不可用时标记为 `WARN`，不把可选检查误报成插件损坏。
 - 插件私有 CRG 运行环境及 parser 健康状态。

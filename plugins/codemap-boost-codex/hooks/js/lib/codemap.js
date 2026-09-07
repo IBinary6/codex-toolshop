@@ -24,6 +24,7 @@ const LOCK_STALE_MS = 4 * 60 * 60 * 1000;
 const BOOTSTRAP_LOCK_STALE_MS = 30 * 60 * 1000;
 const REFRESH_LOCK_WAIT_MS = 2 * 60 * 1000;
 const REFRESH_WAIT_MS = 10 * 60 * 1000;
+const REFRESH_DIAGNOSTIC_MAX_CHARS = 600;
 const SOURCE_STATE_FILE = '.codemap-boost-source-state';
 const BLOCK_START = '<!-- codemap-boost-codex:start -->';
 const BLOCK_END = '<!-- codemap-boost-codex:end -->';
@@ -199,6 +200,45 @@ function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+function refreshDiagnosticText(value) {
+  const text = String(value || '')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return '';
+  if (text.length <= REFRESH_DIAGNOSTIC_MAX_CHARS) return text;
+  return `${text.slice(0, REFRESH_DIAGNOSTIC_MAX_CHARS - 3)}...`;
+}
+
+/**
+ * 记录一次刷新失败的有限摘要；布尔刷新 API 的调用方可按需传入 diagnostics 数组。
+ * 仅摘取明确的错误文本，不序列化子进程结果、命令参数或环境变量。
+ */
+function recordRefreshDiagnostic(options, code, detail) {
+  if (!Array.isArray(options.diagnostics)) return;
+  const message = refreshDiagnosticText(detail) || 'No error detail was reported.';
+  options.diagnostics.push({ code, message });
+}
+
+function refreshFailed(options, code, detail) {
+  recordRefreshDiagnostic(options, code, detail);
+  return false;
+}
+
+function refreshProcessFailure(result) {
+  if (result && result.error) {
+    const error = result.error;
+    const code = error && error.code ? ` (${error.code})` : '';
+    return `Unable to start or complete the refresh process${code}: ${error && error.message ? error.message : error}`;
+  }
+  const stderr = result && refreshDiagnosticText(result.stderr);
+  if (stderr) return stderr;
+  const status = result && result.status;
+  const signal = result && result.signal;
+  if (signal) return `Refresh process terminated by signal ${signal}.`;
+  return `Refresh process exited with status ${status === null || status === undefined ? 'unknown' : status}.`;
+}
+
 function acquireRefreshLock(lockFile, waitMs = REFRESH_WAIT_MS) {
   const deadline = Date.now() + waitMs;
   while (Date.now() <= deadline) {
@@ -315,7 +355,10 @@ function runCrgDefault(args, options = {}) {
   const common = {
     cwd: options.cwd,
     env: options.env || process.env,
-    stdio: options.stdio || 'ignore',
+    // 成功结果写到 stdout，此处只保留 stderr，让读取屏障能报告真实且有限的失败摘要。
+    stdio: options.stdio || ['ignore', 'ignore', 'pipe'],
+    encoding: options.encoding || 'utf8',
+    maxBuffer: options.maxBuffer || 64 * 1024,
     windowsHide: process.platform === 'win32',
     timeout: options.timeout || REFRESH_WAIT_MS,
   };
@@ -324,39 +367,66 @@ function runCrgDefault(args, options = {}) {
 
 function refreshCrgUnlocked(root, options = {}) {
   root = repoRoot(root);
-  if (!root) return false;
+  if (!root) return refreshFailed(options, 'refresh_execution_failed', 'The target is not a Git working tree.');
   ensureGitInfoExclude(root);
   const hasGraph = fs.existsSync(path.join(root, '.code-review-graph'));
   const sourceState = sourceStateFingerprint(root);
+  if (!sourceState) {
+    return refreshFailed(options, 'refresh_execution_failed', 'Unable to read a stable Git source state before refresh.');
+  }
   if (hasGraph && sourceState && readSourceState(root) === sourceState) return true;
   // 将工作树交给 CRG 自身筛选，避免遗漏它支持但 JS 未列举的文件类型。
   const hasUntrackedSource = untrackedFiles(root).length > 0;
   const args = [hasGraph && !hasUntrackedSource ? 'update' : 'build', '--repo', root];
   const runCrg = options.runCrg || runCrgDefault;
   const invoke = (env) => {
-    try { fs.rmSync(sourceStatePath(root), { force: true }); } catch (_) { return false; }
-    const result = runCrg(args, {
-      cwd: root,
-      env,
-      stdio: 'ignore',
-      timeout: options.timeout || REFRESH_WAIT_MS,
-    });
-    const ok = !!result && !result.error && result.status === 0
-      && sourceStateFingerprint(root) === sourceState;
+    try {
+      fs.rmSync(sourceStatePath(root), { force: true });
+    } catch (error) {
+      return refreshFailed(options, 'refresh_execution_failed', `Unable to invalidate the old source marker: ${error.message}`);
+    }
+    let result;
+    try {
+      result = runCrg(args, {
+        cwd: root,
+        env,
+        stdio: ['ignore', 'ignore', 'pipe'],
+        timeout: options.timeout || REFRESH_WAIT_MS,
+      });
+    } catch (error) {
+      return refreshFailed(options, 'refresh_process_failed', `Refresh process threw an exception: ${error.message}`);
+    }
+    if (!result || result.error || result.status !== 0) {
+      return refreshFailed(options, 'refresh_process_failed', refreshProcessFailure(result));
+    }
+    const ok = sourceStateFingerprint(root) === sourceState;
     if (ok) writeSourceState(root, sourceState);
-    return ok;
+    return ok || refreshFailed(
+      options,
+      'refresh_source_changed',
+      'The repository source state changed while the graph refresh was running.'
+    );
   };
-  return hasUntrackedSource ? withTemporaryGitIndex(root, invoke) : invoke(process.env);
+  if (!hasUntrackedSource) return invoke(process.env);
+  const diagnosticCount = Array.isArray(options.diagnostics) ? options.diagnostics.length : 0;
+  const ok = withTemporaryGitIndex(root, invoke);
+  if (ok || (Array.isArray(options.diagnostics) && options.diagnostics.length > diagnosticCount)) return ok;
+  return refreshFailed(options, 'refresh_execution_failed', 'Unable to prepare the temporary Git index for a full graph build.');
 }
 
 function refreshCrgSync(cwd, options = {}) {
-  if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') return false;
+  if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') {
+    return refreshFailed(options, 'refresh_execution_failed', 'Graph support is disabled for this session.');
+  }
   const root = repoRoot(cwd);
-  if (!root) return false;
+  if (!root) return refreshFailed(options, 'refresh_execution_failed', 'The target is not a Git working tree.');
   const canUse = options.canUseCrg || canUseCrg;
-  if (!canUse()) return false;
+  if (!canUse()) return refreshFailed(options, 'refresh_execution_failed', 'The managed code-review-graph runtime is not ready.');
   const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-refresh', root));
-  if (!acquireRefreshLock(lockFile, options.waitMs ?? REFRESH_LOCK_WAIT_MS)) return false;
+  const waitMs = options.waitMs ?? REFRESH_LOCK_WAIT_MS;
+  if (!acquireRefreshLock(lockFile, waitMs)) {
+    return refreshFailed(options, 'lock_wait_timeout', `Refresh lock wait timed out after ${waitMs} ms.`);
+  }
   try {
     return refreshCrgUnlocked(root, options);
   } finally {

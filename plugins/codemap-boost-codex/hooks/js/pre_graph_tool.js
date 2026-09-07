@@ -78,6 +78,21 @@ function deny(reason) {
   process.exit(0);
 }
 
+/**
+ * 将布尔刷新接口附带的有限诊断转换为屏障拒绝原因。
+ * 锁等待与刷新执行失败分别提示，避免把真实构建错误误报为后台刷新仍在运行。
+ */
+function refreshFailureReason(diagnostics) {
+  const diagnostic = Array.isArray(diagnostics) ? diagnostics.at(-1) : null;
+  if (diagnostic && diagnostic.code === 'lock_wait_timeout') {
+    return `CodeMap graph tool blocked because the refresh lock wait timed out while an active refresh held the repository lock. ${diagnostic.message} Retry after the active refresh finishes.`;
+  }
+  const detail = diagnostic && diagnostic.message
+    ? ` ${diagnostic.message}`
+    : ' No additional error detail was reported.';
+  return `CodeMap graph tool blocked because the required graph refresh execution failed.${detail}`;
+}
+
 async function main() {
   const input = await readStdinJson({ timeoutMs: 2000 });
   // 仓库注册表等全局查询不读取当前项目图，不能因当前仓库无法刷新而阻塞。
@@ -95,8 +110,9 @@ async function main() {
     try { startAutoBootstrap(cwd); } catch (_) {}
     return deny('CodeMap graph tool blocked because code-review-graph is not ready. Wait for bootstrap or run codemap-boost-setup, then retry.');
   }
-  if (!refreshCrgSync(root)) {
-    return deny('CodeMap graph tool blocked because the required build/update did not complete. Retry after the active refresh finishes.');
+  const refreshDiagnostics = [];
+  if (!refreshCrgSync(root, { diagnostics: refreshDiagnostics })) {
+    return deny(refreshFailureReason(refreshDiagnostics));
   }
   const toolInput = input && input.tool_input && typeof input.tool_input === 'object'
     ? input.tool_input
@@ -110,4 +126,9 @@ if (require.main === module) {
   main().catch(() => deny('CodeMap graph tool blocked because the refresh barrier failed.'));
 }
 
-module.exports = { ROOT_SCOPED_CRG_TOOLS, repoRootUpdate, shouldInjectRepoRoot };
+module.exports = {
+  ROOT_SCOPED_CRG_TOOLS,
+  refreshFailureReason,
+  repoRootUpdate,
+  shouldInjectRepoRoot,
+};

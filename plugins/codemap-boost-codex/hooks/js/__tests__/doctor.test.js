@@ -70,14 +70,22 @@ try {
   const data = path.join(tmp, 'plugin-data');
   const bin = path.join(tmp, 'bin');
   const mcpLog = path.join(tmp, 'mcp.log');
+  const spawnLog = path.join(tmp, 'spawn.log');
   const spawnShim = path.join(tmp, 'spawn-shim.cjs');
   fs.mkdirSync(repo, { recursive: true });
   const fakeCodex = writeFakeCodex(bin);
   fs.writeFileSync(spawnShim, [
     "'use strict';",
     "const childProcess = require('child_process');",
+    "const fs = require('fs');",
     'const originalSpawnSync = childProcess.spawnSync;',
     'childProcess.spawnSync = function patchedSpawnSync(command, args, options) {',
+    "  if (Array.isArray(args) && args.some((arg) => String(arg).endsWith('refresh_graph.py')) && args.includes('--check-runtime')) {",
+    "    if (process.env.CODEMAP_TEST_SPAWN_LOG) fs.appendFileSync(process.env.CODEMAP_TEST_SPAWN_LOG, `${JSON.stringify({ command, args, cwd: options && options.cwd, timeout: options && options.timeout })}\\n`);",
+    "    if (process.env.CODEMAP_TEST_ADAPTER_TIMEOUT) return { status: null, stdout: '', stderr: '', error: Object.assign(new Error('adapter timed out'), { code: 'ETIMEDOUT' }) };",
+    "    if (process.env.CODEMAP_TEST_ADAPTER_FAILURE) return { status: 1, stdout: '', stderr: 'CodeMap refresh failed: incompatible API', error: undefined };",
+    "    return { status: 0, stdout: '{\"status\":\"ok\",\"crg_version\":\"2.3.7\"}\\n', stderr: '', error: undefined };",
+    '  }',
     "  if (Array.isArray(args) && args[0] === 'status' && process.env.CODEMAP_TEST_STATUS_TIMEOUT) return { status: null, stdout: '', stderr: '', error: Object.assign(new Error('status timed out'), { code: 'ETIMEDOUT' }) };",
     "  if (Array.isArray(args) && args[0] === 'status' && process.env.CODEMAP_TEST_STATUS_UNAVAILABLE) return { status: null, stdout: '', stderr: '', error: undefined };",
     "  if (Array.isArray(args) && args[0] === 'status' && process.env.CODEMAP_TEST_STATUS_SIGNAL) return { status: null, signal: 'SIGTERM', stdout: '', stderr: '', error: undefined };",
@@ -97,6 +105,7 @@ try {
       CODEX_HOME: home,
       PLUGIN_DATA: data,
       CODEMAP_TEST_MCP_LOG: mcpLog,
+      CODEMAP_TEST_SPAWN_LOG: spawnLog,
       PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
     },
     windowsHide: process.platform === 'win32',
@@ -135,6 +144,7 @@ try {
       CODEX_HOME: home,
       PLUGIN_DATA: data,
       CODEMAP_TEST_MCP_LOG: mcpLog,
+      CODEMAP_TEST_SPAWN_LOG: spawnLog,
       CODEMAP_TEST_CRG_COMMAND: managedCommand,
       CODEMAP_TEST_CRG_JSON_COMMAND: managedCommand.replace(/\\/g, '\\\\'),
       CODEMAP_TEST_PLUGIN_ROOT: pluginRoot,
@@ -147,6 +157,7 @@ try {
 
   assert.strictEqual(healthy.status, 0, `${healthy.stderr}\n${healthy.stdout}`);
   assert.match(healthy.stdout, /私有运行时:\s+PASS/);
+  assert.match(healthy.stdout, /刷新适配器:\s+PASS.*CRG 2\.3\.7/);
   assert.match(healthy.stdout, /Node\.js:\s+PASS.*>=18\.0\.0/);
   assert.match(healthy.stdout, /MCP 原生配置:\s+PASS/);
   assert.match(healthy.stdout, /启动超时 600 秒/);
@@ -154,7 +165,65 @@ try {
   assert.match(healthy.stdout, /同名全局覆盖:\s+PASS/);
   assert.match(healthy.stdout, /项目图谱:\s+PASS/);
   assert.match(healthy.stdout, /最终状态:\s+READY/);
+  const adapterCalls = fs.readFileSync(spawnLog, 'utf8').trim().split(/\r?\n/).map((line) => JSON.parse(line));
+  const healthyAdapterCall = adapterCalls.at(-1);
+  assert.deepStrictEqual(healthyAdapterCall.args, ['-I', '-B', path.join(pluginRoot, 'scripts', 'refresh_graph.py'), '--check-runtime']);
+  assert.strictEqual(healthyAdapterCall.command, managedPython);
+  assert.strictEqual(healthyAdapterCall.cwd, pluginRoot);
+  assert.strictEqual(healthyAdapterCall.timeout, 15000);
   assert.deepStrictEqual(fs.readdirSync(data, { recursive: true }).sort(), before, '--doctor stays read-only when healthy');
+
+  const incompatibleAdapter = spawnSync(process.execPath, [setup, '--doctor'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CODEX_HOME: home,
+      PLUGIN_DATA: data,
+      CODEMAP_TEST_MCP_LOG: mcpLog,
+      CODEMAP_TEST_SPAWN_LOG: spawnLog,
+      CODEMAP_TEST_CRG_COMMAND: managedCommand,
+      CODEMAP_TEST_CRG_JSON_COMMAND: managedCommand.replace(/\\/g, '\\\\'),
+      CODEMAP_TEST_PLUGIN_ROOT: pluginRoot,
+      CODEMAP_TEST_PLUGIN_ROOT_JSON: pluginRoot.replace(/\\/g, '\\\\'),
+      CODEMAP_TEST_ADAPTER_FAILURE: '1',
+      NODE_OPTIONS: `--require=${spawnShim}`,
+      PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
+    },
+    windowsHide: process.platform === 'win32',
+  });
+  assert.strictEqual(incompatibleAdapter.status, 1, `${incompatibleAdapter.stderr}\n${incompatibleAdapter.stdout}`);
+  assert.match(incompatibleAdapter.stdout, /刷新适配器:\s+FAIL.*incompatible API/);
+  assert.match(incompatibleAdapter.stdout, /项目图谱:\s+PASS/);
+  assert.match(incompatibleAdapter.stdout, /最终状态:\s+NEEDS_REPAIR/);
+  assert.match(incompatibleAdapter.stdout, /不要据此重建项目图谱/);
+  assert.doesNotMatch(incompatibleAdapter.stdout, /MCP 已就绪.*--build|最终状态:\s+NEEDS_BUILD/);
+  assert.deepStrictEqual(fs.readdirSync(data, { recursive: true }).sort(), before, '--doctor stays read-only when adapter is incompatible');
+
+  const timedOutAdapter = spawnSync(process.execPath, [setup, '--doctor'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CODEX_HOME: home,
+      PLUGIN_DATA: data,
+      CODEMAP_TEST_MCP_LOG: mcpLog,
+      CODEMAP_TEST_SPAWN_LOG: spawnLog,
+      CODEMAP_TEST_CRG_COMMAND: managedCommand,
+      CODEMAP_TEST_CRG_JSON_COMMAND: managedCommand.replace(/\\/g, '\\\\'),
+      CODEMAP_TEST_PLUGIN_ROOT: pluginRoot,
+      CODEMAP_TEST_PLUGIN_ROOT_JSON: pluginRoot.replace(/\\/g, '\\\\'),
+      CODEMAP_TEST_ADAPTER_TIMEOUT: '1',
+      NODE_OPTIONS: `--require=${spawnShim}`,
+      PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
+    },
+    windowsHide: process.platform === 'win32',
+  });
+  assert.strictEqual(timedOutAdapter.status, 1, `${timedOutAdapter.stderr}\n${timedOutAdapter.stdout}`);
+  assert.match(timedOutAdapter.stdout, /刷新适配器:\s+FAIL.*ETIMEDOUT/);
+  assert.match(timedOutAdapter.stdout, /项目图谱:\s+PASS/);
+  assert.match(timedOutAdapter.stdout, /最终状态:\s+NEEDS_REPAIR/);
+  assert.doesNotMatch(timedOutAdapter.stdout, /最终状态:\s+RETRY_STATUS/);
 
   const timeoutStatus = spawnSync(process.execPath, [setup, '--doctor'], {
     cwd: repo,

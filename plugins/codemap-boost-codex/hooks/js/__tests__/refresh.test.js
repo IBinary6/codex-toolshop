@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -12,7 +13,12 @@ const {
   refreshLinkedWorktreesSync,
 } = require('../lib/codemap');
 const { bashMayChangeSources } = require('../post_tool_use');
-const { ROOT_SCOPED_CRG_TOOLS, repoRootUpdate, shouldInjectRepoRoot } = require('../pre_graph_tool');
+const {
+  ROOT_SCOPED_CRG_TOOLS,
+  refreshFailureReason,
+  repoRootUpdate,
+  shouldInjectRepoRoot,
+} = require('../pre_graph_tool');
 
 const postToolSource = fs.readFileSync(path.join(__dirname, '..', 'post_tool_use.js'), 'utf8');
 
@@ -180,6 +186,49 @@ try {
     runCrg: () => ({ status: 1 }),
   }), false, 'adapter failure leaves the graph unverified');
   assert.ok(!fs.existsSync(stateFile));
+
+  const processDiagnostics = [];
+  const privateValue = 'must-not-leak-from-result-object';
+  assert.strictEqual(refreshCrgSync(repo, {
+    canUseCrg: () => true,
+    diagnostics: processDiagnostics,
+    runCrg: () => ({
+      status: 1,
+      stderr: `CodeMap refresh failed: parser exploded ${'x'.repeat(2000)}`,
+      env: { PRIVATE_VALUE: privateValue },
+    }),
+  }), false, 'adapter failure still uses the compatible boolean API');
+  assert.strictEqual(processDiagnostics.length, 1);
+  assert.strictEqual(processDiagnostics[0].code, 'refresh_process_failed');
+  assert.match(processDiagnostics[0].message, /parser exploded/);
+  assert.ok(processDiagnostics[0].message.length <= 640, 'refresh diagnostics stay bounded');
+  assert.ok(!processDiagnostics[0].message.includes(privateValue), 'diagnostics do not serialize the child result or command environment');
+  const executionReason = refreshFailureReason(processDiagnostics);
+  assert.match(executionReason, /refresh execution failed/i);
+  assert.match(executionReason, /parser exploded/);
+  assert.doesNotMatch(executionReason, /active refresh/i);
+
+  const refreshLock = path.join(
+    os.tmpdir(),
+    `codemap-crg-refresh-${crypto.createHash('sha1').update(path.resolve(repo)).digest('hex').slice(0, 16)}.lock`
+  );
+  fs.writeFileSync(refreshLock, String(process.pid), 'utf8');
+  const lockDiagnostics = [];
+  try {
+    assert.strictEqual(refreshCrgSync(repo, {
+      canUseCrg: () => true,
+      diagnostics: lockDiagnostics,
+      waitMs: 0,
+    }), false, 'lock wait failure still uses the compatible boolean API');
+  } finally {
+    fs.rmSync(refreshLock, { force: true });
+  }
+  assert.deepStrictEqual(lockDiagnostics.map((entry) => entry.code), ['lock_wait_timeout']);
+  const lockReason = refreshFailureReason(lockDiagnostics);
+  assert.match(lockReason, /active refresh/i);
+  assert.match(lockReason, /lock wait timed out/i);
+  assert.doesNotMatch(lockReason, /refresh execution failed/i);
+
   assert.strictEqual(refreshCrgSync(repo, options), true, 'the stable next attempt can recover');
 
   fs.writeFileSync(stateFile, 'legacy-unverified-state\n');

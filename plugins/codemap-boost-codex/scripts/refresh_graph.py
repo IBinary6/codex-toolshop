@@ -5,11 +5,34 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 
 VERIFIED_KEY = "codemap_verified_inventory_v1"
+
+
+def check_runtime() -> dict:
+    """只读验证适配器所需接口与实际解析器，不创建仓库或图数据库。"""
+    from importlib.metadata import version
+    from code_review_graph.graph import GraphStore
+    from code_review_graph.incremental import collect_all_files
+    from code_review_graph.parser import CodeParser
+    from code_review_graph.tools._common import _get_store
+    from code_review_graph.tools.build import build_or_update_graph
+
+    for member in (collect_all_files, _get_store, build_or_update_graph,
+                   GraphStore.get_all_files, GraphStore.get_nodes_by_file,
+                   GraphStore.get_metadata, GraphStore.close):
+        if not callable(member):
+            raise RuntimeError("CRG 刷新接口不可调用")
+    parser = CodeParser(Path.cwd())
+    nodes, _ = parser.parse_bytes(Path.cwd() / "codemap_runtime_probe.js",
+                                  b"function codemapRuntimeProbe() { return 1; }\n")
+    if not any(node.name == "codemapRuntimeProbe" for node in nodes):
+        raise RuntimeError("CRG 刷新解析探针没有生成预期节点")
+    return {"status": "ok", "crg_version": version("code-review-graph")}
 
 
 def sha256_file(file: Path) -> str:
@@ -47,15 +70,24 @@ def source_snapshot(root: Path) -> tuple[dict[str, str], str, str]:
 
 def graph_matches(root: Path, store, files: dict[str, str]) -> bool:
     """核对完整文件清单与内容；空文件没有节点时按解析结果确认。"""
-    from code_review_graph.incremental import CodeParser, normalize_file_path
+    from code_review_graph.parser import CodeParser
 
-    expected = {normalize_file_path(root / name) for name in files}
-    if set(store.get_all_files()) - expected:
+    # CRG 2.3.7 保存原生路径，较新版本可能保存 POSIX 路径。
+    # 在比较边界统一路径，查询仍使用数据库原值，不依赖上游内部辅助函数。
+    def path_key(value) -> str:
+        return os.path.normcase(str(Path(value).resolve()))
+
+    expected = {path_key(root / name) for name in files}
+    stored_paths = {}
+    for stored in store.get_all_files():
+        stored_paths.setdefault(path_key(stored), []).append(stored)
+    if set(stored_paths) - expected:
         return False
     parser = None
     for name, digest in files.items():
         full_path = root / name
-        nodes = store.get_nodes_by_file(str(full_path))
+        nodes = [node for stored in stored_paths.get(path_key(full_path), [])
+                 for node in store.get_nodes_by_file(stored)]
         if nodes:
             if any(node.file_hash != digest for node in nodes):
                 return False
@@ -163,11 +195,17 @@ def refresh(root: Path, full: bool = False) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("build", "update"))
-    parser.add_argument("--repo", required=True, type=Path)
+    parser.add_argument("action", nargs="?", choices=("build", "update"))
+    parser.add_argument("--repo", type=Path)
+    parser.add_argument("--check-runtime", action="store_true")
     args = parser.parse_args()
+    if args.check_runtime and (args.action or args.repo):
+        parser.error("--check-runtime 不能与刷新参数组合")
+    if not args.check_runtime and (not args.action or args.repo is None):
+        parser.error("刷新必须指定 action 和 --repo")
     try:
-        print(json.dumps(refresh(args.repo, args.action == "build"), ensure_ascii=False))
+        result = check_runtime() if args.check_runtime else refresh(args.repo, args.action == "build")
+        print(json.dumps(result, ensure_ascii=False))
         return 0
     except Exception as error:
         print(f"CodeMap refresh failed: {error}", file=sys.stderr)
