@@ -208,9 +208,11 @@ try {
   assert.match(executionReason, /parser exploded/);
   assert.doesNotMatch(executionReason, /active refresh/i);
 
+  // Git 会规范化临时目录的真实路径及盘符；锁必须与生产入口使用同一仓库根。
+  const lockRoot = path.resolve(git(repo, ['rev-parse', '--show-toplevel']));
   const refreshLock = path.join(
     os.tmpdir(),
-    `codemap-crg-refresh-${crypto.createHash('sha1').update(path.resolve(repo)).digest('hex').slice(0, 16)}.lock`
+    `codemap-crg-refresh-${crypto.createHash('sha1').update(lockRoot).digest('hex').slice(0, 16)}.lock`
   );
   fs.writeFileSync(refreshLock, String(process.pid), 'utf8');
   const lockDiagnostics = [];
@@ -219,6 +221,7 @@ try {
       canUseCrg: () => true,
       diagnostics: lockDiagnostics,
       waitMs: 0,
+      runCrg: () => assert.fail('持锁时不能进入刷新子进程'),
     }), false, 'lock wait failure still uses the compatible boolean API');
   } finally {
     fs.rmSync(refreshLock, { force: true });
