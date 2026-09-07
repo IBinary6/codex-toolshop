@@ -6,6 +6,15 @@ const { renderAgentProfile } = require('../lib/agent_profiles');
 const { mainAgentGuidance } = require('../lib/guidance');
 
 const baseline = loadDefaults();
+assert.equal(Object.keys(baseline.agent_profiles.profiles).length, 13);
+assert.deepEqual(modelEffortWarnings(baseline), []);
+for (const profile of Object.values(baseline.agent_profiles.profiles)) {
+  assert.notEqual(
+    `${profile.model}/${profile.model_reasoning_effort}`,
+    'gpt-5.6-luna/ultra',
+    'Luna defaults must not request unsupported ultra effort'
+  );
+}
 baseline.agent_profiles.profiles.dispatch_worker.model = 'gpt-6-astra';
 baseline.agent_profiles.profiles.dispatch_worker.model_reasoning_effort = 'ultra';
 function override(profile, base = baseline) {

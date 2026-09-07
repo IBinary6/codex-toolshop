@@ -34,8 +34,8 @@
     },
     {
       "name": "agent-dispatch-codex",
-      "version": "0.1.15",
-      "description": "Role-aware routing with task-selected writer models, serial primary-agent Git, and bounded subagent lifecycle management.",
+      "version": "0.1.16",
+      "description": "Automatic native agents with task-selected execution models, independent Astra review, serial primary-agent Git, and bounded concurrency.",
       "source": {
         "source": "local",
         "path": "./plugins/agent-dispatch-codex"

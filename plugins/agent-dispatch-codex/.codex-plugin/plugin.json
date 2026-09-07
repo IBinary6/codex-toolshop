@@ -1,7 +1,7 @@
 {
   "name": "agent-dispatch-codex",
-  "version": "0.1.15",
-  "description": "Codex-native role-aware task routing with task-selected writer models, automatic hooks, and serial primary-agent Git.",
+  "version": "0.1.16",
+  "description": "Codex-native task routing with configurable execution candidates, strong independent review, automatic hooks, and serial primary-agent Git.",
   "author": {
     "name": "IBinary6"
   },
@@ -18,8 +18,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Agent Dispatch",
-    "shortDescription": "Route tasks by role while choosing writer models per task.",
-    "longDescription": "Automatically injects Codex-native routing guidance and generates project-local custom agents after installation. Keeps trivial work in the primary agent, preserves specialized search, planning, and review roles, and lets the primary agent select writable roles, models, and reasoning strength from task complexity, context, risk, availability, and explicit user preference. Keeps pure Git CLI operations serial in the primary agent, limits concurrent subagents, and tells the coordinator to close agents as soon as their work is integrated.",
+    "shortDescription": "Balance execution cost with independent Astra review.",
+    "longDescription": "Automatically generates project-local agents for retrieval, research, execution, testing, planning, and review. Offers Luna, Terra, Sol, and Astra execution candidates plus unpinned workers for task-specific choices, with independent Astra review defaults. Selects by task ambiguity, context, risk, and total completion cost; verifies material review findings, sends bounded fixes back to writers, and rechecks affected behavior. Preserves explicit user settings, serial primary-agent Git, quiet tool hooks, and bounded concurrency.",
     "developerName": "IBinary6",
     "category": "Productivity",
     "capabilities": [
@@ -29,8 +29,8 @@
     "defaultPrompt": [
       "Show the effective Agent Dispatch policy for this project.",
       "Configure which commands Agent Dispatch treats as lightweight.",
-      "Explain role-aware task routing and dynamic writer model selection.",
-      "Configure models for Agent Dispatch planning, search, worker, and reviewer roles.",
+      "Explain how Agent Dispatch chooses Luna, Terra, Sol, or Astra execution and keeps Astra review independent.",
+      "Configure execution candidates, testing, and independent review for this project.",
       "Explain the primary-agent-only serial Git policy."
     ],
     "brandColor": "#7C3AED",

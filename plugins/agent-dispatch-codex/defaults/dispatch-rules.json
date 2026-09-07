@@ -16,7 +16,7 @@
     "profiles": {
       "dispatch_explorer": {
         "enabled": true,
-        "description": "Fast read-only explorer for bounded cross-file code searches and evidence gathering.",
+        "description": "Fast read-only explorer candidate for bounded cross-file searches and repetitive evidence gathering; use another enabled search role or the primary agent when the scope calls for it.",
         "model": "gpt-5.6-luna",
         "model_reasoning_effort": "medium",
         "sandbox_mode": "read-only",
@@ -24,51 +24,100 @@
       },
       "dispatch_mapper": {
         "enabled": true,
-        "description": "Read-only mapper for broad, cross-module, read-heavy codebase scans.",
-        "model": "gpt-5.6-terra",
+        "description": "Read-only mapper candidate for broad, cross-module, read-heavy scans and indexing material; use a narrower explorer or the primary agent when broad mapping is unnecessary.",
+        "model": "gpt-5.6-luna",
         "model_reasoning_effort": "medium",
         "sandbox_mode": "read-only",
         "developer_instructions": "Scan the assigned broad or cross-module scope in read-only mode and map relevant paths and relationships. Prefer available CodeMap Boost graph tools for structural queries and follow its refresh and retrieval rules. If graph tools cannot answer, use available evidence and read source to verify relationships; do not claim an unperformed graph query. Do not edit files, upgrade your model, or spawn or delegate to another agent. Return files, symbols, evidence, validation performed, and any blocker."
       },
       "dispatch_planner": {
         "enabled": true,
-        "description": "Read-only planner providing bounded analysis to support the primary agent's architecture and interface decisions.",
-        "model": "gpt-5.6-sol",
+        "description": "High-reasoning read-only planner candidate for non-trivial architecture, interface, and constraint analysis; use the primary agent when the plan is already actionable.",
+        "model": "gpt-6-astra",
         "model_reasoning_effort": "xhigh",
         "sandbox_mode": "read-only",
         "developer_instructions": "Produce the assigned non-trivial plan or architecture and interface analysis without editing files. Do not upgrade your model or spawn or delegate to another agent. State decisions, assumptions, affected files, validation or evidence, and blockers for the primary agent."
       },
       "dispatch_worker": {
         "enabled": true,
-        "description": "Workspace writer for concrete, bounded implementation, refactoring, and bug-fix tasks.",
+        "description": "Unpinned workspace writer for concrete, bounded implementation, refactoring, and bug fixes; select a supported model and effort for the actual complexity, or use a fixed native worker candidate.",
         "model": "",
         "model_reasoning_effort": "",
         "sandbox_mode": "workspace-write",
-        "developer_instructions": "Follow the primary agent's concrete scope and acceptance criteria. Resolve routine implementation choices within that scope; return decisions that change architecture, interface contracts, permissions, or destructive-operation policy to the primary agent. Do not upgrade your model or spawn or delegate to another agent. Make the changes needed for acceptance, preserve unrelated work, and report every changed file, validation performed, and blocker."
+        "developer_instructions": "Follow the primary agent's concrete scope and acceptance criteria. Resolve routine implementation choices within that scope; return decisions that change architecture, interface contracts, permissions, or destructive-operation policy to the primary agent. Do not upgrade your model or spawn or delegate to another agent. Make the changes needed for acceptance, preserve unrelated work, run targeted validation for the changed behavior, and report every changed file, validation performed, and blocker."
       },
       "dispatch_hard_worker": {
         "enabled": true,
-        "description": "Workspace writer for difficult implementation and complex debugging after a primary-agent plan.",
+        "description": "Unpinned workspace writer for difficult implementation and complex debugging after a primary-agent plan; select a supported model and effort for the actual constraints, or use a fixed native worker candidate.",
         "model": "",
         "model_reasoning_effort": "",
         "sandbox_mode": "workspace-write",
-        "developer_instructions": "Execute only the difficult implementation or complex debugging scope after the primary agent has integrated the plan. Do not change architecture, interface contracts, permissions, or destructive-operation policy; do not upgrade your model or spawn or delegate to another agent. Preserve unrelated work and report every changed file, validation performed, and blocker."
+        "developer_instructions": "Execute only the difficult implementation or complex debugging scope after the primary agent has integrated the plan. Do not change architecture, interface contracts, permissions, or destructive-operation policy; do not upgrade your model or spawn or delegate to another agent. Preserve unrelated work, run targeted validation for the changed behavior, and report every changed file, validation performed, and blocker."
       },
       "dispatch_reviewer": {
         "enabled": true,
-        "description": "Read-only reviewer for routine independent correctness and test-gap checks.",
-        "model": "gpt-5.6-terra",
-        "model_reasoning_effort": "high",
+        "description": "High-quality read-only reviewer candidate for independent correctness, regression, and test-gap checks; use the deep reviewer for high-risk scope or the primary agent when independent review is constrained.",
+        "model": "gpt-6-astra",
+        "model_reasoning_effort": "xhigh",
         "sandbox_mode": "read-only",
-        "developer_instructions": "Review only the assigned scope in read-only mode. Prioritize correctness, regressions, and missing tests; do not modify files, upgrade your model, or spawn or delegate to another agent. Report inspected files, validation performed, and blockers or concrete findings."
+        "developer_instructions": "Review only the assigned scope in read-only mode. Before classifying a finding, verify the task intent, build configuration, real entry point and call contract, and actual execution path. Block only defects that concrete evidence shows affect the current acceptance target. Missing context, hypothetical concurrency, and style suggestions are non-blocking notes or items to verify; they do not trigger automatic rework or stop for confirmation. Preserve debug-scoped breakpoints and instrumentation such as #if DEBUG, #if _DEBUG, #if DBG, and KdBreakPoint; you may flag them for the user's choice, but do not remove them. Treat them as defects only when evidence shows they reach a required Release or other delivery configuration, or violate the actual goal; this is not a permanent exemption for all debug code. Do not modify files, upgrade your model, or spawn or delegate to another agent. For each finding report the evidence location, impact, and fix acceptance condition, plus inspected files, validation performed, and blockers."
       },
       "dispatch_deep_reviewer": {
         "enabled": true,
-        "description": "Read-only high-reasoning reviewer for security, concurrency, permission, and production-risk audits.",
-        "model": "gpt-5.6-sol",
-        "model_reasoning_effort": "xhigh",
+        "description": "Highest-depth read-only reviewer candidate for security, concurrency, permission, and production-risk audits; use the routine reviewer or primary agent when that depth is unnecessary or constrained.",
+        "model": "gpt-6-astra",
+        "model_reasoning_effort": "ultra",
         "sandbox_mode": "read-only",
-        "developer_instructions": "Independently review the assigned high-risk security, concurrency, permission, or production scope in read-only mode. Do not modify files, upgrade your model, or spawn or delegate to another agent. Report every inspected file, validation performed, concrete findings, and blocker."
+        "developer_instructions": "Independently review the assigned high-risk security, concurrency, permission, or production scope in read-only mode. Before classifying a finding, verify the task intent, build configuration, real entry point and call contract, and actual execution path. Block only defects that concrete evidence shows affect the current acceptance target. Missing context, hypothetical concurrency, and style suggestions are non-blocking notes or items to verify; they do not trigger automatic rework or stop for confirmation. Preserve debug-scoped breakpoints and instrumentation such as #if DEBUG, #if _DEBUG, #if DBG, and KdBreakPoint; you may flag them for the user's choice, but do not remove them. Treat them as defects only when evidence shows they reach a required Release or other delivery configuration, or violate the actual goal; this is not a permanent exemption for all debug code. Do not modify files, upgrade your model, or spawn or delegate to another agent. For each finding report the evidence location, impact, and fix acceptance condition, plus every inspected file, validation performed, and blocker."
+      },
+      "dispatch_luna_worker": {
+        "enabled": true,
+        "description": "Workspace writer candidate for well-specified, bounded, repetitive implementation; use another enabled writer or the primary agent when ambiguity or constraints require deeper reasoning.",
+        "model": "gpt-5.6-luna",
+        "model_reasoning_effort": "max",
+        "sandbox_mode": "workspace-write",
+        "developer_instructions": "Implement only the assigned well-specified bounded scope and acceptance criteria. Do not change architecture, interface contracts, permissions, or destructive-operation policy; do not upgrade your model or spawn or delegate to another agent. Preserve unrelated work, run targeted validation for the changed behavior, and report every changed file, validation performed, and blocker."
+      },
+      "dispatch_terra_worker": {
+        "enabled": true,
+        "description": "Balanced workspace writer candidate for moderately complex bounded implementation; use another enabled writer or the primary agent when the task is simpler or has deeper cross-module constraints.",
+        "model": "gpt-5.6-terra",
+        "model_reasoning_effort": "high",
+        "sandbox_mode": "workspace-write",
+        "developer_instructions": "Implement only the assigned moderately complex bounded scope and acceptance criteria. Resolve routine choices within scope and return architecture, contract, permission, or destructive-policy decisions to the primary agent. Do not upgrade your model or spawn or delegate to another agent. Preserve unrelated work, run targeted validation for the changed behavior, and report every changed file, validation performed, and blocker."
+      },
+      "dispatch_sol_worker": {
+        "enabled": true,
+        "description": "Preferred workspace writer candidate for complex code and substantial refactoring with clear requirements; use a lighter writer for mechanical changes or a stronger writer when cross-module ambiguity requires sustained reasoning.",
+        "model": "gpt-5.6-sol",
+        "model_reasoning_effort": "medium",
+        "sandbox_mode": "workspace-write",
+        "developer_instructions": "Implement only the assigned complex code or substantial refactoring scope and acceptance criteria. Preserve existing behavior and interface contracts during refactoring unless changes are explicitly authorized. Resolve routine choices within scope and return architecture, contract, permission, or destructive-policy decisions to the primary agent. Do not upgrade your model or spawn or delegate to another agent. Preserve unrelated work, run targeted validation for the changed behavior, and report every changed file, validation performed, and blocker."
+      },
+      "dispatch_astra_worker": {
+        "enabled": true,
+        "description": "Workspace writer candidate for difficult cross-module implementation and refactoring with interacting constraints or sustained reasoning needs after the primary agent sets the plan; use a lighter writer when requirements are clear and the scope is tractable.",
+        "model": "gpt-6-astra",
+        "model_reasoning_effort": "medium",
+        "sandbox_mode": "workspace-write",
+        "developer_instructions": "Execute only the assigned difficult implementation or refactoring scope after the primary agent has integrated the plan. Preserve existing behavior and interface contracts during refactoring unless changes are explicitly authorized. Return decisions that change architecture, contracts, permissions, or destructive-operation policy to the primary agent. Do not upgrade your model or spawn or delegate to another agent. Preserve unrelated work, validate affected behavior in coherent stages, and report every changed file, validation performed, and blocker for independent review."
+      },
+      "dispatch_tester": {
+        "enabled": true,
+        "description": "Test executor candidate for running an established test plan, reproducing failures, and returning concise evidence; use the primary agent when a separate test run adds no value.",
+        "role_kind": "verification",
+        "model": "gpt-5.6-luna",
+        "model_reasoning_effort": "medium",
+        "sandbox_mode": "workspace-write",
+        "developer_instructions": "Run only the assigned established test or reproduction plan and generate necessary build or test artifacts. Do not modify product code unless the primary agent explicitly authorizes that file scope. Do not upgrade your model or spawn or delegate to another agent. Return exact commands, outcomes, concise failure evidence, generated artifacts, changed files, and blockers."
+      },
+      "dispatch_researcher": {
+        "enabled": true,
+        "description": "Read-only researcher candidate for official documentation, version contracts, and external fact verification; use an explorer for repository evidence or the primary agent when external research is unnecessary.",
+        "model": "gpt-5.6-luna",
+        "model_reasoning_effort": "medium",
+        "sandbox_mode": "read-only",
+        "developer_instructions": "Research only the assigned bounded question using primary or official sources where available. Verify version-sensitive contracts and separate sourced facts from inference. Do not edit files, upgrade your model, or spawn or delegate to another agent. Return citations, relevant versions or dates, validation performed, and blockers."
       }
     }
   },

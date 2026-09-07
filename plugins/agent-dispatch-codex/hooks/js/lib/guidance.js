@@ -56,6 +56,7 @@ const TRIVIAL_EDIT_TERMS = [
   'getter', 'setter', '拼写', 'typo', '加个注释', '添加注释', '补个注释',
   '类型定义', '这一行', '一行代码', '单行修改', 'one-line', 'single-line',
 ];
+const REVIEW_FEEDBACK_GUIDANCE = '实现由主代理验收并整合；完成针对性验证后独立审查。若用户限制 reviewer，则由主代理审查并说明范围；只对有具体证据且影响本次验收的实质问题，经主代理核实后复用原 writer 有界修复并复查，提示项不自动返修或停工。';
 
 function includesAny(text, terms) {
   return terms.some((term) => {
@@ -128,11 +129,12 @@ function dynamicWriterGuidance(config) {
     && profiles
     && Object.values(profiles).some((profile) => profile
       && profile.enabled !== false
+      && profile.role_kind !== 'verification'
       && profile.sandbox_mode === 'workspace-write');
   if (!hasWritableProfile) {
     return '当前没有启用的可写执行角色，由主代理直接完成。';
   }
-  return '主代理依据任务复杂度、上下文范围、风险、账号/工作区可用性和用户显式偏好，自主选择可写执行角色、模型和推理强度；显式指定优先，先核对宿主支持的模型/推理组合。';
+  return '主代理按实际复杂度从已启用候选选择可写执行角色、模型和推理强度，不按关键词固定代码模型。未固定模型的 writer 必须显式传入 model 与 effort，避免无意继承昂贵主模型。';
 }
 
 function exactNarrowLookup(text) {
@@ -249,15 +251,15 @@ function routeGuidance(route, config) {
     case 'diagnosis':
       return `任务路由：只读诊断。仅收集现象、根因证据和验证办法，不执行修复。${roleFallback(config, ['dispatch_explorer', 'dispatch_mapper'])} 子任务必须保持只读。`;
     case 'high-risk-implementation':
-      return `任务路由：涉及安全、权限或并发等风险的实现。主代理先核对真实调用路径、契约、已有授权和验收标准；明确边界后才委派有界修改，不因关键词扩大权限或重复请求已有授权。${dynamicWriterGuidance(config)} 按实际风险决定是否需要独立审查。`;
+      return `任务路由：涉及安全、权限或并发等风险的实现。主代理先核对真实调用路径、契约、已有授权和验收标准；明确边界后才委派有界修改，不因关键词扩大权限或重复请求已有授权。${dynamicWriterGuidance(config)} ${REVIEW_FEEDBACK_GUIDANCE}`;
     case 'high-risk-review':
       return `任务路由：高风险审查。${roleFallback(config, ['dispatch_deep_reviewer', 'dispatch_reviewer'])}`;
     case 'hard-task': {
       const writer = dynamicWriterGuidance(config);
       if (!route.requiresPlanner) {
-        return `任务路由：困难实现/复杂调试。主代理先固定范围和验收标准；${writer} 实现完成后由主代理验收并整合。不要仅因任务困难启动规划角色。`;
+        return `任务路由：困难实现/复杂调试。主代理先固定范围和验收标准；${writer} ${REVIEW_FEEDBACK_GUIDANCE} 不要仅因任务困难启动规划角色。`;
       }
-      return `任务路由：包含规划的困难任务。先核对现有方案，主代理负责架构和接口决策。${roleFallback(config, ['dispatch_planner'])} 已有可执行方案时直接推进，无需重复规划；委派分析后先整合结果，再执行依赖它的修改。${writer} 实现完成后由主代理验收并整合。`;
+      return `任务路由：包含规划的困难任务。先核对现有方案，主代理负责架构和接口决策。${roleFallback(config, ['dispatch_planner'])} 已有可执行方案时直接推进，无需重复规划；委派分析后先整合结果，再执行依赖它的修改。${writer} ${REVIEW_FEEDBACK_GUIDANCE}`;
     }
     case 'plan':
       return `任务路由：非琐碎计划/架构。${roleFallback(config, ['dispatch_planner'])}`;
@@ -266,7 +268,7 @@ function routeGuidance(route, config) {
     case 'bounded-search':
       return `任务路由：跨文件/调用链只读搜索。${roleFallback(config, ['dispatch_explorer'])} 不在搜索子任务中修改文件；精确单符号/单文件快速查找由主代理直接完成。`;
     case 'implementation':
-      return `任务路由：常规实现。${dynamicWriterGuidance(config)} 实现完成后由主代理验收并整合。`;
+      return `任务路由：常规实现。${dynamicWriterGuidance(config)} ${REVIEW_FEEDBACK_GUIDANCE}`;
     case 'review':
       return `任务路由：常规审查。${roleFallback(config, ['dispatch_reviewer'])}`;
     case 'generic':
@@ -283,11 +285,13 @@ function mainAgentGuidance(config, compact = false) {
     const lines = [
       'Agent Dispatch：你是主代理。需求澄清、架构/接口决策、任务拆分、结果审查和最终整合由主代理负责；',
       '明确、有界的编码、重构和修 bug 可交给可写执行子代理，即使步骤串行也可委派；琐碎读取、小改和强耦合步骤直接完成。',
-      '角色配置是候选默认值；所有角色的模型和推理强度均按宿主实际能力、任务和显式用户偏好选择。关键词路由是建议，不覆盖当前授权、只读范围或已有方案。',
+      '按角色描述、歧义、约束、验收反馈及整个任务的总成本（上下文、返工、审查、延迟）从已启用候选中选角色、模型和推理强度；高歧义可直接选更强候选，不机械按关键词或给所有角色拉满。关键词路由不覆盖授权、只读范围或已有方案。',
+      '未固定模型的 writer 必须显式传 model 与 effort，避免无意继承昂贵主模型。原生 TOML 固定值优先于 spawn 参数；临时组合应选未固定字段角色并显式传参。按宿主规则，当前完整历史 fork 不接受覆盖，应按宿主支持仅传最小必要上下文。',
       '启动前核对模型/推理组合，不把主任务的 ultra 强加给不支持它的模型；默认组合不可用时选受支持组合或由主代理处理，用户明确指定的模型不得擅自替换。',
       '代码结构查询优先使用可用图工具；Agent Dispatch 只负责选代理，图刷新和检索规则由 CodeMap Boost 负责，不要重复 build/update。',
       `独立且并行有收益时委派；最多 ${maxParallel} 个子代理并发。所有 Git 命令均由主代理串行执行，不委派、不并行拆分。`,
-      '普通结果由主代理验收；需要独立审查时按风险与有效配置选 reviewer，无需每项工作另起规划和审查。',
+      '审查先核对任务意图、构建配置、真实入口/调用契约与实际执行路径；只有具体证据证明影响本次验收目标的缺陷才阻塞。上下文缺失、假设性并发和风格建议作为非阻塞提示或待核对项，不自动返修，也不触发确认停工。',
+      '非琐碎实现完成针对性验证后必须独立审查，并按风险与有效配置选 reviewer；若用户限定只用主代理或禁用 reviewer，则由主代理审查并说明范围。审查指出实质问题时，主代理先核实其证据与验收影响，再复用原 writer 有界修复、重跑受影响检查并复查；问题重复且无新证据时调整拆分、提高模型或由主代理介入，不能无限重写。小修改不强制每个角色。',
       '子代理须报告修改文件、验证和阻塞；结果已整合或不再需要时立即停止子代理，避免占用有限智能体名额。',
     ];
     if (profiles.length) lines.push(`配置候选角色（以宿主实际加载为准）：${profiles.join('；')}。`);
@@ -298,13 +302,16 @@ function mainAgentGuidance(config, compact = false) {
     'Agent Dispatch policy for the primary Codex agent:',
     '- Keep requirements clarification, architecture and interface decisions, task decomposition, result review, and final integration in the primary agent.',
     '- Prefer a workspace-write execution agent for concrete, bounded implementation, refactoring, and bug-fix work once the steps and acceptance criteria are clear, even when that work is sequential.',
-    '- Choose roles, models, and reasoning strength from task scope, complexity, context, risk, account/workspace availability, and explicit user preference; keep the established search, planning, and review boundaries.',
+    '- Choose among enabled candidates from role descriptions, ambiguity, constraints, acceptance feedback, explicit user preference, host availability, and total task cost including context, rework, review, and latency. High ambiguity may justify a stronger candidate immediately; do not route code mechanically by keywords or maximize every role.',
+    '- For an unpinned writer, explicitly pass model and effort so it does not accidentally inherit an expensive primary model. Native TOML model/effort values override spawn parameters; for a temporary combination choose a role with unpinned fields and pass both explicitly. Under the host rules, the current full-history fork does not accept overrides, so pass only the minimum needed context using a host-supported combination.',
     '- Profile defaults and keyword routes are suggestions, not proof of runtime availability or permission to override user scope. Verify the host-supported model/effort pair before spawning; never carry ultra blindly into a model that does not support it. Fall back from unavailable defaults to supported settings or primary-agent work, but do not silently replace an explicitly requested model.',
     '- For structural code queries, prefer available graph tools. Agent Dispatch selects the agent; CodeMap Boost owns graph refresh and retrieval policy, so do not duplicate build/update.',
     '- Delegate independent bounded subtasks in parallel when useful.',
     `- Use no more than ${maxParallel} subagents concurrently unless the user explicitly requests more.`,
     '- Keep trivial reads, small edits, tightly coupled steps, and final integration in the primary agent.',
-    '- Review normal execution results in the primary agent; choose an independent reviewer from the effective configuration when it adds value or the user requests it. Do not require separate planning and review for every task, or repeat a plan that is already actionable.',
+    '- Before treating a review finding as blocking, verify task intent, build configuration, real entry points and call contracts, and the actual execution path. Only a defect supported by concrete evidence and affecting the current acceptance target can block. Missing context, hypothetical concurrency, and style suggestions are non-blocking notes or items to verify; they do not trigger automatic rework or stop for confirmation.',
+    '- After targeted validation, independently review non-trivial implementation. If the user requires primary-agent-only work or disables reviewers, the primary agent performs the review and states its scope. Small changes do not require every role.',
+    '- When review finds a verified substantive issue affecting acceptance, the primary agent reuses the original writer for a bounded fix, reruns affected checks, and reviews again. If an issue repeats without new evidence, change the decomposition, raise the model, or intervene in the primary agent instead of adding speculative changes indefinitely.',
     '- Stop subagents promptly after their result is integrated, or when they are blocked or no longer needed; do not leave idle agents occupying limited slots.',
     '- Execute all Git commands in the primary agent, one at a time; never delegate or parallelize Git operations.',
     '- Delegation does not broaden filesystem, network, approval, or external-action authority.',

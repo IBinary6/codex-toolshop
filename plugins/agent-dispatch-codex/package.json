@@ -1,7 +1,7 @@
 {
   "name": "agent-dispatch-codex",
-  "version": "0.1.15",
-  "description": "Role-aware Codex subagent routing with task-selected writer models and reasoning strength.",
+  "version": "0.1.16",
+  "description": "Role-aware Codex routing with configurable execution candidates and strong independent review.",
   "license": "MIT",
   "private": true,
   "engines": {
