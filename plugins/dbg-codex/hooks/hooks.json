@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/launch.cjs\" hook",
+            "async": true,
+            "timeout": 1200,
+            "statusMessage": "Dbg 正在检查和部署调试工具扩展"
+          }
+        ]
+      }
+    ]
+  }
+}

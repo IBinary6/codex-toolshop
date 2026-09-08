@@ -1,0 +1,17 @@
+{
+  "name": "dbg-codex",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Deterministic debugger extension deployment and MCP setup",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "dbg": "scripts/launch.cjs"
+  },
+  "scripts": {
+    "doctor": "node scripts/launch.cjs doctor",
+    "test": "node --test tests/test_launch.cjs && node scripts/test.cjs"
+  }
+}

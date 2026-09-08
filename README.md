@@ -38,6 +38,7 @@ codex plugin add system-proxy-codex@codex-toolshop
 
 | 插件 | 当前用途 | 日常用法 |
 | --- | --- | --- |
+| [Dbg](plugins/dbg-codex/README.md) | 自动发现并部署 x64dbg、Ghidra、WinDbg、IDA 的扩展和 MCP；不兼容版本明确跳过。 | 首次加载自动部署；`dbg doctor` 再次检测、更新、修复，全程由脚本执行。 |
 | `codemap-boost-codex` | 自动接入 `code-review-graph` 代码结构图，提供符号、调用、引用和影响面检索能力。 | 新会话自动 bootstrap、自动 build/update。涉及代码结构时优先用 `mcp__code_review_graph__*` 工具。 |
 | `cpp-style-enforcer-codex` | 自动执行团队 C++ 风格流程，包括 clang-format、版权头、BOM、cpplint 和提交前检查。 | 正常编辑即可；写入 C/C++ 文件后 hook 自动处理，`git commit` 前会检查暂存区 C++ 文件。 |
 | `agent-dispatch-codex` | 面向产品、设计、QA、研究、运营和开发，按调查、规划、制作、验证、审查分配有界任务与模型。 | 新会话自动注入通用调度策略；按交付物验收，子代理直接执行、报告结果，并在整合后及时释放。 |

@@ -1,0 +1,38 @@
+{
+  "name": "dbg-codex",
+  "version": "0.1.0",
+  "description": "Script-driven deployment, update and repair of debugger extensions and their MCP servers.",
+  "author": {
+    "name": "IBinary6",
+    "url": "https://github.com/IBinary6"
+  },
+  "homepage": "https://github.com/IBinary6/codex-toolshop/tree/main/plugins/dbg-codex",
+  "repository": "https://github.com/IBinary6/codex-toolshop",
+  "license": "MIT",
+  "keywords": [
+    "debugger",
+    "mcp",
+    "x64dbg",
+    "ghidra",
+    "windbg",
+    "ida",
+    "doctor"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Dbg",
+    "shortDescription": "一个 doctor，部署和维护调试工具扩展及 MCP。",
+    "longDescription": "自动发现 Scoop 和手动安装的调试工具，通过跨平台脚本下载、部署、更新并修复 x64dbg、Ghidra、WinDbg、IDA 的配套扩展和 MCP。首次加载和显式 doctor 共用同一流程，不依赖 AI 决定安装步骤。",
+    "developerName": "IBinary6",
+    "category": "Coding",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/IBinary6/codex-toolshop",
+    "defaultPrompt": [
+      "执行 Dbg doctor，自动检测、更新和修复我的调试工具扩展及 MCP。"
+    ]
+  }
+}

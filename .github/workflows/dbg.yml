@@ -1,0 +1,26 @@
+name: Dbg
+
+on:
+  push:
+    paths: ["plugins/dbg-codex/**", ".github/workflows/dbg.yml"]
+  pull_request:
+    paths: ["plugins/dbg-codex/**", ".github/workflows/dbg.yml"]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate isolated deployment and MCP contracts
+        working-directory: plugins/dbg-codex
+        run: npm test
