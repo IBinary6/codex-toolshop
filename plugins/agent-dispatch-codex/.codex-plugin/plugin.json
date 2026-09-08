@@ -1,6 +1,6 @@
 {
   "name": "agent-dispatch-codex",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "description": "General-purpose Codex task routing across product, design, QA, research, operations, and software development, with configurable execution and independent review.",
   "author": {
     "name": "IBinary6"

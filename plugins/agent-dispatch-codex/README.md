@@ -4,14 +4,14 @@
 
 ## 与 Claude Code 版的语义对应
 
-两边追求同一条调度语义：**主代理保留关键决策、拆分、审查、整合和 Git 串行操作；边界清晰的调查、规划、执行与验证交给匹配的子代理；子代理完成后报告成果和证据，并在结果整合后及时释放**。
+两边追求同一条调度语义：**主代理保留关键决策、拆分、审查、整合和普通 Git 串行操作；边界清晰的调查、规划、执行与验证交给匹配的子代理；只有用户请求或明确 skill 工作流要求完整本地提交准备时，主代理才可把准备阶段交给同工作区的单个指定可写代理；子代理完成后报告成果和证据，并在结果整合后及时释放**。
 
 | 语义能力 | Codex 版 | Claude Code 版 |
 | --- | --- | --- |
 | 主代理工具约束 | 普通工具调用默认不注入 `PreToolUse` 提示，避免重复上下文和误拦截 | `PreToolUse` 白名单硬拦截，非轻量工具要求用 `Agent` |
 | 子代理识别 | 使用 `SubagentStart` 明确角色边界，不依赖可选 `agent_id` 来硬拦截工具 | Claude hook 输入包含 `agent_id`，子代理可豁免 |
 | 调度提示 | `SessionStart` / `UserPromptSubmit` 注入紧凑调度策略 | 被 block 后下一条 prompt 注入 dispatcher 指令 |
-| Git 边界 | 纯 Git CLI 固定主代理串行执行，不进入委派分类 | 安全 Git 可直跑，危险 Git 拦截 |
+| Git 边界 | 普通单条 Git CLI 保持安静并由主代理串行执行；显式完整本地提交准备可交给同工作区单个指定可写代理，最终 commit、远程操作和历史改写仍由主代理 | 安全 Git 可直跑，危险 Git 拦截 |
 | 配置 | `PLUGIN_DATA` + 项目 `.agent-dispatch-codex`，支持 Codex agent profile | `~/.agent-dispatch` + 项目 `.agent-dispatch` |
 
 因此 Codex 版不照搬“非白名单直接 deny”。这是平台事件模型差异下的等价策略，不是降级。
@@ -29,7 +29,7 @@ Codex 的 `PreToolUse` 提供标准工具事件，`exec_command`（含 Code Mode
 | `PreToolUse` | 默认关闭；显式开启后只对非白名单 MCP 和已识别的注册表状态变更添加软提示，不执行 deny。 |
 | `SubagentStart` | 告知子代理直接完成已分配工作，不再次分派。 |
 
-普通 Bash 命令、未知命令头、shell 控制语法、重定向和嵌套求值不会再产生任务路由提示。单条命令不足以决定是否切换角色或模型，任务级路由统一由 `UserPromptSubmit` 和主代理当前判断负责。`shell_heads` 仍用于可选的命令分析配置，但不是 sandbox、权限或安全边界。
+普通 Bash 命令、普通单条 Git CLI、未知命令头、shell 控制语法、重定向和嵌套求值不会再产生任务路由提示。`pre_tool_nudge` 默认保持 `false`；单条命令不足以决定是否切换角色或模型，任务级路由统一由 `UserPromptSubmit` 和主代理当前判断负责。Git 子命令及其参数本身不触发任务路由；包含自然语言请求或混合非 Git 命令时仍按完整提示路由。`shell_heads` 仍用于可选的命令分析配置，但不是 sandbox、权限或安全边界。
 
 ## 安装后自动工作
 
@@ -77,15 +77,17 @@ Profile 文件本身不会占用智能体名额；只有实际 spawn 出来的�
 
 集成终端的 shell 选择只影响新开的终端标签页，不会改变 Hook 的 Node.js 运行逻辑。
 
-## Git 串行边界
+## Git 串行边界与本地提交准备
 
-所有纯 Git CLI 命令都固定留在主代理中逐条串行执行，不委派给子代理，也不并行拆分。`git`、`git.exe`、带全局选项的 Git 命令，以及 force push、删除分支、reset、clean 等子命令，都不会触发 Agent Dispatch 的轻量/危险命令分类提示。
+默认所有单条 Git CLI 都保持安静，不因一条命令触发 Agent Dispatch；`pre_tool_nudge` 默认是 `false`，普通 Bash 也不因 Git 命令单独产生路由提示。普通 Git 操作仍由主代理逐条串行执行。这是编排静默规则，不是给任何子代理授予 Git 权限。
 
-复合命令仍逐段分析：Git 段跳过调度分类，后续非 Git 段继续用于识别明确的状态变更。普通未知命令不会仅因命令头不在轻量表中产生路由提示。
+只有主代理根据用户请求或明确的 skill 工作流显式委派完整本地提交准备时，才允许同一工作区的单个指定可写代理执行准备阶段。该准备者可以检查状态、读取 diff、精确暂存目标文件，并回传摘要、检查结果、HEAD 与 index tree OID 以及 commit message；它不能执行最终 commit、远程操作或历史改写。无需新增角色或配置开关；模型和推理强度由用户或 skill 按实际任务选择。
 
-Shell 嵌套求值不属于 Git 权限。例如 `git status $(other-command)`、PowerShell 脚本块、进程替换、块注释，以及无法同时确定 Git Bash/PowerShell 语义的转义写法，仍不会被当作纯 Git CLI；但 Agent Dispatch 默认不再为这些单条命令注入通用路由提示。
+准备阶段必须保持同工作区单一 Git 执行者：主代理不同时操作 Git；准备者完成后先停止并完成交接，再由主代理校验状态、diff、暂存范围以及 HEAD/index tree OID 快照，最后执行 commit。远程操作和历史改写始终由主代理负责。
 
-这里调整的是 Agent Dispatch 的编排策略，不会绕过 Codex sandbox、用户授权、Hook 信任机制或 Git 自身的安全保护。主代理仍应根据用户意图审慎执行破坏性 Git 操作。
+复合命令仍逐段分析：Git 段跳过调度分类，后续非 Git 段继续用于识别明确的状态变更。普通未知命令不会仅因命令头不在轻量表中产生路由提示。例如 `git status && rg -n TODO src` 中 Git 段保持安静，`rg` 段单独接受普通命令分析；`git status && rm -rf .` 也不能借 Git 段跳过后续非 Git 段的破坏性检查。不要把 `git` 加入 `shell_heads` 来“授权”委派，也不要使用 `git_readonly_*` 或 `git_safe_write_*` 配置项；当前版本没有这些配置控制项。
+
+Shell 嵌套求值不属于 Git 权限。例如 `git status $(other-command)`、PowerShell 脚本块、进程替换、块注释，以及无法同时确定 Git Bash/PowerShell 语义的转义写法，仍不会被当作纯 Git CLI；Agent Dispatch 默认也不为这些单条命令注入通用路由提示。这里调整的是 Agent Dispatch 的编排策略，不会绕过 Codex sandbox、用户授权、Hook 信任机制或 Git 自身的安全保护。
 
 ## CodeMap Boost、Context Mode 与 Serena 协作
 
@@ -116,6 +118,18 @@ Codex 支持项目级 `.codex/agents/*.toml` 自定义 Agent，并允许每个 A
 | `dispatch_deep_reviewer` | `gpt-6-astra` | `ultra` | 安全、权限、合规、财务、生产或真实数据等高影响审查。 |
 
 表格是本插件的可覆盖预设。主代理根据当前任务、上下文和宿主支持选择模型与推理档位；搜索、规划和审查角色也遵循用户显式偏好。切换到 Astra 或其他模型不需要重写整个工作流，也不要求所有角色使用同一个模型或推理档位。
+
+当前插件用于启动前校验的模型/推理能力快照如下（代码中的快照日期为 2026-09-05；它只用于发现明显不兼容组合，不是账户可用性探测）：
+
+| 模型 | 已记录的可用推理档位 |
+| --- | --- |
+| `gpt-6-astra` | `low`、`medium`、`high`、`xhigh`、`max`、`ultra` |
+| `gpt-5.6-sol` | `low`、`medium`、`high`、`xhigh`、`max`、`ultra` |
+| `gpt-5.6-terra` | `low`、`medium`、`high`、`xhigh`、`max`、`ultra` |
+| `gpt-5.6-luna` | `low`、`medium`、`high`、`xhigh`、`max`；不含 `ultra` |
+| `gpt-5.5`、`gpt-5.4-mini`、`gpt-5.3-codex-spark` | `low`、`medium`、`high`、`xhigh` |
+
+因此，当前 `dispatch_luna_worker = gpt-5.6-luna/max` 是有效组合，`gpt-6-astra/ultra` 也是有效组合；不能把 Luna 改成 `ultra`。如果临时需要 GPT-6 的 `ultra`，应使用未固定模型和 effort 的 `dispatch_worker` 或 `dispatch_hard_worker`，显式传入 `model = gpt-6-astra` 与 `effort/thinking = ultra`，并先确认当前宿主实际支持及任务确实需要该强度。模型预设不会决定本地提交准备的模型；该流程由 skill 或用户按实际任务选择，并且不改变普通 Git 串行、最终 commit、远程操作和历史改写仍由主代理负责的边界。
 
 主对话模型不受插件修改，仍由 Codex 桌面版模型选择器或顶层配置决定。生成文件会逐项加入 `.git/info/exclude`；同名手写文件、空文件、已被 Git 跟踪的文件以及符号链接入口均保留。未跟踪且带插件托管头的旧 profile 才能更新或清理。首次生成或修改模型配置后，新建 Codex 任务即可加载新的 Agent 配置。
 
@@ -167,6 +181,8 @@ Codex 支持项目级 `.codex/agents/*.toml` 自定义 Agent，并允许每个 A
   }
 }
 ```
+
+当前支持的列表覆盖只有 `mcp_prefixes_*`、`shell_heads_*` 和 `prompt_keywords_*`。Git 不通过配置白名单控制；项目配置中如果残留旧版本的 `git_readonly_*` 或 `git_safe_write_*` 字段，加载器不会用它们改变 Git 的主代理串行规则。
 
 模型与推理档位的合并规则：
 

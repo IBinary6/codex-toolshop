@@ -5,7 +5,7 @@ const path = require('path');
 const { gitOutput, gitRoot } = require('./config');
 
 const MANAGED_HEADER = '# Managed by agent-dispatch-codex. Configure via .agent-dispatch-codex/config.json.';
-const GIT_HANDOFF = 'Do not run Git commands; leave all Git operations to the primary agent.';
+const GIT_HANDOFF = 'Do not run Git commands by default. A user request or explicit skill workflow for complete local commit preparation may let the primary agent designate one writable preparer in the same workspace to inspect status, read the diff, and stage only assigned files; return a summary, checks, HEAD/index tree OIDs, and a commit message. Do not commit, push, rewrite history, or run Git concurrently with the primary; the primary validates the snapshot and commits.';
 const VALID_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 
 function tomlString(value) {
@@ -146,6 +146,7 @@ function profileSummary(config) {
 }
 
 module.exports = {
+  GIT_HANDOFF,
   MANAGED_HEADER,
   ensureAgentProfiles,
   profileSummary,

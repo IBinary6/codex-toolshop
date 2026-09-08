@@ -1,7 +1,7 @@
 'use strict';
 
 const { analyzeShellCommand } = require('./shell');
-const { profileSummary } = require('./agent_profiles');
+const { GIT_HANDOFF, profileSummary } = require('./agent_profiles');
 const { modelEffortWarnings } = require('./config');
 
 const REVIEW_TERMS = [
@@ -107,6 +107,14 @@ function normalizedPrompt(prompt) {
   return typeof prompt === 'string' ? prompt.trim().toLowerCase() : '';
 }
 
+function isPureGitCli(prompt, config) {
+  const command = typeof prompt === 'string' ? prompt.trim() : '';
+  if (!command) return false;
+  const analysis = analyzeShellCommand(command, config);
+  return analysis.safe && analysis.heads.length > 0
+    && analysis.heads.every((head) => head === 'git');
+}
+
 function configuredKeywordMatch(text, config) {
   const keywords = config && config.whitelist && Array.isArray(config.whitelist.prompt_keywords)
     ? config.whitelist.prompt_keywords
@@ -205,6 +213,18 @@ function routePrompt(prompt, config) {
   const text = normalizedPrompt(prompt);
   if (!text) {
     return { category: 'generic', route: 'generic', shouldDispatch: false };
+  }
+
+  // Git CLI arguments such as "fix", "review", or "architecture" are data,
+  // not task intent. Suppress routing only for a safely parsed, all-Git
+  // command; a non-Git natural-language prefix or mixed shell stays routable.
+  if (isPureGitCli(prompt, config)) {
+    return {
+      category: 'generic',
+      route: 'generic',
+      shouldDispatch: false,
+      reason: 'pure Git CLI command',
+    };
   }
 
   const constraints = promptConstraints(text);
@@ -365,7 +385,7 @@ function mainAgentGuidance(config, compact = false) {
       '启动前核对模型/推理组合，不把主任务的 ultra 强加给不支持它的模型；默认组合不可用时选受支持组合或由主代理处理，用户明确指定的模型不得擅自替换。',
       '只有明确的代码结构、调用关系或代码审查任务才优先使用代码图；Agent Dispatch 只负责选代理，图刷新和检索规则由 CodeMap Boost 负责，不要把普通设计评审或业务依赖送入代码图。',
       '按交付物选择验证证据，不要求非代码成果运行构建。涉及代码时，默认不审查或格式化/lint 第三方实现，只核对自有代码集成与必要依赖接口。',
-      `独立且并行有收益时委派；最多 ${maxParallel} 个子代理并发。所有 Git 命令均由主代理串行执行，不委派、不并行拆分。`,
+      `独立且并行有收益时委派；最多 ${maxParallel} 个子代理并发。普通单条 Git CLI 保持安静并由主代理串行执行；只有用户请求或明确 skill 工作流要求完整本地提交准备时，才可把准备阶段交给同工作区一个指定可写代理。准备阶段不并行操作 Git，主代理校验快照后执行 commit、远程操作和历史改写。`,
       '审查先核对任务意图、真实入口、验收标准与实际使用路径；只有具体证据证明影响本次验收目标的缺陷才阻塞。上下文缺失、假设性风险和风格建议作为非阻塞提示或待核对项，不自动返修，也不触发确认停工。',
       '非琐碎交付完成相称验证后必须独立审查，并按风险与有效配置选 reviewer；若用户限定只用主代理或禁用 reviewer，则由主代理审查并说明范围。实质问题经核实后复用原 writer 有界修复、重跑受影响检查并复查；小修改不强制每个角色。',
       '角色、可写权限和委派都不新增对外发布、发送、付费、生产环境或真实数据变更的授权；先核对当前会话已有授权。',
@@ -391,7 +411,7 @@ function mainAgentGuidance(config, compact = false) {
     '- After proportionate validation, independently review non-trivial deliverables. If the user requires primary-agent-only work or disables reviewers, the primary agent performs the review and states its scope. Small changes do not require every role.',
     '- When review finds a verified substantive issue affecting acceptance, the primary agent reuses the original writer for a bounded fix, reruns affected checks, and reviews again. If an issue repeats without new evidence, change the decomposition, raise the model, or intervene in the primary agent instead of adding speculative changes indefinitely.',
     '- Stop subagents promptly after their result is integrated, or when they are blocked or no longer needed; do not leave idle agents occupying limited slots.',
-    '- Execute all Git commands in the primary agent, one at a time; never delegate or parallelize Git operations.',
+    '- Keep ordinary single-command Git CLI quiet and serial in the primary agent. Only an explicit user or skill request for complete local commit preparation may hand off that preparation to one writable agent in the same workspace; do not run Git concurrently, and have the primary validate the snapshot before the final commit. The final commit, remote operations, and history rewrites remain with the primary agent.',
     '- A role, workspace-write access, or delegation does not authorize external publishing or sending, purchases, production changes, or changes to real data. Verify existing user authority before those actions.',
     '- Ask subagents to report every changed file, validation performed, and any blocker; reread their outputs before integration.',
     '- Do not delegate vague decisions; give execution agents a concrete scope, artifact ownership, acceptance criteria, and validation target.',
@@ -409,7 +429,7 @@ function subagentGuidance(config) {
     'Agent Dispatch: you are a spawned subagent, not the primary coordinator. / 你是已分派的子代理，不是主协调者。',
     '- Execute the assigned bounded investigation, plan, deliverable, verification, or review directly and stay within scope. / 直接完成有界任务并遵守范围。',
     '- Do not spawn or delegate to more agents unless the user or primary agent explicitly asked you to do so.',
-    '- Do not run Git commands; leave all Git operations to the primary agent.',
+    `- ${GIT_HANDOFF}`,
     '- Use CodeMap Boost only for explicit code structure or code-review work; it owns graph refresh and retrieval. Do not apply code-graph guidance to ordinary design or business relationships.',
     '- Your role and write access do not add authority to publish or send externally, spend money, change production, or alter real data; follow authority already established by the user and primary agent.',
   ];

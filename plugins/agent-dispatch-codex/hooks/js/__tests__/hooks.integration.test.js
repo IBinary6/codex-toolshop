@@ -35,7 +35,8 @@ try {
   const session = parse(run('session_start', { hook_event_name: 'SessionStart', source: 'startup' }));
   assert.equal(session.hookSpecificOutput.hookEventName, 'SessionStart');
   assert.match(session.hookSpecificOutput.additionalContext, /primary Codex agent/);
-  assert.match(session.hookSpecificOutput.additionalContext, /Execute all Git commands in the primary agent, one at a time/);
+  assert.match(session.hookSpecificOutput.additionalContext, /ordinary single-command Git CLI quiet/);
+  assert.match(session.hookSpecificOutput.additionalContext, /complete local commit preparation/);
   assert.ok(fs.existsSync(path.join(data, 'config.json')));
   assert.ok(fs.existsSync(path.join(repo, '.agent-dispatch-codex', 'config.json')));
   const workerProfile = path.join(repo, '.codex', 'agents', 'dispatch_worker.toml');
@@ -47,6 +48,8 @@ try {
   const compactSession = parse(run('session_start', { hook_event_name: 'SessionStart', source: 'compact' }));
   assert.match(compactSession.hookSpecificOutput.additionalContext, /独立且并行有收益时委派/);
   assert.match(compactSession.hookSpecificOutput.additionalContext, /最多 3 个子代理并发/);
+  assert.match(compactSession.hookSpecificOutput.additionalContext, /完整本地提交准备/);
+  assert.doesNotMatch(compactSession.hookSpecificOutput.additionalContext, /pre_tool_nudge/);
   assert.match(compactSession.hookSpecificOutput.additionalContext, /图刷新和检索规则由 CodeMap Boost 负责/);
   assert.doesNotMatch(compactSession.hookSpecificOutput.additionalContext, /Agent Dispatch policy for the primary Codex agent/);
 

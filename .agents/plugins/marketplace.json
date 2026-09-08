@@ -34,7 +34,7 @@
     },
     {
       "name": "agent-dispatch-codex",
-      "version": "0.1.18",
+      "version": "0.1.19",
       "description": "General-purpose task routing for product, design, QA, research, operations, and development, with configurable execution and independent review.",
       "source": {
         "source": "local",

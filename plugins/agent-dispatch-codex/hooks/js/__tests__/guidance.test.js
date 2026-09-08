@@ -34,12 +34,18 @@ assert.match(mainAgentGuidance(config), /Only a defect supported by concrete evi
 assert.match(mainAgentGuidance(config), /Missing context, hypothetical risks, and style suggestions are non-blocking/);
 assert.match(mainAgentGuidance(config), /do not trigger automatic rework or stop for confirmation/);
 assert.match(mainAgentGuidance(config), /do not leave idle agents occupying limited slots/);
-assert.match(mainAgentGuidance(config), /Execute all Git commands in the primary agent, one at a time/);
+assert.match(mainAgentGuidance(config), /ordinary single-command Git CLI quiet/);
+assert.match(mainAgentGuidance(config), /complete local commit preparation/);
+assert.match(mainAgentGuidance(config), /validate the snapshot before the final commit/);
+assert.match(mainAgentGuidance(config), /final commit, remote operations, and history rewrites remain with the primary agent/);
 assert.match(mainAgentGuidance(config), /Agent Dispatch selects the agent; CodeMap Boost owns graph refresh/);
 assert.match(mainAgentGuidance(config), /content or product production/);
 assert.match(mainAgentGuidance(config), /builds and code tests are not universal requirements/);
 assert.match(mainAgentGuidance(config), /does not authorize external publishing or sending/);
-assert.match(mainAgentGuidance(config, true), /所有 Git 命令均由主代理串行执行/);
+assert.match(mainAgentGuidance(config, true), /普通单条 Git CLI 保持安静并由主代理串行执行/);
+assert.match(mainAgentGuidance(config, true), /完整本地提交准备/);
+assert.match(mainAgentGuidance(config, true), /主代理校验快照后执行 commit、远程操作和历史改写/);
+assert.doesNotMatch(mainAgentGuidance(config, true), /pre_tool_nudge/);
 assert.match(mainAgentGuidance(config, true), /Agent Dispatch 只负责选代理/);
 assert.match(mainAgentGuidance(config, true), /立即停止子代理/);
 assert.match(mainAgentGuidance(config, true), /按风险与有效配置选 reviewer/);
@@ -60,6 +66,10 @@ assert.match(mainAgentGuidance(config, true), /不新增对外发布、发送、
 assert.match(subagentGuidance(config), /do not spawn or delegate/i);
 assert.match(subagentGuidance(config), /every file you changed/i);
 assert.match(subagentGuidance(config), /Do not run Git commands/);
+assert.match(subagentGuidance(config), /complete local commit preparation/);
+assert.match(subagentGuidance(config), /stage only assigned files/);
+assert.match(subagentGuidance(config), /HEAD\/index tree OIDs/);
+assert.match(subagentGuidance(config), /primary validates the snapshot and commits/);
 assert.match(subagentGuidance(config), /CodeMap Boost only for explicit code structure or code-review work/);
 assert.match(subagentGuidance(config), /validation methods, evidence, results/);
 assert.match(subagentGuidance(config), /do not add authority to publish or send externally/);
@@ -68,6 +78,29 @@ assert.equal(promptNeedsDispatch('请帮我审查并迁移这个多文件插件'
 assert.equal(promptNeedsDispatch('解释这一行', config), false);
 assert.equal(promptGuidance('解释这一行', config), '');
 assert.equal(promptGuidance('这是一段需要保留的原文。'.repeat(30), config), '', 'length alone does not request delegation');
+
+for (const command of [
+  'git commit -m "fix: update parser"',
+  'git log --grep=review',
+  'git diff -- src/architecture.js',
+  'git show HEAD:src/architecture.js',
+  'git status',
+  'git.exe status',
+  'git -C . status',
+]) {
+  const route = routePrompt(command, config);
+  assert.equal(route.shouldDispatch, false, command);
+  assert.equal(route.reason, 'pure Git CLI command', command);
+}
+const mixedGitCommand = routePrompt('git status && rg architecture', config);
+assert.equal(mixedGitCommand.category, 'plan');
+assert.equal(mixedGitCommand.shouldDispatch, true, 'mixed Git/non-Git commands retain task routing');
+const naturalLanguageCommit = routePrompt(
+  '请让一个可写代理完成本地提交准备并整理摘要',
+  config
+);
+assert.equal(naturalLanguageCommit.category, 'execution');
+assert.equal(naturalLanguageCommit.shouldDispatch, true, 'natural-language delegation remains routable');
 assert.equal(routePrompt('查找单个符号 Foo', config).category, 'generic');
 assert.equal(routePrompt('查找单个符号 Foo', config).shouldDispatch, false);
 assert.equal(routePrompt('设计一个按钮', config).shouldDispatch, false);

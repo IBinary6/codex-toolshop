@@ -607,10 +607,13 @@ function analyzeShellCommand(command, config, depth = 0) {
     const parsed = segmentHead(segment);
     heads.push(parsed.head);
     if (!parsed.head) return { safe: false, reason: 'unknown command head', heads };
-    // Git is an orchestration invariant, not a dispatch heuristic: the primary
-    // agent executes every Git command serially, so no Git subcommand belongs
-    // in the lightweight/dangerous classification below. Keep inspecting later
-    // segments because a compound command may still contain non-Git work.
+    // Ordinary Git CLI is intentionally quiet here: a single command cannot
+    // choose a subagent. The primary agent runs ordinary Git serially; only an
+    // explicit complete local commit-preparation handoff may let one designated
+    // writable agent inspect and stage assigned files. Final commit, remote
+    // operations, and history rewrites stay with the primary agent. Keep
+    // inspecting later segments because a compound command may contain
+    // non-Git work.
     if (parsed.head === 'git') continue;
     const segmentCommand = segment.join(' ');
     if (/\$\(|`|[<>]\s*\(/.test(segmentCommand)) {

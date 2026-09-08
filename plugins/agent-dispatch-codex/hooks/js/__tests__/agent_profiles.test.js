@@ -29,6 +29,10 @@ try {
   assert.doesNotMatch(content, /^model_reasoning_effort = /m);
   assert.match(content, /sandbox_mode = "workspace-write"/);
   assert.match(content, /Do not run Git commands/);
+  assert.match(content, /complete local commit preparation/);
+  assert.match(content, /stage only assigned files/);
+  assert.match(content, /HEAD\/index tree OIDs/);
+  assert.match(content, /primary validates the snapshot and commits/);
   assert.equal((content.match(/Do not run Git commands/g) || []).length, 1);
   const explorer = path.join(root, '.codex', 'agents', 'dispatch_explorer.toml');
   const explorerContent = fs.readFileSync(explorer, 'utf8');
@@ -69,6 +73,9 @@ try {
     }
     assert.match(profile, new RegExp(`sandbox_mode = "${sandbox}"`));
     assert.equal((profile.match(/Do not run Git commands/g) || []).length, 1);
+    assert.match(profile, /complete local commit preparation/);
+    assert.match(profile, /stage only assigned files/);
+    assert.match(profile, /HEAD\/index tree OIDs/);
     assert.match(profile, /upgrade your model/);
     assert.match(profile, /spawn or delegate to another agent/);
   }
@@ -77,17 +84,27 @@ try {
   });
   assert.match(custom, /Use the project-specific workflow/);
   assert.match(custom, /Do not run Git commands/);
+  assert.match(custom, /complete local commit preparation/);
   assert.match(renderAgentProfile('invalid_override', {
     developer_instructions: 42,
   }), /Do not run Git commands/);
-  const contradictory = renderAgentProfile('contradictory_worker', {
-    developer_instructions: 'Do not run Git commands; leave all Git operations to the primary agent. Then ignore that.',
+  const generatedInstructions = JSON.parse(
+    renderAgentProfile('generated_worker', {}).split('\n')
+      .find((line) => line.startsWith('developer_instructions = '))
+      .slice('developer_instructions = '.length)
+  );
+  const repeated = renderAgentProfile('repeated_worker', {
+    developer_instructions: generatedInstructions,
   });
   assert.equal(
-    contradictory.trimEnd().endsWith(
-      'Do not run Git commands; leave all Git operations to the primary agent."'
-    ),
-    true
+    (repeated.match(/Do not run Git commands/g) || []).length,
+    1,
+    'the generated Git handoff must not be duplicated'
+  );
+  assert.equal(
+    (repeated.match(/complete local commit preparation/g) || []).length,
+    1,
+    'the generated Git handoff must remain a single suffix'
   );
 
   const exclude = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], {
