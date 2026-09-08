@@ -31,9 +31,11 @@ jobs:
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       HOMEBREW_NO_ANALYTICS: "1"
-      DBG_HOME: ${{ runner.temp }}/dbg-homebrew
     steps:
       - uses: actions/checkout@v4
+      - name: Select an isolated Dbg data directory
+        shell: bash
+        run: echo "DBG_HOME=$RUNNER_TEMP/dbg-homebrew" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: 20
