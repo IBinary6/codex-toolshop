@@ -17,7 +17,7 @@ assert.equal(config.modules.session_guidance, true);
 assert.equal(config.modules.prompt_guidance, true);
 assert.equal(config.modules.pre_tool_nudge, false);
 assert.equal(config.modules.subagent_guidance, true);
-assert.match(mainAgentGuidance(config), /Keep requirements clarification, architecture and interface decisions/);
+assert.match(mainAgentGuidance(config), /Keep requirements clarification, key plan and public-contract decisions/);
 assert.match(mainAgentGuidance(config), /even when that work is sequential/);
 assert.match(mainAgentGuidance(config), /no more than 3 subagents/);
 assert.match(mainAgentGuidance(config), /dispatch_worker \(inherit, inherit\)/);
@@ -27,15 +27,18 @@ assert.match(mainAgentGuidance(config), /explicitly pass model and effort/);
 assert.doesNotMatch(mainAgentGuidance(config), /cost-efficient execution agent/);
 assert.doesNotMatch(mainAgentGuidance(config), /clear development.*Luna/);
 assert.doesNotMatch(mainAgentGuidance(config), /difficult execution.*Terra ultra/);
-assert.match(mainAgentGuidance(config), /independently review non-trivial implementation/);
+assert.match(mainAgentGuidance(config), /independently review non-trivial deliverables/);
 assert.match(mainAgentGuidance(config), /reuses the original writer for a bounded fix/);
 assert.match(mainAgentGuidance(config), /reruns affected checks, and reviews again/);
 assert.match(mainAgentGuidance(config), /Only a defect supported by concrete evidence and affecting the current acceptance target can block/);
-assert.match(mainAgentGuidance(config), /Missing context, hypothetical concurrency, and style suggestions are non-blocking/);
+assert.match(mainAgentGuidance(config), /Missing context, hypothetical risks, and style suggestions are non-blocking/);
 assert.match(mainAgentGuidance(config), /do not trigger automatic rework or stop for confirmation/);
 assert.match(mainAgentGuidance(config), /do not leave idle agents occupying limited slots/);
 assert.match(mainAgentGuidance(config), /Execute all Git commands in the primary agent, one at a time/);
 assert.match(mainAgentGuidance(config), /Agent Dispatch selects the agent; CodeMap Boost owns graph refresh/);
+assert.match(mainAgentGuidance(config), /content or product production/);
+assert.match(mainAgentGuidance(config), /builds and code tests are not universal requirements/);
+assert.match(mainAgentGuidance(config), /does not authorize external publishing or sending/);
 assert.match(mainAgentGuidance(config, true), /所有 Git 命令均由主代理串行执行/);
 assert.match(mainAgentGuidance(config, true), /Agent Dispatch 只负责选代理/);
 assert.match(mainAgentGuidance(config, true), /立即停止子代理/);
@@ -50,12 +53,16 @@ assert.match(mainAgentGuidance(config, true), /当前完整历史 fork 不接受
 assert.match(mainAgentGuidance(config, true), /复用原 writer 有界修复/);
 assert.match(mainAgentGuidance(config, true), /重跑受影响检查并复查/);
 assert.match(mainAgentGuidance(config, true), /只有具体证据证明影响本次验收目标的缺陷才阻塞/);
-assert.match(mainAgentGuidance(config, true), /上下文缺失、假设性并发和风格建议作为非阻塞提示/);
+assert.match(mainAgentGuidance(config, true), /上下文缺失、假设性风险和风格建议作为非阻塞提示/);
 assert.match(mainAgentGuidance(config, true), /不自动返修，也不触发确认停工/);
+assert.match(mainAgentGuidance(config, true), /按交付物选择验证证据/);
+assert.match(mainAgentGuidance(config, true), /不新增对外发布、发送、付费、生产环境或真实数据变更的授权/);
 assert.match(subagentGuidance(config), /do not spawn or delegate/i);
 assert.match(subagentGuidance(config), /every file you changed/i);
 assert.match(subagentGuidance(config), /Do not run Git commands/);
-assert.match(subagentGuidance(config), /Agent Dispatch selects the agent; CodeMap Boost owns graph refresh/);
+assert.match(subagentGuidance(config), /CodeMap Boost only for explicit code structure or code-review work/);
+assert.match(subagentGuidance(config), /validation methods, evidence, results/);
+assert.match(subagentGuidance(config), /do not add authority to publish or send externally/);
 
 assert.equal(promptNeedsDispatch('请帮我审查并迁移这个多文件插件', config), true);
 assert.equal(promptNeedsDispatch('解释这一行', config), false);
@@ -98,7 +105,7 @@ assert.match(implementation, /可写执行角色/);
 assert.match(implementation, /model 与 effort/);
 assert.match(promptGuidance('请实现这个常规功能', config), /主代理.*验收/);
 assert.doesNotMatch(implementation, /dispatch_worker|dispatch_hard_worker|gpt-5\.6-(luna|terra)|\/(?:max|ultra)/);
-assert.match(implementation, /针对性验证后独立审查/);
+assert.match(implementation, /针对性验证后，再独立审查非琐碎成果/);
 assert.match(implementation, /复用原 writer 有界修复/);
 assert.match(implementation, /有具体证据且影响本次验收/);
 assert.match(implementation, /提示项不自动返修或停工/);
@@ -111,15 +118,34 @@ for (const name of ['dispatch_reviewer', 'dispatch_deep_reviewer']) {
   const instructions = config.agent_profiles.profiles[name].developer_instructions;
   assert.match(instructions, /Exclude vendored third-party implementations/);
   assert.match(instructions, /thridpart/);
-  assert.match(instructions, /Preserve local clang-format protection/);
-  assert.match(instructions, /task intent, build configuration, real entry point and call contract, and actual execution path/);
+  assert.match(instructions, /Preserve local clang-format protection/i);
+  assert.match(instructions, /task intent, acceptance criteria, real entry point/);
+  assert.match(instructions, /For code review, also verify build configuration and call contracts/);
   assert.match(instructions, /Block only defects that concrete evidence shows affect the current acceptance target/);
-  assert.match(instructions, /Missing context, hypothetical concurrency, and style suggestions are non-blocking/);
+  assert.match(instructions, /Missing context, hypothetical risks, and style suggestions are non-blocking/);
   assert.match(instructions, /#if DEBUG, #if _DEBUG, #if DBG, and KdBreakPoint/);
-  assert.match(instructions, /do not remove them/);
-  assert.match(instructions, /required Release or other delivery configuration/);
-  assert.match(instructions, /not a permanent exemption for all debug code/);
+  assert.match(instructions, /preserve debug-scoped breakpoints and instrumentation/i);
+  assert.match(instructions, /required Release or delivery path/);
+  assert.match(instructions, /not a permanent exemption for debug code/i);
 }
+
+for (const name of [
+  'dispatch_worker',
+  'dispatch_hard_worker',
+  'dispatch_luna_worker',
+  'dispatch_terra_worker',
+  'dispatch_sol_worker',
+  'dispatch_astra_worker',
+]) {
+  const profile = config.agent_profiles.profiles[name];
+  assert.match(profile.description, /deliverable/i, name);
+  assert.match(profile.developer_instructions, /does not authorize external publishing or sending/i, name);
+  assert.match(profile.developer_instructions, /(?:validation evidence appropriate to (?:that |the )?deliverable|validate the deliverable .* appropriate evidence)/i, name);
+}
+assert.match(config.agent_profiles.profiles.dispatch_tester.description, /Verification executor/);
+assert.match(config.agent_profiles.profiles.dispatch_tester.developer_instructions, /do not require builds for non-code work/);
+assert.match(config.agent_profiles.profiles.dispatch_researcher.description, /external researcher/);
+assert.match(config.agent_profiles.profiles.dispatch_researcher.developer_instructions, /does not authorize contacting others/);
 
 // 任务范围必须实际影响路线，不能只在静态策略里写“尊重用户”。
 for (const prompt of ['只读诊断这次崩溃的根因，禁止修改文件。', 'Diagnose the root cause of this crash, read-only.']) {
@@ -206,6 +232,113 @@ assert.doesNotMatch(promptGuidance('Explain the current architecture.', config),
 assert.match(promptGuidance('Fix this permission bug across modules.', config), /已有授权|现有授权/);
 assert.match(promptGuidance('Use only one agent to fix this complex crash.', config), /代理数量或并行限制优先/);
 
+// 通用交付、验证和外部研究必须走独立路线，设计/业务关系不触发代码图。
+for (const prompt of [
+  '整理访谈纪要，产出需求优先级表',
+  '制作一份品牌视觉提案',
+  '按已批准方案制作 UI 原型',
+  'Create a report from these interview notes and deliver a priority table.',
+  'Design a UI prototype for a mobile checkout flow, including the delivery address, payment method selection, validation errors, and confirmation screens',
+]) {
+  const route = routePrompt(prompt, config);
+  assert.equal(route.category, 'execution', prompt);
+  assert.equal(route.needsGraph, false, prompt);
+  assert.match(promptGuidance(prompt, config), /内容制作\/交付执行/, prompt);
+  assert.match(promptGuidance(prompt, config), /可写执行角色/, prompt);
+  assert.doesNotMatch(promptGuidance(prompt, config), /dispatch_planner|CodeMap Boost/, prompt);
+}
+for (const prompt of [
+  '按已有用例验证结账流程，不修改产品',
+  'Run tests to verify the fix, do not modify product code',
+  '执行 QA 验收并记录结果，不修改交付物',
+  '验证这个原型的导航和错误提示是否符合验收标准',
+  '验证交付物是否满足验收标准',
+  'Validate the deliverable against the acceptance criteria',
+  'Verify totals in the worksheet against the source records',
+  'Test the checkout flow against the approved acceptance criteria',
+  '验证修复结果',
+  'Run tests to verify the fix',
+  'Verify the bug fix against the acceptance criteria',
+  '运行测试计划验证原型',
+  'Run the test plan against the prototype',
+]) {
+  const route = routePrompt(prompt, config);
+  assert.equal(route.category, 'verification', prompt);
+  assert.equal(route.needsGraph, false, prompt);
+  const guidance = promptGuidance(prompt, config);
+  assert.match(guidance, /验证执行/, prompt);
+  assert.match(guidance, /dispatch_tester/, prompt);
+  assert.doesNotMatch(guidance, /可写执行角色|dispatch_planner/, prompt);
+}
+for (const prompt of [
+  '制定 QA 测试计划和验收标准', 'Design a test plan',
+  '编写 QA 测试计划', '撰写 QA 测试计划', '生成测试计划', '创建测试计划',
+  '制作测试计划', '产出测试计划',
+  'Write a test plan', 'Draft a test plan', 'Produce a test plan',
+  'Create a test plan', 'Prepare a test plan',
+]) {
+  assert.equal(routePrompt(prompt, config).category, 'plan', prompt);
+  assert.match(promptGuidance(prompt, config), /dispatch_planner/, prompt);
+  assert.doesNotMatch(promptGuidance(prompt, config), /dispatch_tester/, prompt);
+}
+for (const prompt of [
+  '按已有测试计划撰写结果报告',
+  'Write a results report using the approved test plan',
+  '撰写设计汇报材料，说明测试计划的执行结果',
+  'Write a design presentation, including the test plan results',
+]) {
+  assert.equal(routePrompt(prompt, config).category, 'execution', prompt);
+  assert.doesNotMatch(promptGuidance(prompt, config), /dispatch_planner/, prompt);
+}
+for (const prompt of [
+  '运行测试并修复失败',
+  'Run tests and fix failures',
+  '修复后验证',
+]) {
+  const route = routePrompt(prompt, config);
+  assert.equal(route.category, 'implementation', prompt);
+  assert.match(promptGuidance(prompt, config), /常规实现/, prompt);
+  assert.match(promptGuidance(prompt, config), /可写执行角色/, prompt);
+  assert.doesNotMatch(promptGuidance(prompt, config), /dispatch_tester/, prompt);
+}
+for (const prompt of [
+  'research competitor pricing from official sources',
+  '调研官网与公开来源中的最新市场价格',
+]) {
+  const route = routePrompt(prompt, config);
+  assert.equal(route.category, 'external-research', prompt);
+  assert.equal(route.needsGraph, false, prompt);
+  assert.match(promptGuidance(prompt, config), /dispatch_researcher/, prompt);
+  assert.doesNotMatch(promptGuidance(prompt, config), /dispatch_explorer|CodeMap Boost/, prompt);
+}
+for (const prompt of [
+  'Review onboarding design for accessibility',
+  '评审活动方案及渠道依赖',
+  '梳理活动方案的依赖关系',
+  '评审客户分类方案',
+  '评审调研方法',
+  '审核提交申请的流程',
+  'Review the patch design for a jacket',
+]) {
+  assert.equal(routePrompt(prompt, config).needsGraph, false, prompt);
+  assert.doesNotMatch(promptGuidance(prompt, config), /CodeMap Boost|代码图|图查询/, prompt);
+}
+for (const prompt of [
+  '审查这段代码的调用链修改',
+  'Review this code patch for regressions',
+  'Please inspect this patch for regressions',
+  '请分析 auth 模块的依赖关系',
+]) {
+  assert.equal(routePrompt(prompt, config).needsGraph, true, prompt);
+  assert.match(promptGuidance(prompt, config), /CodeMap Boost|图查询/, prompt);
+}
+const presentation = 'Prepare a design presentation for the stakeholder meeting, including customer needs, journey stages, visual direction, and the final handoff checklist.';
+assert.equal(routePrompt(presentation, config).category, 'execution');
+assert.match(promptGuidance(presentation, config), /内容制作\/交付执行/);
+assert.doesNotMatch(promptGuidance(presentation, config), /dispatch_planner/);
+const difficultReadOnly = promptGuidance('只读分析这个困难复杂的运营问题，禁止修改', config);
+assert.doesNotMatch(difficultReadOnly, /可写执行角色|writer|dispatch_worker|dispatch_hard_worker/);
+
 const overridden = JSON.parse(JSON.stringify(config));
 overridden.agent_profiles.profiles.dispatch_reviewer.model = 'gpt-6-astra';
 overridden.agent_profiles.profiles.dispatch_reviewer.model_reasoning_effort = 'low';
@@ -233,11 +366,16 @@ disabled.agent_profiles.profiles.dispatch_terra_worker.enabled = false;
 disabled.agent_profiles.profiles.dispatch_sol_worker.enabled = false;
 disabled.agent_profiles.profiles.dispatch_astra_worker.enabled = false;
 disabled.agent_profiles.profiles.dispatch_tester.enabled = false;
+disabled.agent_profiles.profiles.dispatch_researcher.enabled = false;
 assert.doesNotMatch(promptGuidance('请审查安全权限风险', disabled), /dispatch_deep_reviewer|dispatch_reviewer/);
 assert.match(promptGuidance('请审查安全权限风险', disabled), /主代理/);
 assert.doesNotMatch(promptGuidance('请扫描整个仓库的跨模块调用链', disabled), /dispatch_mapper/);
 assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', disabled), /dispatch_explorer/);
 assert.match(promptGuidance('请实现这个常规功能', disabled), /当前没有启用的可写执行角色，由主代理直接完成/);
+assert.match(promptGuidance('按已有用例验证流程，不修改产品', disabled), /由主代理直接完成/);
+assert.doesNotMatch(promptGuidance('按已有用例验证流程，不修改产品', disabled), /dispatch_tester/);
+assert.match(promptGuidance('research competitor pricing from official sources', disabled), /由主代理直接完成/);
+assert.doesNotMatch(promptGuidance('research competitor pricing from official sources', disabled), /dispatch_researcher/);
 
 const testerOnly = JSON.parse(JSON.stringify(config));
 for (const name of [

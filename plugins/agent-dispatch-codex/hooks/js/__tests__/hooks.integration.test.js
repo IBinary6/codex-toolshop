@@ -96,6 +96,89 @@ try {
   assert.match(searchPrompt.hookSpecificOutput.additionalContext, /图刷新由 CodeMap Boost 负责/);
   assert.match(searchPrompt.hookSpecificOutput.additionalContext, /不要重复 build\/update/);
 
+  const deliveryPrompt = parse(run('user_prompt_submit', {
+    hook_event_name: 'UserPromptSubmit',
+    prompt: '按已批准方案制作 UI 原型',
+  }));
+  assert.match(deliveryPrompt.hookSpecificOutput.additionalContext, /内容制作\/交付执行/);
+  assert.match(deliveryPrompt.hookSpecificOutput.additionalContext, /可写执行角色/);
+  assert.doesNotMatch(deliveryPrompt.hookSpecificOutput.additionalContext, /dispatch_planner|CodeMap Boost/);
+
+  const verificationPrompt = parse(run('user_prompt_submit', {
+    hook_event_name: 'UserPromptSubmit',
+    prompt: 'Run tests to verify the fix, do not modify product code',
+  }));
+  assert.match(verificationPrompt.hookSpecificOutput.additionalContext, /验证执行/);
+  assert.match(verificationPrompt.hookSpecificOutput.additionalContext, /dispatch_tester/);
+  assert.doesNotMatch(verificationPrompt.hookSpecificOutput.additionalContext, /可写执行角色/);
+
+  for (const verificationOnly of [
+    'Run tests to verify the fix',
+    'Run the test plan against the prototype',
+  ]) {
+    const output = parse(run('user_prompt_submit', {
+      hook_event_name: 'UserPromptSubmit',
+      prompt: verificationOnly,
+    }));
+    assert.match(output.hookSpecificOutput.additionalContext, /验证执行/);
+    assert.match(output.hookSpecificOutput.additionalContext, /dispatch_tester/);
+    assert.doesNotMatch(output.hookSpecificOutput.additionalContext, /可写执行角色|dispatch_planner/);
+  }
+
+  for (const planCreation of ['编写 QA 测试计划', 'Write a test plan']) {
+    const output = parse(run('user_prompt_submit', {
+      hook_event_name: 'UserPromptSubmit',
+      prompt: planCreation,
+    }));
+    assert.match(output.hookSpecificOutput.additionalContext, /dispatch_planner/);
+    assert.doesNotMatch(output.hookSpecificOutput.additionalContext, /可写执行角色|dispatch_tester/);
+  }
+
+  const modificationPrompt = parse(run('user_prompt_submit', {
+    hook_event_name: 'UserPromptSubmit',
+    prompt: 'Run tests and fix failures',
+  }));
+  assert.match(modificationPrompt.hookSpecificOutput.additionalContext, /常规实现/);
+  assert.match(modificationPrompt.hookSpecificOutput.additionalContext, /可写执行角色/);
+  assert.doesNotMatch(modificationPrompt.hookSpecificOutput.additionalContext, /dispatch_tester/);
+
+  const presentationPrompt = parse(run('user_prompt_submit', {
+    hook_event_name: 'UserPromptSubmit',
+    prompt: 'Prepare a design presentation for the stakeholder meeting, including customer needs, journey stages, visual direction, and the final handoff checklist.',
+  }));
+  assert.match(presentationPrompt.hookSpecificOutput.additionalContext, /内容制作\/交付执行/);
+  assert.doesNotMatch(presentationPrompt.hookSpecificOutput.additionalContext, /dispatch_planner/);
+
+  const researchPrompt = parse(run('user_prompt_submit', {
+    hook_event_name: 'UserPromptSubmit',
+    prompt: 'research competitor pricing from official sources',
+  }));
+  assert.match(researchPrompt.hookSpecificOutput.additionalContext, /外部研究/);
+  assert.match(researchPrompt.hookSpecificOutput.additionalContext, /dispatch_researcher/);
+  assert.doesNotMatch(researchPrompt.hookSpecificOutput.additionalContext, /CodeMap Boost/);
+
+  const designReviewPrompt = parse(run('user_prompt_submit', {
+    hook_event_name: 'UserPromptSubmit',
+    prompt: 'Review onboarding design for accessibility',
+  }));
+  assert.match(designReviewPrompt.hookSpecificOutput.additionalContext, /常规审查/);
+  assert.match(designReviewPrompt.hookSpecificOutput.additionalContext, /dispatch_reviewer/);
+  assert.doesNotMatch(designReviewPrompt.hookSpecificOutput.additionalContext, /CodeMap Boost|代码图|图查询/);
+
+  const patchReviewPrompt = parse(run('user_prompt_submit', {
+    hook_event_name: 'UserPromptSubmit',
+    prompt: 'Please inspect this patch for regressions',
+  }));
+  assert.match(patchReviewPrompt.hookSpecificOutput.additionalContext, /dispatch_reviewer/);
+  assert.match(patchReviewPrompt.hookSpecificOutput.additionalContext, /CodeMap Boost|图查询/);
+
+  const clothingReviewPrompt = parse(run('user_prompt_submit', {
+    hook_event_name: 'UserPromptSubmit',
+    prompt: 'Review the patch design for a jacket',
+  }));
+  assert.match(clothingReviewPrompt.hookSpecificOutput.additionalContext, /dispatch_reviewer/);
+  assert.doesNotMatch(clothingReviewPrompt.hookSpecificOutput.additionalContext, /CodeMap Boost|代码图|图查询/);
+
   const subagent = parse(run('subagent_start', {
     hook_event_name: 'SubagentStart',
     agent_id: 'a-1',

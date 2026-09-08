@@ -1,7 +1,7 @@
 {
   "name": "agent-dispatch-codex",
-  "version": "0.1.17",
-  "description": "Role-aware Codex routing with configurable execution candidates and strong independent review.",
+  "version": "0.1.18",
+  "description": "General-purpose Codex task routing for research, planning, production, verification, and independent review.",
   "license": "MIT",
   "private": true,
   "engines": {
