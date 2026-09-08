@@ -65,6 +65,8 @@ Ghidra 构建同时支持已安装但不在 PATH 的 Homebrew OpenJDK，以及 m
 
 Node.js 18+ 由插件宿主环境提供。脚本优先使用 Python 3.11+；缺失时通过独立 uv 准备 Python 3.12，不改系统 Python。依赖保存在独立 venv。下载按 HTTPS 获取，发布资产有上游 SHA-256 时验证；缓存始终保留本地摘要，损坏时重新下载。
 
+GitHub API 默认匿名访问；环境中已有 `GH_TOKEN` 或 `GITHUB_TOKEN` 时会自动使用，仅发往 `https://api.github.com`，重定向不转发，也不写入状态文件。CI 使用任务自带的只读令牌，避免共享出口的匿名限流。
+
 显式 doctor 每次查询稳定发布或精确提交；IDA MCP 固定在已适配的 GUI 版本 1.4.0，上游架构迁移需升级 Dbg 适配器。Ghidra bridge 来自 LaurieWired 上游，属于运行所需的协议桥，不是旧电脑路径包装脚本。源码固定到提交，Java 监听仅调整为 `127.0.0.1`，避免直接使用不匹配本机 Ghidra 版本的预编译 JAR。
 
 `state.json` 保存文件归属、摘要和启动配置，包含本机 x64dbg 令牌，不应提交或共享。`last-report.json` 是不含运行令牌的部署摘要。修改前备份到 `backups`，受管文件缺失会修复；人工改动的受管文件和未知同名扩展会报冲突，避免自动覆盖。x64dbg 已有专用 MCP JSON 配置采用有限迁移，保留非关键字段并备份。更新失败保留已有可用运行入口。

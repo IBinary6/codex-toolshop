@@ -29,7 +29,7 @@ def status_server(tool: str, message: str):
             method = request.get("method")
             if method == "initialize":
                 result = {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}},
-                          "serverInfo": {"name": "dbg-" + tool, "version": "0.1.1"}}
+                          "serverInfo": {"name": "dbg-" + tool, "version": "0.1.2"}}
             elif method == "tools/list":
                 result = {"tools": [{"name": name, "description": "显示此调试工具的部署状态", "inputSchema": {"type": "object", "properties": {}}}]}
             elif method == "tools/call" and request.get("params", {}).get("name") == name:

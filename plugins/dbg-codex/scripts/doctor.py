@@ -12,7 +12,7 @@ from dbg_core import DbgError, FileLock, atomic_json, default_data_dir, load_jso
 from discovery import discover
 from runtime import Context
 
-PLUGIN_VERSION = "0.1.1"
+PLUGIN_VERSION = "0.1.2"
 SCHEMA_VERSION = 1
 
 

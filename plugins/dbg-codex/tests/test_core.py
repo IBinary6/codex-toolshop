@@ -135,6 +135,33 @@ class ZipExtractionTests(unittest.TestCase):
 
 
 class DownloaderTests(unittest.TestCase):
+    def test_github_token_is_scoped_to_api_and_not_forwarded_on_redirect(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_dir:
+            downloader = dbg_core.Downloader(Path(raw_dir))
+            response = mock.MagicMock()
+            response.__enter__.return_value.read.return_value = b'{}'
+            urls = (
+                "https://api.github.com/repos/example/project/releases/latest",
+                "https://github.com/example/project/archive/main.zip",
+                "https://api.github.com.example.invalid/file",
+                "http://127.0.0.1/file",
+            )
+            with (
+                mock.patch.dict(os.environ, {"GH_TOKEN": "test-only-token"}, clear=True),
+                mock.patch.object(dbg_core.urllib.request, "urlopen", return_value=response) as get,
+            ):
+                for url in urls:
+                    downloader.fetch(url)
+                    request = get.call_args.args[0]
+                    if url == urls[0]:
+                        self.assertEqual(request.get_header("Authorization"), "Bearer test-only-token")
+                        redirected = dbg_core.urllib.request.HTTPRedirectHandler().redirect_request(
+                            request, None, 302, "Found", {}, "https://example.invalid/asset"
+                        )
+                        self.assertFalse(redirected.has_header("Authorization"))
+                    else:
+                        self.assertFalse(request.has_header("Authorization"))
+
     def test_json_refreshes_changed_loopback_source_each_time(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
             root = Path(raw_dir).resolve()

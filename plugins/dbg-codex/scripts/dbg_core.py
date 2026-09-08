@@ -212,7 +212,16 @@ class Downloader:
             )
             temporary = Path(raw_temporary)
             with os.fdopen(descriptor, "wb") as output:
-                with urllib.request.urlopen(url, timeout=self.timeout) as response:
+                request = urllib.request.Request(url)
+                parsed = urllib.parse.urlsplit(url)
+                if parsed.scheme == "https" and parsed.netloc.lower() == "api.github.com":
+                    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+                    if token:
+                        if any(character in token for character in ("\r", "\n", "\0")):
+                            raise DbgError("GitHub 令牌格式无效")
+                        # 仅 GitHub API 使用已有令牌；urllib 重定向不会复制此类请求头。
+                        request.add_unredirected_header("Authorization", f"Bearer {token}")
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
                     output.write(response.read())
                 output.flush()
                 os.fsync(output.fileno())

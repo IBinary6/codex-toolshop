@@ -90,7 +90,7 @@
     },
     {
       "name": "dbg-codex",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "description": "Script-driven deployment, update and repair of debugger extensions and their MCP servers.",
       "source": {
         "source": "local",
