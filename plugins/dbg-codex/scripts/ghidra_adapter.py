@@ -17,6 +17,34 @@ from runtime import run_command
 REPOSITORY = "LaurieWired/GhidraMCP"
 
 
+def system_java_candidates():
+    """只读寻找未加入 PATH 的已安装 JDK；只枚举固定层级及活动 brew opt。"""
+    if sys.platform == "win32":
+        return
+    from homebrew import homebrew_prefixes
+    for prefix in homebrew_prefixes():
+        opt = prefix / "opt"
+        try:
+            entries = sorted(opt.glob("openjdk*"))
+        except OSError:
+            entries = []
+        for entry in entries:
+            if not re.fullmatch(r"openjdk(?:@\d+)?", entry.name):
+                continue
+            yield entry / "libexec/openjdk.jdk/Contents/Home/bin/javac"
+            yield entry / "bin/javac"
+    roots = ([Path("/Library/Java/JavaVirtualMachines"), Path.home() / "Library/Java/JavaVirtualMachines"]
+             if sys.platform == "darwin" else [Path("/usr/lib/jvm"), Path("/usr/java")])
+    for root in roots:
+        try:
+            entries = sorted(root.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.is_dir():
+                yield entry / ("Contents/Home/bin/javac" if sys.platform == "darwin" else "bin/javac")
+
+
 def custom_settings_base(path: Path) -> Path:
     if not path.is_absolute():
         raise DbgError("Ghidra 设置基目录必须是绝对路径")
@@ -69,7 +97,8 @@ def javac_path(installation) -> Path:
     saved = user_settings_dir(installation.version, installation.root) / "java_home.save"
     if saved.is_file():
         candidates.append(Path(saved.read_text(encoding="utf-8").strip()) / "bin/javac")
-    for candidate in candidates:
+    from itertools import chain
+    for candidate in chain(candidates, system_java_candidates()):
         if os.name == "nt" and candidate.suffix.lower() != ".exe":
             candidate = candidate.with_suffix(".exe")
         if not candidate.is_file():

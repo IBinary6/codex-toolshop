@@ -2,7 +2,6 @@
   "name": "agent-dispatch-codex",
   "version": "0.1.18",
   "description": "General-purpose Codex task routing for research, planning, production, verification, and independent review.",
-  "license": "MIT",
   "private": true,
   "engines": {
     "node": ">=18"

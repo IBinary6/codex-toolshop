@@ -1,6 +1,6 @@
 # Codex Toolshop
 
-`codex-toolshop` 是 IBinary6 的 Codex 插件市场，用来集中发布可复用的本地工程插件。目标是安装后尽量自动工作，不要求用户手动维护旧式 hook。
+`codex-toolshop` 是 IBinary6 内部使用的 Codex 插件市场，集中维护逆向调试、代码检索、工程规范、任务调度与本地知识工具。各插件按需安装，通过脚本和宿主 hooks 完成日常配置与维护。
 
 ## 快速安装
 
@@ -10,9 +10,10 @@
 codex plugin marketplace add https://github.com/IBinary6/codex-toolshop.git
 ```
 
-安装推荐工作流插件：
+按需要安装插件：
 
 ```bash
+codex plugin add dbg-codex@codex-toolshop
 codex plugin add codemap-boost-codex@codex-toolshop
 codex plugin add cpp-style-enforcer-codex@codex-toolshop
 codex plugin add agent-dispatch-codex@codex-toolshop
@@ -25,12 +26,13 @@ codex plugin add system-proxy-codex@codex-toolshop
 
 ## 平台支持
 
-当前正式适配目标是 Windows 和 macOS；仓库保留已有 Linux 分支，但暂不纳入发布验证。所有插件要求 Node.js 18 或更高版本，涉及 Python 的插件会自动尝试 macOS 常见的 `python3`、Windows 的 `python` 与 `py -3`：
+市场主要面向 Windows 和 macOS；Dbg 另外提供 Linux 的部署脚本与 CI 验证。各插件的依赖和兼容范围以其说明为准，不能把一种插件的验证范围套用于整个市场。所有插件要求 Node.js 18 或更高版本：
 
 | 平台 | 支持的终端/运行方式 | CI 配置 |
 | --- | --- | --- |
 | Windows | PowerShell、Git Bash、Windows Python launcher | GitHub Actions `windows-latest` |
 | macOS | zsh、bash、`python3`、Apple Silicon 常用工具链 | GitHub Actions `macos-latest` |
+| Linux（Dbg） | bash、Python、Homebrew/Linuxbrew 或手动安装的工具 | Dbg 的 GitHub Actions `ubuntu-latest` |
 
 `codemap-boost-codex` 还需要 Git，以及 `uv` 或支持 `venv` 的 Python；`cpp-style-enforcer-codex` 的 `clang-format` 和 `iconv-lite` 为可选能力。
 
@@ -38,13 +40,33 @@ codex plugin add system-proxy-codex@codex-toolshop
 
 | 插件 | 当前用途 | 日常用法 |
 | --- | --- | --- |
-| [Dbg](plugins/dbg-codex/README.md) | 自动发现并部署 x64dbg、Ghidra、WinDbg、IDA 的扩展和 MCP；不兼容版本明确跳过。 | 首次加载自动部署；`dbg doctor` 再次检测、更新、修复，全程由脚本执行。 |
+| [Dbg](plugins/dbg-codex/README.md) | 发现 Scoop、Homebrew 和手动安装的调试工具，部署 x64dbg、Ghidra、WinDbg、IDA 的扩展及 MCP。 | 首次加载自动部署；`dbg doctor` 再次检测、更新、修复；不兼容版本明确跳过，全程由脚本执行。 |
 | `codemap-boost-codex` | 自动接入 `code-review-graph` 代码结构图，提供符号、调用、引用和影响面检索能力。 | 新会话自动 bootstrap、自动 build/update。涉及代码结构时优先用 `mcp__code_review_graph__*` 工具。 |
 | `cpp-style-enforcer-codex` | 自动执行团队 C++ 风格流程，包括 clang-format、版权头、BOM、cpplint 和提交前检查。 | 正常编辑即可；写入 C/C++ 文件后 hook 自动处理，`git commit` 前会检查暂存区 C++ 文件。 |
 | `agent-dispatch-codex` | 面向产品、设计、QA、研究、运营和开发，按调查、规划、制作、验证、审查分配有界任务与模型。 | 新会话自动注入通用调度策略；按交付物验收，子代理直接执行、报告结果，并在整合后及时释放。 |
 | `local-knowledge-codex` | 为 Codex 提供本地索引知识，覆盖错误方案、用户偏好、事实、决策和工作流。 | 按作用域和相关性只读召回；明确要求保存或存在已验证且获授权的可复用内容时，再按宿主策略写入。 |
 | `conversation-namer-codex` | 按创建日期、任务类型和实际主题生成统一的 Codex 会话标题。 | 新任务后台调用轻量模型命名，主任务继续工作；批量整理当前项目时先预览两列表格，确认后才改标题。 |
 | `system-proxy-codex` | 自动启用 Codex 系统代理支持，并用 Python 安全配置 `.env`。 | 默认使用系统代理；也可用 `system-proxy-setup` 自动检测或指定 `7897`、`7890` 等端口。 |
+
+## Dbg 怎么用
+
+安装 `dbg-codex` 后，在新 Codex 任务首次加载插件时，脚本自动检测本机调试工具，下载适配的扩展、准备隔离运行时，并生成本机路径和 MCP 启动配置。MCP 由插件自带，无需在 CC Switch 另行登记。之后新增、升级或移动了工具，仍只需执行同一个命令：
+
+```sh
+dbg doctor
+```
+
+| 平台 | 自动发现来源 | 可部署的组件 |
+| --- | --- | --- |
+| Windows | Scoop 用户、全局及自定义根目录，活动 `current`、注册安装、PATH 和常见手动安装目录 | x64dbg/x32dbg、Ghidra、WinDbg、兼容的 IDA |
+| macOS | Apple Silicon/Intel Homebrew 实际前缀、活动 formula、相关已安装 cask、Applications、PATH 和常见手动安装目录 | Ghidra、兼容的 IDA |
+| Linux | Homebrew/Linuxbrew 实际前缀、活动 formula、PATH 和常见手动安装目录 | Ghidra、兼容的 IDA |
+
+Dbg 自动填写发现到的宿主、Python、JDK、扩展目录及 MCP 路径；换电脑后重新按当地环境计算，不沿用上一台电脑的绝对路径。软件未安装就跳过；IDA 8.2、IDA Free 或无法确认兼容性的版本明确标记为不支持。任意自定义目录无法保证自动发现，未命中时可在 Dbg 的 `config.json` 补充路径，再执行 doctor。
+
+原生调试软件仍由用户安装。Ghidra 首次需要在 GUI 中启用扩展，实际调试需要打开对应工具及目标。macOS/Linux 的 `dbg` 安装在 `~/.local/bin`，该目录不在 PATH 时 doctor 会给出配置提示。部署完成与调试目标已连接是两个不同状态，详情见 [Dbg 的组件、配置和验证说明](plugins/dbg-codex/README.md)。
+
+只想减少 Codex 加载的 MCP 时，可以停用或卸载 Dbg 插件；已部署到调试软件中的扩展、独立运行时和备份会保留，卸载插件不等于清除这些本地文件。
 
 ## 会话命名怎么用
 
@@ -167,6 +189,7 @@ py -3 -m pip install clang-format==18.1.8
 
 ```bash
 codex plugin marketplace upgrade codex-toolshop
+codex plugin add dbg-codex@codex-toolshop
 codex plugin add codemap-boost-codex@codex-toolshop
 codex plugin add cpp-style-enforcer-codex@codex-toolshop
 codex plugin add agent-dispatch-codex@codex-toolshop
@@ -183,6 +206,7 @@ codex plugin list
 
 ## 故障排查
 
+- Dbg 新安装的工具没有出现：执行 `dbg doctor`，检查报告中的 `not_installed`、`unsupported` 或错误原因；部署完成后新开 Codex 任务加载 MCP。Ghidra 还需在 GUI 中启用扩展。
 - `failed to parse plugin hooks config ... unknown field description`：更新到新版插件，并确认缓存中的 `hooks/hooks.json` 顶层只有 `hooks`。
 - CodeMap 没有图谱：确认当前目录是 Git 仓库，运行 `code-review-graph status`；新会话会在使用前等待首次 build 完成。
 - CodeMap 完全不工作：检查是否设置了 `CODEMAP_BOOST_DISABLE_GRAPH=1` 或 `CODEMAP_BOOST_DISABLE_BOOTSTRAP=1`。
@@ -190,7 +214,3 @@ codex plugin list
 - Agent Dispatch 没有生效：新建任务后打开 `/hooks`，审查并信任当前插件 Hook 哈希。
 - 新会话没有自动命名：确认 `conversation-namer-codex` 已启用；新建任务后打开 `/hooks`，审查并信任当前插件 Hook 哈希。升级 hook 后需要重新新建任务。
 - Local Knowledge 查不到历史记录：先运行 `local-knowledge-setup`；确认 `~/.bugdb/bugs.db` 存在，并检查 `LOCAL_KNOWLEDGE_HOME` 或旧兼容变量 `BUGDB_HOME` 是否覆盖了路径。旧版数据仍在独立目录时运行 `local-knowledge-migrate`。
-
-## 协议
-
-MIT

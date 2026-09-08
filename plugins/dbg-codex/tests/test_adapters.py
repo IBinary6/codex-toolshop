@@ -276,6 +276,20 @@ class IdaAdapterTests(unittest.TestCase):
             self.assertEqual(ctx.runtime_calls, [])
             self.assertEqual(ctx.deploy_calls, 0)
 
+    def test_ida_free_is_rejected_before_download_even_with_new_version(self) -> None:
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as raw_dir:
+            root = Path(raw_dir).resolve()
+            host = SimpleNamespace(root=root, version="9.3", edition="free")
+            for install in (adapters.install_ida_mcp, adapters.install_ida_export):
+                ctx = FakeContext(root, FakeDownloader())
+                result = install([host], ctx)
+                self.assertEqual(result["status"], "unsupported")
+                self.assertIn("IDAPython", result["message"])
+                self.assertEqual(ctx.runtime_calls, [])
+                self.assertEqual(ctx.downloader.fetches, [])
+                self.assertEqual(ctx.deploy_calls, 0)
+
     def test_exporter_reports_ida_8_2_unsupported_without_deploying(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
             root = Path(raw_dir)

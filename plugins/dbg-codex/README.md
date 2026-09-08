@@ -25,6 +25,8 @@ node scripts/launch.cjs doctor --tool ghidra --json
 
 `dbg-doctor` skill 只负责调用该入口；不需要 AI 推断路径、下载地址或修改配置。MCP 列表在任务启动时加载，刚增加工具后需新开任务。宿主要求信任 hook 时，由宿主正常确认；插件不修改信任记录。MCP 启动入口仍可执行首次部署。
 
+Windows 自动把 `dbg` 入口加入当前用户 PATH。macOS/Linux 在 `~/.local/bin` 安装入口；若该目录尚未加入 PATH，doctor 会给出所需的 shell 配置提示，也可直接使用 `~/.local/bin/dbg doctor`。
+
 ## 组件与兼容范围
 
 | 组件 | 部署内容 | 使用前提 |
@@ -37,9 +39,13 @@ node scripts/launch.cjs doctor --tool ghidra --json
 
 不受支持的版本显示 `unsupported`，不下载不兼容组件，不阻塞其他工具。宿主未安装显示 `not_installed`。`deployed` 表示文件与配套运行时已准备完成，不表示 GUI 已打开或调试目标已连接。缺少宿主时，固定 MCP 入口只提供状态查询工具，不假冒调试能力。
 
+[IDA Free 不提供 IDAPython API](https://hex-rays.com/ida-free)，即使版本号较新也不会部署这两个 Python 插件。
+
 x64dbg 与 x32dbg 使用独立入口 `dbg-x64dbg`、`dbg-x32dbg`，分别连接对应架构，避免同时打开两个调试器时操作到错误的实例。
 
-Windows 自动发现 Scoop 用户/全局/自定义根、活动 `current`、已注册安装及 PATH。macOS/Linux 使用 PATH 和常见安装位置。Scoop 当前活动版本优先于历史目录。未命中非标准目录时，在 Dbg 数据目录的 `config.json` 显式添加根目录，无需重装插件：
+Windows 自动发现 Scoop 用户/全局/自定义根、活动 `current`、已注册安装及 PATH。macOS/Linux 自动查询 Homebrew 的实际前缀，覆盖 Apple Silicon、Intel Mac、Linuxbrew 和自定义前缀；读取活动 formula 的 `opt`/`libexec` 目录及相关已安装 cask 的实际路径。没有包管理器时仍检查 PATH、应用目录和受控的一层手动安装目录。Mac IDA 优先读取应用 `Info.plist` 中的版本，不依赖目录名包含版本号。Scoop 当前活动版本优先于历史目录。
+
+Ghidra 构建同时支持已安装但不在 PATH 的 Homebrew OpenJDK，以及 macOS/Linux 的常见 JDK 安装目录。发现过程只读取包管理器信息，不执行包管理器安装或升级。未命中非标准目录时，在 Dbg 数据目录的 `config.json` 显式添加根目录，无需重装插件：
 
 ```json
 {
@@ -71,7 +77,9 @@ Node.js 18+ 由插件宿主环境提供。脚本优先使用 Python 3.11+；缺�
 npm test
 ```
 
-测试覆盖平台发现、首次与重复执行、缺失修复、文件冲突、回滚、缓存损坏、路径穿越和 MCP 状态协议。CI 在 Windows、macOS、Linux 运行隔离测试；GUI 工具的实际兼容性仍以相应平台的宿主验证为准。
+测试覆盖平台发现、首次与重复执行、缺失修复、文件冲突、回滚、缓存损坏、路径穿越和 MCP 状态协议。CI 在 Windows、macOS、Linux 运行隔离测试，另在 macOS 实际安装 Homebrew Ghidra，验证自动发现、JDK 选择和扩展编译。GUI 工具的实际兼容性仍以相应平台的宿主验证为准。
+
+停用或卸载 Dbg 后，新任务不再加载插件提供的 MCP。已经复制到宿主中的扩展、独立运行时、命令入口和备份会保留；当前没有自动清除这些文件的卸载脚本。
 
 上游代码在运行时下载，各自遵循其仓库许可证：
 

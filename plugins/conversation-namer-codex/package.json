@@ -2,7 +2,6 @@
   "name": "conversation-namer-codex",
   "version": "0.1.5",
   "description": "Automatic Codex conversation naming with a lightweight background model.",
-  "license": "MIT",
   "private": true,
   "engines": {
     "node": ">=18"

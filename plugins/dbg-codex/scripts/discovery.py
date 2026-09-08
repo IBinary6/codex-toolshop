@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import plistlib
 import re
 import shutil
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ from pathlib import Path
 from typing import Iterable
 
 from dbg_core import DbgError
+from homebrew import homebrew_cask_artifacts, homebrew_prefixes
 
 
 TOOLS = ("x64dbg", "ghidra", "ida", "windbg")
@@ -24,6 +26,7 @@ class Installation:
     version: str = ""
     architecture: str = ""
     source: str = ""
+    edition: str = ""
 
 
 def _existing_file(root: Path, relative_names: Iterable[str]) -> Path | None:
@@ -52,6 +55,40 @@ def _ghidra_version(root: Path) -> str:
     except OSError:
         pass
     return _version_from_name(root)
+
+
+def _ida_edition(root: Path, reported_names: Iterable[str] = ()) -> str:
+    names = (root.name, *reported_names)
+    for name in names:
+        lowered = name.lower()
+        if re.search(r"(?:^|[^a-z])ida[\s_.-]*free(?:[^a-z]|$)", lowered):
+            return "free"
+        if re.sub(r"[^a-z]", "", lowered).startswith("idafree"):
+            return "free"
+    return ""
+
+
+def _ida_metadata(app_root: Path) -> tuple[str, str]:
+    plist_path = app_root / "Contents" / "Info.plist"
+    names: list[str] = []
+    version = ""
+    try:
+        with plist_path.open("rb") as source:
+            metadata = plistlib.load(source)
+        if isinstance(metadata, dict):
+            for key in ("CFBundleName", "CFBundleDisplayName"):
+                value = metadata.get(key)
+                if isinstance(value, str) and value.strip():
+                    names.append(value.strip())
+            value = metadata.get("CFBundleShortVersionString")
+            candidate = value.strip() if isinstance(value, str) else ""
+            # CFBundleVersion 始终是构建版本，哪怕点分也不能用于 IDA 兼容判断。
+            if re.fullmatch(r"\d+(?:\.\d+){1,3}", candidate):
+                version = candidate
+    except (OSError, plistlib.InvalidFileException, ValueError):
+        pass
+    # 不从备份目录、用户目录等父路径推断版本；其中的日期可能像产品版本。
+    return version or _version_from_name(Path(app_root.name)), _ida_edition(app_root, names)
 
 
 def _resolved(path: Path) -> Path:
@@ -134,11 +171,19 @@ def detect_at(tool: str, path: Path | str, source: str = "") -> Installation | N
             app_root = candidate.parent.parent
         mac_binary_root = app_root / "Contents" / "MacOS"
         if _existing_file(mac_binary_root, ("ida", "ida64")):
-            return Installation(tool, _resolved(app_root), _version_from_name(app_root), source=source)
+            version, edition = _ida_metadata(app_root)
+            return Installation(
+                tool, _resolved(app_root), version, source=source, edition=edition
+            )
         if _existing_file(candidate, ("ida.exe", "ida64.exe", "ida", "ida64")):
             architecture = "x64" if _existing_file(candidate, ("ida64.exe", "ida64")) else ""
             return Installation(
-                tool, _resolved(candidate), _version_from_name(candidate), architecture, source
+                tool,
+                _resolved(candidate),
+                _version_from_name(Path(candidate.name)),
+                architecture,
+                source,
+                _ida_edition(candidate),
             )
         return None
 
@@ -204,19 +249,40 @@ def _scoop_app_candidates(scoop_root: Path, app_names: Iterable[str]) -> list[Pa
     return result
 
 
-def _path_candidates() -> dict[str, list[Path]]:
+def _path_candidates(system: str | None = None) -> dict[str, list[Path]]:
+    current_system = system or platform.system()
     names = {
-        "x64dbg": ("x64dbg.exe", "x32dbg.exe"),
         "ghidra": ("ghidraRun.bat", "ghidraRun.sh", "ghidraRun"),
         "ida": ("ida64.exe", "ida.exe", "ida64", "ida"),
-        "windbg": ("cdb.exe", "kd.exe", "cdb", "kd"),
     }
+    if current_system == "Windows":
+        names["x64dbg"] = ("x64dbg.exe", "x32dbg.exe")
+        names["windbg"] = ("cdb.exe", "kd.exe")
     result = {tool: [] for tool in TOOLS}
     for tool, executable_names in names.items():
         for executable_name in executable_names:
             located = shutil.which(executable_name)
             if located:
                 result[tool].append(Path(located))
+    return result
+
+
+def _manual_candidates(root: Path) -> dict[str, list[Path]]:
+    """只检查一个受控目录的直接子项，不递归进入任意软件目录。"""
+
+    result = {tool: [] for tool in TOOLS}
+    try:
+        children = list(root.iterdir())
+    except OSError:
+        return result
+    for child in children:
+        if not child.is_dir():
+            continue
+        lowered = child.name.lower()
+        if lowered.startswith("ghidra"):
+            result["ghidra"].append(child)
+        if lowered.startswith("ida"):
+            result["ida"].append(child)
     return result
 
 
@@ -306,16 +372,18 @@ def _automatic_candidates() -> dict[str, list[Path]]:
         _merge_candidates(result, _windows_registry_candidates())
     else:
         home = Path.home()
-        application_roots = [Path("/Applications"), home / "Applications"] if system == "Darwin" else []
-        for applications in application_roots:
-            result["ida"].extend(
-                applications / name
-                for name in ("IDA Professional.app", "IDA.app", "IDA Free.app")
-            )
-        result["ghidra"].extend((Path("/opt/ghidra"), home / "ghidra"))
-        result["ida"].extend((Path("/opt/ida"), home / "ida"))
+        brew_prefixes = homebrew_prefixes()
+        result["ghidra"].extend(prefix / "opt/ghidra/libexec" for prefix in brew_prefixes)
+        if system == "Darwin":
+            _merge_candidates(result, homebrew_cask_artifacts(brew_prefixes))
+            for applications in (Path("/Applications"), home / "Applications"):
+                _merge_candidates(result, _manual_candidates(applications))
+        for manual_root in (Path("/opt"), home / "Tools", home / ".local/opt"):
+            _merge_candidates(result, _manual_candidates(manual_root))
+        result["ghidra"].append(home / "ghidra")
+        result["ida"].append(home / "ida")
 
-    _merge_candidates(result, _path_candidates())
+    _merge_candidates(result, _path_candidates(system))
     return {tool: _dedupe_paths(paths) for tool, paths in result.items()}
 
 

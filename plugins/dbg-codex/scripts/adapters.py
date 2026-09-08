@@ -334,6 +334,9 @@ def _locate_package_file(python: Path, relative: str) -> Path:
 
 
 def install_ida_mcp(installations: list[Any], ctx: Any) -> dict[str, Any]:
+    if any(getattr(item, "edition", "") == "free" for item in installations):
+        return {"status": "unsupported", "version": IDA_MCP_VERSION, "files": [],
+                "message": "检测到 IDA Free，不提供 IDAPython API；未部署 Python MCP 插件"}
     unsupported = _unsupported_ida_versions(installations)
     if unsupported:
         versions = ", ".join(sorted(set(unsupported)))
@@ -363,6 +366,9 @@ def install_ida_mcp(installations: list[Any], ctx: Any) -> dict[str, Any]:
 def install_ida_export(installations: list[Any], ctx: Any) -> dict[str, Any]:
     if not installations:
         raise DbgError("没有可配置的 IDA Pro")
+    if any(getattr(item, "edition", "") == "free" for item in installations):
+        return {"status": "unsupported", "version": "unresolved", "files": [],
+                "message": "检测到 IDA Free，不提供 IDAPython API；未部署 Python 导出插件"}
     unsupported: list[str] = []
     for item in installations:
         parsed = _ida_version_tuple(item.version)

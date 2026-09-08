@@ -2,7 +2,6 @@
   "name": "system-proxy-codex",
   "version": "0.1.2",
   "description": "Codex system proxy bootstrap and safe Python .env configuration.",
-  "license": "MIT",
   "private": true,
   "engines": {
     "node": ">=18"

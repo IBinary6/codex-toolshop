@@ -24,3 +24,43 @@ jobs:
       - name: Validate isolated deployment and MCP contracts
         working-directory: plugins/dbg-codex
         run: npm test
+
+  homebrew-ghidra:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+      DBG_HOME: ${{ runner.temp }}/dbg-homebrew
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install actual Homebrew Ghidra and its JDK
+        run: brew install ghidra
+      - name: Discover and deploy against the Homebrew installation
+        working-directory: plugins/dbg-codex
+        run: node scripts/launch.cjs doctor --tool ghidra --json
+      - name: Verify the deployed Ghidra extension
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os, sys, zipfile
+          from pathlib import Path
+          sys.path.insert(0, 'plugins/dbg-codex/scripts')
+          from discovery import discover
+          from ghidra_adapter import user_settings_dir
+          installations = [x for x in discover() if x.tool == 'ghidra']
+          assert installations, 'Homebrew installation was not discovered'
+          state = json.loads((Path(os.environ['DBG_HOME']) / 'state.json').read_text())
+          assert state['tools']['ghidra']['status'] == 'deployed'
+          for host in installations:
+              jar = user_settings_dir(host.version, host.root) / 'Extensions/GhidraMCP/lib/GhidraMCP.jar'
+              with zipfile.ZipFile(jar) as archive:
+                  assert 'com/lauriewired/GhidraMCPPlugin.class' in archive.namelist()
+          print('Actual Homebrew discovery, JDK selection and extension compilation passed')
+          PY
