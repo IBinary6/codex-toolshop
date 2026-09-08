@@ -72,7 +72,7 @@ class CliInstallTests(unittest.TestCase):
 
     def test_windows_installs_quoted_cmd_and_preserves_registry_type(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
+            root = Path(raw_dir).resolve()
             context, launcher, node = self._inputs(root)
             registry = FakeRegistry(r"C:\Tools", cli_install.REG_EXPAND_SZ)
 
@@ -118,7 +118,7 @@ class CliInstallTests(unittest.TestCase):
 
     def test_windows_is_idempotent_and_recognizes_equivalent_path(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
+            root = Path(raw_dir).resolve()
             context, launcher, node = self._inputs(root)
             bin_dir = context.data_dir / "bin"
             registry = FakeRegistry(
@@ -145,7 +145,7 @@ class CliInstallTests(unittest.TestCase):
         if not node_raw:
             self.skipTest("未安装 Node.js")
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir) / "中文 根目录"
+            root = Path(raw_dir).resolve() / "中文 根目录"
             root.mkdir()
             context = FakeContext(root / "Dbg 数据")
             launcher = root / "插件 目录" / "launch.cjs"
@@ -205,7 +205,7 @@ class CliInstallTests(unittest.TestCase):
 
     def test_windows_handles_percent_and_delayed_expansion_in_script_paths(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
+            root = Path(raw_dir).resolve()
             context, launcher, node = self._inputs(root)
             registry = FakeRegistry("", cli_install.REG_SZ)
             for unsafe in (root / "%TEMP%" / "node.exe", root / "!name!" / "node.exe"):
@@ -220,7 +220,7 @@ class CliInstallTests(unittest.TestCase):
 
     def test_windows_recognizes_expanded_environment_path(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
+            root = Path(raw_dir).resolve()
             context, launcher, node = self._inputs(root)
             local_app_data = context.data_dir.parent
             registry = FakeRegistry(r"C:\Tools;%LOCALAPPDATA%\data\bin", cli_install.REG_EXPAND_SZ)
@@ -240,7 +240,7 @@ class CliInstallTests(unittest.TestCase):
 
     def test_windows_reports_broadcast_failure_without_rewriting_path(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
+            root = Path(raw_dir).resolve()
             context, launcher, node = self._inputs(root)
             registry = FakeRegistry("", cli_install.REG_SZ)
             registry.broadcast_environment_change = lambda: False
@@ -254,7 +254,7 @@ class CliInstallTests(unittest.TestCase):
 
     def test_windows_rejects_non_string_path_registry_type(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
+            root = Path(raw_dir).resolve()
             context, launcher, node = self._inputs(root)
             registry = FakeRegistry("C:\\Tools", 7)
 
@@ -265,7 +265,7 @@ class CliInstallTests(unittest.TestCase):
 
     def test_refuses_existing_unmanaged_wrapper_and_keeps_it(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
+            root = Path(raw_dir).resolve()
             context, launcher, node = self._inputs(root)
             target = context.data_dir / "bin" / "dbg.cmd"
             target.parent.mkdir(parents=True)
@@ -282,7 +282,7 @@ class CliInstallTests(unittest.TestCase):
 
     def test_refuses_a_symlink_in_the_command_slot(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
+            root = Path(raw_dir).resolve()
             context, launcher, node = self._inputs(root)
             home = context.data_dir.parent
             target = home / ".local" / "bin" / "dbg"
@@ -323,7 +323,7 @@ class CliInstallTests(unittest.TestCase):
 
     def test_updates_only_a_previously_managed_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
+            root = Path(raw_dir).resolve()
             context, launcher, node = self._inputs(root)
             registry = FakeRegistry("", cli_install.REG_SZ)
             cli_install.install_cli(
@@ -343,7 +343,7 @@ class CliInstallTests(unittest.TestCase):
 
     def test_unix_installs_executable_wrapper_and_returns_path_hint(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
+            root = Path(raw_dir).resolve()
             context, launcher, node = self._inputs(root)
             result = cli_install.install_cli(
                 context,
@@ -369,7 +369,7 @@ class CliInstallTests(unittest.TestCase):
 
     def test_unix_has_no_hint_when_bin_is_already_on_path(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
+            root = Path(raw_dir).resolve()
             context, launcher, node = self._inputs(root)
             home = root / "home"
             bin_dir = home / ".local/bin"
@@ -403,7 +403,7 @@ class CliInstallTests(unittest.TestCase):
 
     def test_requires_absolute_existing_node_and_launcher(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
+            root = Path(raw_dir).resolve()
             context, launcher, node = self._inputs(root)
             with self.assertRaises(dbg_core.DbgError):
                 cli_install.install_cli(

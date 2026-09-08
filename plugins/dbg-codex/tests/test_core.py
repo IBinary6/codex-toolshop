@@ -91,7 +91,7 @@ class FileLockTests(unittest.TestCase):
 class ZipExtractionTests(unittest.TestCase):
     def test_extracts_regular_files(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
+            root = Path(raw_dir).resolve()
             archive = root / "good.zip"
             with zipfile.ZipFile(archive, "w") as output:
                 output.writestr("tool/bin/tool.txt", "ok")
@@ -109,7 +109,7 @@ class ZipExtractionTests(unittest.TestCase):
         )
         for unsafe_name in unsafe_names:
             with self.subTest(unsafe_name=unsafe_name), tempfile.TemporaryDirectory() as raw_dir:
-                root = Path(raw_dir)
+                root = Path(raw_dir).resolve()
                 archive = root / "bad.zip"
                 with zipfile.ZipFile(archive, "w") as output:
                     output.writestr("would-have-been-created.txt", "partial")
@@ -122,7 +122,7 @@ class ZipExtractionTests(unittest.TestCase):
 
     def test_rejects_symbolic_link_member(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
+            root = Path(raw_dir).resolve()
             archive = root / "link.zip"
             link = zipfile.ZipInfo("link")
             link.create_system = 3
@@ -137,7 +137,7 @@ class ZipExtractionTests(unittest.TestCase):
 class DownloaderTests(unittest.TestCase):
     def test_json_refreshes_changed_loopback_source_each_time(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
+            root = Path(raw_dir).resolve()
             source = root / "release.json"
             source.write_text('{"version": "1"}', encoding="utf-8")
 
@@ -247,7 +247,7 @@ class DownloaderTests(unittest.TestCase):
 class ManagedDeployTests(unittest.TestCase):
     def test_is_idempotent_and_repairs_a_missing_managed_file(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
+            root = Path(raw_dir).resolve()
             source = root / "prepared" / "tool.txt"
             source.parent.mkdir()
             source.write_text("v1", encoding="utf-8")
@@ -267,7 +267,7 @@ class ManagedDeployTests(unittest.TestCase):
 
     def test_refuses_unmanaged_or_user_modified_target(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
+            root = Path(raw_dir).resolve()
             source = root / "source.txt"
             source.write_text("new", encoding="utf-8")
             target = root / "target.txt"
@@ -283,7 +283,7 @@ class ManagedDeployTests(unittest.TestCase):
 
     def test_second_replace_failure_rolls_back_files_and_state(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
+            root = Path(raw_dir).resolve()
             source_a, source_b = root / "source-a", root / "source-b"
             target_a, target_b = root / "target-a", root / "target-b"
             source_a.write_text("new-a")
