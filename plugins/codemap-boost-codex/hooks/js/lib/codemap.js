@@ -26,6 +26,7 @@ const REFRESH_LOCK_WAIT_MS = 2 * 60 * 1000;
 const REFRESH_WAIT_MS = 10 * 60 * 1000;
 const REFRESH_DIAGNOSTIC_MAX_CHARS = 600;
 const SOURCE_STATE_FILE = '.codemap-boost-source-state';
+const SOURCE_STATE_VERSION = 'verified-graph-v3';
 const BLOCK_START = '<!-- codemap-boost-codex:start -->';
 const BLOCK_END = '<!-- codemap-boost-codex:end -->';
 const GUIDANCE = [
@@ -272,8 +273,8 @@ function sourceStateFingerprint(root) {
     || status.error || status.status !== 0) return null;
   const rawStatus = String(status.stdout || '');
   const hash = crypto.createHash('sha256');
-  // 新版入口会核对图内容；旧版仅依赖 CLI 退出码的 marker 必须重新验证。
-  hash.update('verified-graph-v1\0');
+  // v2 完整重建会清理旧路径别名；旧成功标记也必须进入适配器重新验证一次。
+  hash.update('verified-graph-v2\0');
   hash.update(String(head.stdout || '').trim());
   hash.update('\0');
   hash.update(String(branch.stdout || '').trim());
@@ -308,19 +309,67 @@ function sourceStatePath(root) {
   return path.join(root, '.code-review-graph', SOURCE_STATE_FILE);
 }
 
+function runtimeState(command) {
+  const resolved = path.resolve(command);
+  try {
+    const realpath = fs.realpathSync.native || fs.realpathSync;
+    return realpath(resolved);
+  } catch (_) {
+    // 候选切换或测试时命令可能尚未落盘；绝对执行路径仍是稳定身份。
+    return resolved;
+  }
+}
+
+function fileStatStamp(filePath) {
+  try {
+    const stat = fs.statSync(filePath, { bigint: true });
+    if (!stat.isFile()) return 'not-file';
+    return ['file', stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs]
+      .map(String).join(':');
+  } catch (error) {
+    return error && error.code === 'ENOENT' ? 'missing' : 'unreadable';
+  }
+}
+
+function walStateStamp(filePath) {
+  try {
+    const stat = fs.statSync(filePath, { bigint: true });
+    // SQLite 打开/关闭图时可能反复创建零字节 WAL；它不表示图内容变化，
+    // 与缺失 WAL 视为同一稳定状态，避免普通 MCP 读取反复验证。
+    if (stat.isFile() && stat.size === 0n) return 'empty-or-missing';
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return 'empty-or-missing';
+  }
+  return fileStatStamp(filePath);
+}
+
+function graphStateStamp(root) {
+  const graphDb = path.join(root, '.code-review-graph', 'graph.db');
+  const database = fileStatStamp(graphDb);
+  // 成功 marker 不能为缺失的主数据库背书；数据库删除后必须重新进入适配器。
+  if (!database.startsWith('file:')) return null;
+  return { database, wal: walStateStamp(`${graphDb}-wal`) };
+}
+
 function readSourceState(root) {
   try {
-    return fs.readFileSync(sourceStatePath(root), 'utf8').trim();
+    const state = JSON.parse(fs.readFileSync(sourceStatePath(root), 'utf8'));
+    return state && state.version === SOURCE_STATE_VERSION ? state : null;
   } catch (_) {
-    return '';
+    return null;
   }
 }
 
 function writeSourceState(root, state) {
-  if (!state) return;
+  if (!state || state.version !== SOURCE_STATE_VERSION) return;
   try {
-    fs.writeFileSync(sourceStatePath(root), `${state}\n`, 'utf8');
+    fs.writeFileSync(sourceStatePath(root), `${JSON.stringify(state)}\n`, 'utf8');
   } catch (_) {}
+}
+
+function sourceStateMatches(state, source, runtime, graph) {
+  return !!state && state.source === source && state.runtime === runtime
+    && state.graph && state.graph.database === graph.database && state.graph.wal === graph.wal;
 }
 
 function withTemporaryGitIndex(root, callback) {
@@ -366,7 +415,10 @@ function refreshCrgUnlocked(root, options = {}) {
   if (!sourceState) {
     return refreshFailed(options, 'refresh_execution_failed', 'Unable to read a stable Git source state before refresh.');
   }
-  if (hasGraph && sourceState && readSourceState(root) === sourceState) return true;
+  const command = crgCommand(options);
+  const runtime = runtimeState(command);
+  const graph = graphStateStamp(root);
+  if (hasGraph && graph && sourceStateMatches(readSourceState(root), sourceState, runtime, graph)) return true;
   // 将工作树交给 CRG 自身筛选，避免遗漏它支持但 JS 未列举的文件类型。
   const hasUntrackedSource = untrackedFiles(root).length > 0;
   const args = [hasGraph && !hasUntrackedSource ? 'update' : 'build', '--repo', root];
@@ -382,6 +434,7 @@ function refreshCrgUnlocked(root, options = {}) {
       result = runCrg(args, {
         cwd: root,
         env,
+        crgCommand: command,
         stdio: ['ignore', 'ignore', 'pipe'],
         timeout: options.timeout || REFRESH_WAIT_MS,
       });
@@ -391,13 +444,35 @@ function refreshCrgUnlocked(root, options = {}) {
     if (!result || result.error || result.status !== 0) {
       return refreshFailed(options, 'refresh_process_failed', refreshProcessFailure(result));
     }
-    const ok = sourceStateFingerprint(root) === sourceState;
-    if (ok) writeSourceState(root, sourceState);
-    return ok || refreshFailed(
-      options,
-      'refresh_source_changed',
-      'The repository source state changed while the graph refresh was running.'
-    );
+    if (sourceStateFingerprint(root) !== sourceState) {
+      return refreshFailed(
+        options,
+        'refresh_source_changed',
+        'The repository source state changed while the graph refresh was running.'
+      );
+    }
+    if (runtimeState(crgCommand(options)) !== runtime) {
+      return refreshFailed(
+        options,
+        'refresh_runtime_changed',
+        'The selected CRG runtime changed while the graph refresh was running.'
+      );
+    }
+    const refreshedGraph = graphStateStamp(root);
+    if (!refreshedGraph) {
+      return refreshFailed(
+        options,
+        'refresh_graph_missing',
+        'The graph database is missing after a successful refresh.'
+      );
+    }
+    writeSourceState(root, {
+      version: SOURCE_STATE_VERSION,
+      source: sourceState,
+      runtime,
+      graph: refreshedGraph,
+    });
+    return true;
   };
   if (!hasUntrackedSource) return invoke(process.env);
   const diagnosticCount = Array.isArray(options.diagnostics) ? options.diagnostics.length : 0;

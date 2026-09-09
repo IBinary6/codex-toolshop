@@ -145,6 +145,19 @@ class RefreshTest(unittest.TestCase):
             ADAPTER.refresh(self.root)
         self.assertEqual([call.kwargs["full_rebuild"] for call in build.call_args_list], [True, False])
 
+    def test_runtime_identity_change_rebuilds_a_verified_graph(self):
+        """运行时包身份变化不能复用旧 runtime 写入的可信 proof。"""
+        store, _ = _get_store(str(self.root))
+        try:
+            self.assertTrue(ADAPTER.has_verified_graph(store))
+        finally:
+            store.close()
+        changed_identity = {"package": "code-review-graph", "version": "test-runtime-change"}
+        with patch.object(ADAPTER, "runtime_identity", return_value=changed_identity):
+            with patch("code_review_graph.tools.build.build_or_update_graph", wraps=build_or_update_graph) as build:
+                ADAPTER.refresh(self.root)
+        self.assertEqual([call.kwargs["full_rebuild"] for call in build.call_args_list], [True])
+
     def test_same_sha_branch_and_document_commit(self):
         self.git("switch", "-c", "same-sha")
         result = ADAPTER.refresh(self.root)
@@ -182,6 +195,90 @@ class RefreshTest(unittest.TestCase):
             self.assertTrue(ADAPTER.graph_matches(self.root, store, snapshot[0]))
             self.source.write_text("function changedAgain() {}\n", encoding="utf-8")
             self.assertFalse(ADAPTER.graph_matches(self.root, store, ADAPTER.source_snapshot(self.root)[0]))
+        finally:
+            store.close()
+
+    def test_full_rebuild_removes_legacy_path_aliases_and_references(self):
+        """完整重建必须清除旧 raw 路径的节点及跨文件引用。"""
+        store, _ = _get_store(str(self.root))
+        try:
+            self.assertTrue(ADAPTER.has_verified_graph(store))
+            canonical_path = next(
+                path for path in store.get_all_files()
+                if path.replace("\\", "/") == self.source.as_posix()
+            )
+            canonical_node = store._conn.execute(
+                "SELECT qualified_name FROM nodes WHERE file_path = ? "
+                "AND kind = 'Function' LIMIT 1",
+                (canonical_path,),
+            ).fetchone()[0]
+            legacy_path = canonical_path.replace("\\", "\\\\").replace("/", "\\\\")
+            legacy_node = f"{legacy_path}::legacy"
+
+            # 这类旧记录无法由 2.3.8 的 NodeInfo 创建：它会在写入前规范化
+            # 分隔符；直接 seed 夹具才能覆盖历史数据库兼容路径。
+            store._conn.execute(
+                "INSERT INTO nodes "
+                "(kind, name, qualified_name, file_path, line_start, line_end, "
+                "language, parent_name, params, return_type, modifiers, is_test, "
+                "file_hash, extra, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("File", legacy_path, legacy_node, legacy_path, 1, 1,
+                 "javascript", None, None, None, None, 0, "stale-hash", "{}", 0),
+            )
+            for source, target, file_path in (
+                (legacy_node, canonical_node, legacy_path),
+                (canonical_node, legacy_node, canonical_path),
+            ):
+                edge_values = {
+                    "kind": "CALLS", "source_qualified": source,
+                    "target_qualified": target, "file_path": file_path,
+                    "line": 1, "extra": "{}", "confidence": 1.0,
+                    "confidence_tier": "EXTRACTED", "updated_at": 0,
+                }
+                columns = [row[1] for row in store._conn.execute("PRAGMA table_info(edges)")]
+                names = [name for name in edge_values if name in columns]
+                store._conn.execute(
+                    f"INSERT INTO edges ({', '.join(names)}) "
+                    f"VALUES ({', '.join('?' for _ in names)})",
+                    [edge_values[name] for name in names],
+                )
+            store._conn.execute(
+                "CREATE TABLE IF NOT EXISTS embeddings (qualified_name TEXT PRIMARY KEY)"
+            )
+            store._conn.execute(
+                "INSERT INTO embeddings(qualified_name) VALUES (?)", (legacy_node,)
+            )
+            store.commit()
+            self.assertIn(legacy_path, store.get_all_files())
+            self.assertEqual(store._conn.execute(
+                "SELECT file_hash FROM nodes WHERE file_path = ?", (legacy_path,)
+            ).fetchone()[0], "stale-hash")
+            self.assertFalse(ADAPTER.graph_matches(
+                self.root, store, ADAPTER.source_snapshot(self.root)[0]
+            ))
+        finally:
+            store.close()
+
+        result = ADAPTER.refresh(self.root)
+        self.assertFalse(result.get("errors"))
+        store, _ = _get_store(str(self.root))
+        try:
+            self.assertNotIn(legacy_path, store.get_all_files())
+            self.assertEqual(store._conn.execute(
+                "SELECT COUNT(*) FROM nodes WHERE file_path = ?", (legacy_path,)
+            ).fetchone()[0], 0)
+            self.assertEqual(store._conn.execute(
+                "SELECT COUNT(*) FROM edges WHERE file_path = ? "
+                "OR source_qualified = ? OR target_qualified = ?",
+                (legacy_path, legacy_node, legacy_node),
+            ).fetchone()[0], 0)
+            self.assertEqual(store._conn.execute(
+                "SELECT COUNT(*) FROM embeddings WHERE qualified_name = ?", (legacy_node,)
+            ).fetchone()[0], 0)
+            self.assertTrue(ADAPTER.graph_matches(
+                self.root, store, ADAPTER.source_snapshot(self.root)[0]
+            ))
         finally:
             store.close()
 

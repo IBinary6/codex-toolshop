@@ -130,7 +130,7 @@ node "<plugin-root>/scripts/setup.cjs" --doctor
 
 `--doctor` 是只读诊断，不安装依赖、不执行 MCP add/remove、不构建图谱，也不修改 `AGENTS.md`、`.gitignore` 或插件 marker。它会分别报告：
 
-- 刷新适配器与当前 CRG 的接口及解析器兼容性；`CRG status` 成功仅表示数据库状态可读取，不代表刷新校验能执行。适配器探针不写入图数据库。
+- 刷新适配器与当前 CRG 的接口及解析器兼容性；`CRG status` 成功仅表示数据库状态可读取，不代表刷新校验能执行。适配器探针不会打开或修改用户图数据库。
 - 图工具屏障会区分刷新锁等待超时与刷新执行失败；执行失败会附上有限长度的底层错误，不能仅靠等待消除的故障不再统一提示等待后台刷新。
 
 - 当前 Node.js 版本是否满足 `>=18.0.0`；这项检查基于实际启动 doctor 的 Node，不猜测 Homebrew、nvm 或其他安装位置。
@@ -184,6 +184,8 @@ py -3 -m pip install "graphifyy[all]"
 | `PreToolUse:Bash` | 常见源码搜索前补充一句条件式图优先提醒；同一用户轮内原子去重，不阻断/改写命令，不刷新图谱。tgrep 的命令注入与提醒由 `tgrep-search-codex` 独立管理，CodeMap 不重复注入。明确的文件名、文档、配置和日志检索静默。 |
 | `UserPromptSubmit` | 结构问题只提示图谱能力，不同步构建；实际查询前由 MCP 屏障保证刷新。 |
 | `SubagentStart` | 子代理启动时只注入 CodeMap 使用规则，不重复 build/update；首次图谱读取仍由 `PreToolUse:MCP` 屏障同步兜底。 |
+
+完整重建会先清除所有 file-backed 图记录，再重新解析当前源码；这个步骤会按数据库中的原始路径清理旧 Windows 分隔符别名、已删除文件的节点及其引用边，也会清理关联 embeddings，但保留图的 metadata 与 provenance。Python proof 使用 v2 标记并绑定实际 CRG 包身份；JS 快路径使用 v3 marker，绑定源码、选中 runtime 路径和 `graph.db`/非空 WAL 的轻量 stat 签名。升级、runtime 切换或图文件变化后的首次读取都会重新核对；核对失败仍会撤销可信标记，不能把残留图当作最新状态。
 
 搜索提醒按宿主的会话、轮次、会话目录及可选子代理标识隔离；每次用户补充消息都复位，即使仍在同一轮。状态仅在插件数据目录 `search-reminders/` 中保存散列文件名和空标记，不记录用户正文、命令或原始路径。缺少标识或状态不可写时使用无状态软提示，无法保证去重。命令识别是轻量启发式，不能据此判断实际工作目录、用户意图或权限。
 

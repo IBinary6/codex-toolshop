@@ -130,6 +130,7 @@ try {
     runCrg: (args, runOptions) => {
       const index = runOptions.env && runOptions.env.GIT_INDEX_FILE;
       calls.push({ args: [...args], index, files: index ? git(repo, ['ls-files'], runOptions.env) : '' });
+      fs.writeFileSync(path.join(repo, '.code-review-graph', 'graph.db'), `graph-${calls.length}\n`);
       return { status: 0 };
     },
   };
@@ -165,6 +166,7 @@ try {
     canUseCrg: () => true,
     runCrg: (args, runOptions) => {
       linkedCalls.push({ args, cwd: runOptions.cwd });
+      fs.writeFileSync(path.join(runOptions.cwd, '.code-review-graph', 'graph.db'), 'linked graph\n');
       return { status: 0 };
     },
   }), true);
@@ -240,6 +242,34 @@ try {
   assert.strictEqual(refreshCrgSync(repo, options), true);
   assert.strictEqual(calls.length, beforeMigration + 1, 'the migrated stable state is cached again');
 
+  git(repo, ['add', '-A']);
+  git(repo, ['commit', '-m', 'clean migration fixture']);
+  assert.strictEqual(git(repo, ['status', '--porcelain=v1']), '');
+  const legacyVerifiedState = crypto.createHash('sha256')
+    .update('verified-graph-v1\0')
+    .update(git(repo, ['rev-parse', '--verify', 'HEAD']))
+    .update('\0')
+    .update(git(repo, ['rev-parse', '--abbrev-ref', 'HEAD']))
+    .update('\0').digest('hex');
+  fs.writeFileSync(stateFile, `${legacyVerifiedState}\n`);
+  const beforeVerifiedMigration = calls.length;
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls.length, beforeVerifiedMigration + 1,
+    'a valid v1 marker must enter the adapter once to repair legacy path aliases');
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls.length, beforeVerifiedMigration + 1,
+    'the repaired v2 marker must retain the no-change fast path');
+
+  const v2SourceOnlyMarker = JSON.parse(fs.readFileSync(stateFile, 'utf8')).source;
+  fs.writeFileSync(stateFile, `${v2SourceOnlyMarker}\n`);
+  const beforeV2StateMigration = calls.length;
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls.length, beforeV2StateMigration + 1,
+    'a source-only v2 marker must enter the adapter to bind runtime and graph state');
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls.length, beforeV2StateMigration + 1,
+    'the migrated v3 marker retains the no-change fast path');
+
   git(repo, ['switch', '-c', 'same-head-branch']);
   const beforeBranch = calls.length;
   assert.strictEqual(refreshCrgSync(repo, options), true);
@@ -252,6 +282,56 @@ try {
   fs.writeFileSync(path.join(repo, 'schema.proto'), 'syntax = "proto3";\nmessage Changed {}\n');
   assert.strictEqual(refreshCrgSync(repo, options), true);
   assert.strictEqual(calls.length, beforeUnknownEdit + 1, 'content changes outside the old JS extension list invalidate the marker');
+
+  const runtimeOne = path.join(tmp, 'runtime-one', 'code-review-graph');
+  const runtimeOptions = { ...options, crgCommand: runtimeOne };
+  const beforeRuntimeChange = calls.length;
+  assert.strictEqual(refreshCrgSync(repo, runtimeOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 1,
+    'a changed selected CRG runtime enters the adapter even when sources are stable');
+  assert.strictEqual(refreshCrgSync(repo, runtimeOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 1,
+    'the same runtime and graph state retain the no-change fast path');
+
+  const runtimeTwoOptions = { ...options, crgCommand: path.join(tmp, 'runtime-two', 'code-review-graph') };
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 2,
+    'a versioned runtime directory switch enters the adapter once');
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 2);
+
+  const graphDb = path.join(repo, '.code-review-graph', 'graph.db');
+  const graphWal = `${graphDb}-wal`;
+  fs.writeFileSync(graphWal, '');
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 2,
+    'a zero-byte WAL is equivalent to a missing WAL and keeps the fast path');
+  fs.appendFileSync(graphDb, 'external write\n');
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 3,
+    'an externally modified graph database enters the adapter once');
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 3);
+
+  fs.writeFileSync(graphWal, 'wal state\n');
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 4,
+    'a WAL state change enters the adapter once');
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 4);
+  fs.unlinkSync(graphWal);
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 5,
+    'WAL removal performs one verification but does not cause repeated refreshes');
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 5);
+
+  fs.unlinkSync(graphDb);
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 6,
+    'a deleted graph database re-enters the adapter');
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 6);
 
   console.log('refresh.test.js PASS');
 } finally {
