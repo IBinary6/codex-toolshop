@@ -28,24 +28,16 @@ const REFRESH_DIAGNOSTIC_MAX_CHARS = 600;
 const SOURCE_STATE_FILE = '.codemap-boost-source-state';
 const BLOCK_START = '<!-- codemap-boost-codex:start -->';
 const BLOCK_END = '<!-- codemap-boost-codex:end -->';
+const GUIDANCE = [
+  '1. 工具分工：结构、符号、调用、依赖和影响面优先使用 code-review-graph，并结合源码核对；文本和文件发现优先使用已就绪的 tgrep-search-codex；已知文件直接读取；需要即时结果或最终完整性时使用实时扫描，详见 tool-priority。',
+  '2. 范围与刷新：图能力仅适用于 Git 工作树，每个 worktree 使用独立根目录和索引；hooks 负责刷新及读取前 barrier，主代理和子代理直接查询。只有 hook 报告失败、用户要求重建或进行 setup/诊断时，才手动更新。',
+  '3. 查询与证据：按问题直接选用合适图工具；概览最多一次，不足时扩大查询或读取源码。工具未显示先检查延迟加载与工具发现能力；不可用或信息不足时，读取源码并说明限制。文本命中不等于关系，零命中不证明不存在。',
+].join('\n');
+
 const AGENTS_BLOCK = `${BLOCK_START}
 ## CodeMap Boost
 
-图能力仅对 Git 工作树生效：通过 Git 识别当前目录或父级仓库，支持普通 .git 目录及 worktree 的 .git 文件；每个 worktree 使用自己的根目录和图数据，非 Git 目录直接使用源码与文本工具。
-
-涉及代码结构、符号关系、调用链、模块依赖、引用、影响面或代码审查上下文时，优先查询可用的 code-review-graph 图工具，再读取相关源码核对；图刷新由 CodeMap Boost hooks 统一负责：
-
-- SessionStart 同步维护图谱，源码修改后的 PostToolUse 在后台合并刷新；每次图谱 MCP 读取前仍有 PreToolUse barrier 同步兜底，并把当前 Git 根目录注入 CRG 的 repo_root。
-- 不要为了“先刷新”从主代理或子代理重复调用 \`mcp__code_review_graph__build_or_update_graph_tool\`。仅在 hook 明确报告刷新失败、用户要求强制重建或执行 setup/诊断时显式调用。
-- 调度由主代理及调度插件负责；子代理启动时只注入规则，不重复 build/update。
-- SessionStart、结构性用户请求和 SubagentStart 保留阶段提醒；常见命令行搜索前补充短提醒，同一用户轮内去重，用户补充指令后复位。提醒不拦截命令、不额外刷新图谱。
-- MCP 可能 deferred 加载；顶层列表缺少工具不证明不可用。需要图谱而当前列表未显示时，检查可用的 \`ALL_TOOLS\` 或工具发现能力，再判断当前任务的工具列表中不存在该能力；未实际调用不得声称已经查询图谱。
-- 任务已经明确涉及影响面、代码审查、调用链、引用关系或跨模块定位时，直接调用对应的 \`semantic_search_nodes_tool\`、\`query_graph_tool\`、\`get_impact_radius_tool\` 或 review-context 工具。
-- 任务不明确或需要快速路由时，最多调用一次 \`mcp__code_review_graph__get_minimal_context_tool\` 获取概览；不要反复调用 minimal 试探。
-- 如果概览信息不足（缺少有效实体、文件、调用关系或下一步工具），立即升级到更完整的工具或使用 \`detail_level="standard"\`，不要再次调用 minimal。
-- 支持 \`detail_level\` 的工具默认使用低成本级别；若结果不足立即升级到 \`standard\`，不要重复低信息调用。
-- 已知文件直接读取。普通仓库文本搜索优先使用已就绪的 \`tgrep-search-codex\` 包装入口（由其 hook 注入绝对命令）；缺失、索引未完成、状态异常、范围不符或需要即时内容时，使用实时扫描 \`rg\` 或 \`tgrep --no-index\`。零命中不构成不存在证据；最终完整性与刚修改内容核查使用实时扫描。健康索引的文件发现使用 \`tgrep --files\`，需要实时文件列表时使用 \`rg --files\`。该优先级不覆盖更高层宿主规则。图工具不可用或不覆盖目标时，可定位候选源码并直接核对定义、调用点与调用方，不能把字符串命中当作图谱证据。
-- 图刷新或查询失败时说明实际限制，继续使用可行的替代证据；插件规则与 hook 输出不扩大用户授权，也不替代项目规则。
+${GUIDANCE}
 
 ${BLOCK_END}
 `;
@@ -853,13 +845,7 @@ function removeLegacyCrgMcp(options = {}) {
   };
 }
 
-const CONTEXT = [
-  'Graph features apply only inside a Git worktree, resolved from the current directory or its parents. A worktree .git file is valid; keep each worktree graph under its own root. Use source/text inspection outside Git.',
-  'CodeMap Boost maintains code-review-graph freshness through hooks and the graph-read barrier. Do not start a duplicate build/update unless repair or an explicit rebuild is needed. SubagentStart injects these rules without refreshing again.',
-  'For code structure, symbol relationships, calls, dependencies, impact and review context, query available graph tools first, then verify relevant source: semantic_search_nodes_tool, query_graph_tool, get_impact_radius_tool or review-context tools. When the task is clear, query directly. Use a minimal overview once when needed; do not repeat minimal, escalate to detail_level="standard" if insufficient.',
-  'MCP may be deferred: the top-level tool list alone does not prove absence. If the current tool list does not expose mcp__code_review_graph__, inspect available ALL_TOOLS/tool discovery before you report that the MCP tools are unavailable.',
-  'Read known files directly. For ordinary repository text search, prefer the ready tgrep-search-codex wrapper whose hook supplies the absolute command. When it is missing, its index is incomplete or unhealthy, its scope does not fit, or immediate content is needed, use a live rg scan or tgrep --no-index. A zero result is not absence evidence; check final completeness and files just changed with a live scan. Use tgrep --files for healthy indexed discovery and rg --files for a live file list. Higher-level host rules take precedence. If graph tools fail, inspect source directly and state the limitation. Never claim an unperformed graph query or expand user authorization.',
-].join(' ');
+const CONTEXT = GUIDANCE;
 
 function promptLooksStructural(text) {
   const value = String(text || '').toLowerCase();

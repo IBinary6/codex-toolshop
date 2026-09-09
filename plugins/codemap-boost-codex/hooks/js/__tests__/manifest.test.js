@@ -59,8 +59,8 @@ assert.strictEqual(
 );
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'package.json'), 'utf8'));
-assert.strictEqual(plugin.version, '0.1.28', 'plugin manifest stays on the tgrep pairing release');
-assert.strictEqual(packageJson.version, '0.1.28', 'package metadata stays on the tgrep pairing release');
+assert.strictEqual(plugin.version, '0.1.29', 'plugin manifest stays on the condensed-guidance release');
+assert.strictEqual(packageJson.version, '0.1.29', 'package metadata stays on the condensed-guidance release');
 assert.strictEqual(MINIMUM_NODE_MAJOR, 18, 'Node 18 is the minimum supported launcher runtime');
 assert.strictEqual(packageJson.engines && packageJson.engines.node, '>=18.0.0', 'package declares its Node runtime prerequisite');
 
@@ -69,10 +69,13 @@ const setupSkill = fs.readFileSync(path.join(pluginRoot, 'skills', 'codemap-boos
 for (const [label, text] of [['README', readme], ['setup skill', setupSkill]]) {
   assert.match(text, /startup_timeout_sec[^\n]*600|600[^\n]*startup timeout/i, `${label} documents the 600-second startup budget`);
   assert.match(text, /Node(?:\.js)?[^\n]*18/i, `${label} documents the Node 18 prerequisite`);
-  assert.match(text, /tgrep-search-codex/, `${label} documents the indexed text-search router`);
-  assert.match(text, /tgrep --no-index/, `${label} documents the unindexed live-search fallback`);
-  assert.match(text, /rg --files/, `${label} distinguishes live file enumeration`);
 }
+assert.match(readme, /skills\/codemap-boost-setup\/SKILL\.md#verification/,
+  'README points retrieval fallback detail to the setup verification section');
+assert.match(setupSkill, /tgrep-search-codex/, 'setup skill documents the indexed text-search router');
+assert.match(setupSkill, /tgrep --no-index/, 'setup skill documents the unindexed live-search fallback');
+assert.match(setupSkill, /rg --files/, 'setup skill distinguishes live file enumeration');
+assert.match(setupSkill, /does not install or start tgrep/, 'setup skill preserves the CodeMap and tgrep lifecycle boundary');
 
 const hooks = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'hooks', 'hooks.json'), 'utf8'));
 const legacyHooks = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'hooks', 'codex-hooks.json'), 'utf8'));

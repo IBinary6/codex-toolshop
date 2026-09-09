@@ -8,7 +8,7 @@ const { spawnSync } = require('child_process');
 
 const pluginRoot = path.join(__dirname, '..', '..', '..');
 const entry = path.join(pluginRoot, 'scripts', 'run-hook.cjs');
-const { AGENTS_BLOCK, BLOCK_START, BLOCK_END, ensureAgentsBlock } = require('../lib/codemap');
+const { AGENTS_BLOCK, BLOCK_START, BLOCK_END, CONTEXT, ensureAgentsBlock } = require('../lib/codemap');
 
 function runSession(cwd, codexHome, extraEnv = {}) {
   return spawnSync(process.execPath, [entry, 'session_start'], {
@@ -66,29 +66,24 @@ try {
   assert.strictEqual(first.status, 0, first.stderr);
   const sessionHint = JSON.parse(first.stdout).hookSpecificOutput;
   assert.strictEqual(sessionHint.hookEventName, 'SessionStart');
-  assert.match(sessionHint.additionalContext, /query available graph tools first/,
-    'new or resumed tasks receive graph-first guidance even if AGENTS was loaded before the hook');
+  assert.strictEqual(sessionHint.additionalContext, CONTEXT,
+    'new or resumed tasks inject the shared three-point guidance');
   assert.strictEqual(first.stderr, '', 'SessionStart should keep stderr silent');
 
   const agents = path.join(home, 'AGENTS.md');
   assert.ok(fs.existsSync(agents), 'SessionStart creates CODEX_HOME/AGENTS.md');
   const content = fs.readFileSync(agents, 'utf8');
   assert.ok(content.includes('codemap-boost-codex:start'), 'managed block is inserted');
-  assert.ok(content.includes('mcp__code_review_graph__get_minimal_context_tool'), 'block names CRG MCP tools');
-  assert.ok(content.includes('不要反复调用 minimal'), 'block prevents repeated low-information calls');
-  assert.ok(content.includes('信息不足'), 'block requires escalation when context is insufficient');
-  assert.ok(content.includes('任务已经明确'), 'block allows direct specialized retrieval');
-  assert.ok(content.includes('不要为了“先刷新”'), 'block prevents duplicate explicit graph builds');
-  assert.ok(content.includes('子代理启动时只注入规则'), 'block keeps dispatch and graph ownership separate');
-  assert.ok(content.includes('当前任务的工具列表中不存在'), 'block requires an honest fallback when MCP tools are absent');
-  assert.ok(content.includes('不得声称已经查询图谱'), 'block prevents false graph-query claims');
-  assert.ok(content.includes('deferred'), 'block explains deferred MCP loading');
-  assert.ok(content.includes('ALL_TOOLS'), 'block checks ALL_TOOLS before claiming MCP absence');
-  assert.ok(content.includes('顶层列表缺少'), 'block does not treat top-level schema absence as proof');
-  assert.ok(content.includes('tgrep-search-codex'), 'block routes ordinary repository text search to the ready tgrep wrapper');
-  assert.ok(content.includes('tgrep --no-index'), 'block documents the unindexed live-search fallback');
-  assert.ok(content.includes('rg --files'), 'block distinguishes live file enumeration from indexed discovery');
-  assert.ok(content.includes('零命中不构成不存在证据'), 'block treats zero search results as insufficient absence evidence');
+  assert.strictEqual(AGENTS_BLOCK, `${BLOCK_START}\n## CodeMap Boost\n\n${CONTEXT}\n\n${BLOCK_END}\n`,
+    'managed block and hook injection share one authority text');
+  assert.deepStrictEqual(CONTEXT.split('\n').map((line) => line.slice(0, 2)), ['1.', '2.', '3.'],
+    'shared guidance remains exactly three numbered points');
+  assert.ok(content.includes('code-review-graph'), 'first point keeps graph-first structural retrieval');
+  assert.ok(content.includes('tgrep-search-codex'), 'first point keeps indexed text and file discovery routing');
+  assert.ok(content.includes('每个 worktree 使用独立根目录和索引'), 'second point keeps worktree isolation');
+  assert.ok(content.includes('读取前 barrier'), 'second point keeps the graph read barrier');
+  assert.ok(content.includes('先检查延迟加载与工具发现能力'), 'third point keeps deferred-tool discovery');
+  assert.ok(content.includes('文本命中不等于关系，零命中不证明不存在'), 'third point keeps evidence limits');
   assert.ok(!fs.existsSync(path.join(home, '.claude')), 'SessionStart must not create old host directories');
   assert.ok(fs.readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8').includes('.code-review-graph/'), 'SessionStart ignores generated graph output locally');
 

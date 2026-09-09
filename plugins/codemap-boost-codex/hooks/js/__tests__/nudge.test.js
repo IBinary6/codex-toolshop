@@ -9,7 +9,7 @@ const { spawnSync } = require('child_process');
 const pluginRoot = path.join(__dirname, '..', '..', '..');
 const runner = path.join(pluginRoot, 'scripts', 'run-hook.cjs');
 const subagentSource = fs.readFileSync(path.join(pluginRoot, 'hooks', 'js', 'subagent_start.js'), 'utf8');
-const { promptLooksStructural } = require('../lib/codemap');
+const { CONTEXT, promptLooksStructural } = require('../lib/codemap');
 
 function initRepo(cwd) {
   const result = spawnSync('git', ['init', '--quiet'], {
@@ -86,19 +86,11 @@ function parseOutput(result) {
   const result = runHook('subagent_start', { subagent_type: 'explorer' });
   const payload = parseOutput(result);
   assert.strictEqual(payload.hookSpecificOutput.hookEventName, 'SubagentStart');
-  assert.ok(payload.hookSpecificOutput.additionalContext.includes('semantic_search_nodes_tool'));
-  assert.ok(payload.hookSpecificOutput.additionalContext.includes('do not repeat minimal'));
-  assert.ok(payload.hookSpecificOutput.additionalContext.includes('SubagentStart injects these rules without refreshing again'));
-  assert.ok(payload.hookSpecificOutput.additionalContext.includes('Do not start a duplicate build/update'));
-  assert.ok(payload.hookSpecificOutput.additionalContext.includes('If the current tool list does not expose mcp__code_review_graph__'));
-  assert.ok(payload.hookSpecificOutput.additionalContext.includes('report that the MCP tools are unavailable'));
-  assert.ok(payload.hookSpecificOutput.additionalContext.includes('deferred'));
-  assert.ok(payload.hookSpecificOutput.additionalContext.includes('ALL_TOOLS'));
-  assert.ok(payload.hookSpecificOutput.additionalContext.includes('top-level tool list alone does not prove'));
-  assert.ok(payload.hookSpecificOutput.additionalContext.includes('tgrep-search-codex'));
-  assert.ok(payload.hookSpecificOutput.additionalContext.includes('tgrep --no-index'));
-  assert.ok(payload.hookSpecificOutput.additionalContext.includes('rg --files'));
-  assert.ok(payload.hookSpecificOutput.additionalContext.includes('zero result is not absence evidence'));
+  assert.strictEqual(payload.hookSpecificOutput.additionalContext, CONTEXT,
+    'SubagentStart injects the same three-point text as the managed AGENTS block');
+  assert.ok(CONTEXT.includes('hooks 负责刷新及读取前 barrier'), 'shared second point preserves hook refresh ownership');
+  assert.ok(CONTEXT.includes('先检查延迟加载与工具发现能力'), 'shared third point preserves deferred-tool discovery');
+  assert.ok(CONTEXT.includes('文本命中不等于关系，零命中不证明不存在'), 'shared third point preserves evidence limits');
   assert.ok(!payload.hookSpecificOutput.additionalContext.includes('refresh completed'));
 }
 

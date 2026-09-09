@@ -16,7 +16,7 @@
 | 检索引导 | AGENTS、SessionStart、结构请求与子代理入口保留图优先规则；搜索前每用户轮一次短提醒 | `Grep` / `Agent` 强提示优先用图谱 |
 | 依赖安装 | 插件原生 MCP 首次加载时自动准备私有运行时 | 通过 `/codemap-boost-setup` 显式确认安装 |
 
-结构、调用、依赖和影响面查询优先使用可用图工具，再读取源码核对。`AGENTS.md` 持久保存规则，SessionStart 与 SubagentStart 在上下文入口补充规则，UserPromptSubmit 提醒结构性请求，命令行搜索前提供低频纠偏。已知文件直接读取；普通仓库文本检索优先使用已就绪的 `tgrep-search-codex` 包装入口（其 hook 注入绝对命令，入口为 `node <plugin>/scripts/tgrep.cjs search [--fresh] <args>`）。缺失、索引未完成、状态异常、范围不符或要求即时内容时，使用实时 `rg` 或 `tgrep --no-index`；零命中不是不存在证据，最终完整性与刚修改内容用实时扫描核查。健康索引的文件发现使用 `tgrep --files`，即时文件列表使用 `rg --files`。这些路由不覆盖更高层宿主规则。图工具不可用或不覆盖目标时读取源码核对关系并说明限制。
+CodeMap 的常驻规则由托管 `AGENTS.md` 块与入口注入共用同一份三点文案：工具分工、范围与刷新、查询与证据。安装、运行时和 hook 的按需技术细节见下文；图工具验证与文本检索降级见 [setup skill 的 Verification](skills/codemap-boost-setup/SKILL.md#verification)。
 
 ## 安装即用
 
