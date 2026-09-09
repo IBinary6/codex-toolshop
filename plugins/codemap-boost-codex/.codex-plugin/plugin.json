@@ -1,7 +1,7 @@
 {
   "name": "codemap-boost-codex",
-  "version": "0.1.30",
-  "description": "Install-ready CodeMap workflow for Codex using a bundled code-review-graph MCP, synchronized graph refresh barriers, and AGENTS.md instructions.",
+  "version": "0.1.31",
+  "description": "CodeMap graph and Serena LSP tools for Codex, with isolated runtimes, automatic graph refresh, and complementary text search.",
   "author": {
     "name": "IBinary6"
   },
@@ -10,14 +10,15 @@
     "code-review-graph",
     "graphify",
     "hooks",
-    "codex"
+    "codex",
+    "serena"
   ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "CodeMap Boost",
-    "shortDescription": "Nudge Codex toward code-review-graph for code structure work.",
-    "longDescription": "Loads code-review-graph as a bundled MCP with an isolated runtime, maintains a bounded AGENTS.md block, and synchronizes graph reads after source changes. Structural prompts and subagents receive concise retrieval guidance; ordinary shell searches do not inject routing instructions. Known files and literal text can be read directly, with source inspection available when graph coverage is insufficient.",
+    "shortDescription": "Graph-first code discovery with bundled Serena semantic tools.",
+    "longDescription": "Bundles code-review-graph and Serena MCP servers with separate private runtimes. Keeps graphs fresh, locates code through graph queries, and uses Serena definitions and references or available tgrep/rg text searches when needed. Serena starts without its dashboard, browser, or GUI log window; activate the actual target project before semantic queries. Weekly background checks validate newer stable tool runtimes before activation; installed copies also refresh the official marketplace through Codex.",
     "developerName": "IBinary6",
     "category": "Coding",
     "capabilities": [

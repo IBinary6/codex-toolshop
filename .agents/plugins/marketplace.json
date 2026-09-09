@@ -20,7 +20,7 @@
     },
     {
       "name": "codemap-boost-codex",
-      "version": "0.1.30",
+      "version": "0.1.31",
       "description": "CodeMap semantic graph search with synchronized graph-read barriers and complementary tgrep text-search routing.",
       "source": {
         "source": "local",
@@ -113,7 +113,7 @@
         "authentication": "ON_INSTALL"
       },
       "category": "Coding",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "description": "自动准备 tgrep，为每个 Git 工作树维护后台索引，并提供带实时扫描复核的文本搜索。"
     }
   ]

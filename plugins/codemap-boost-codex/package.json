@@ -1,15 +1,18 @@
 {
   "name": "codemap-boost-codex",
-  "version": "0.1.30",
-  "description": "Codex-native CodeMap workflow powered by code-review-graph, graph refresh barriers, and optional graphify.",
+  "version": "0.1.31",
+  "description": "CodeMap graph and Serena LSP tools for Codex, with isolated runtimes, automatic graph refresh, and complementary text search.",
   "private": true,
   "engines": {
     "node": ">=18.0.0"
   },
   "scripts": {
     "check": "node scripts/check-plugin.cjs",
-    "check:syntax": "node --check scripts/run-hook.cjs && node --check scripts/mcp-server.cjs && node --check scripts/setup.cjs && node --check scripts/check-plugin.cjs && node --check scripts/run-tests.cjs && node --check hooks/js/session_start.js && node --check hooks/js/post_tool_use.js && node --check hooks/js/pre_graph_tool.js && node --check hooks/js/pre_code_search.js && node --check hooks/js/user_prompt_submit.js && node --check hooks/js/subagent_start.js && node --check hooks/js/lib/bootstrap.js && node --check hooks/js/lib/codemap.js && node --check hooks/js/lib/search_reminder.js && node --check hooks/js/lib/runtime.js",
+    "check:syntax": "node --check scripts/run-hook.cjs && node --check scripts/mcp-server.cjs && node --check scripts/setup.cjs && node --check scripts/check-plugin.cjs && node --check scripts/run-tests.cjs && node --check hooks/js/session_start.js && node --check hooks/js/post_tool_use.js && node --check hooks/js/pre_graph_tool.js && node --check hooks/js/pre_code_search.js && node --check hooks/js/user_prompt_submit.js && node --check hooks/js/subagent_start.js && node --check hooks/js/lib/bootstrap.js && node --check hooks/js/lib/codemap.js && node --check hooks/js/lib/search_reminder.js && node --check hooks/js/lib/runtime.js && node --check scripts/serena-server.cjs && node --check hooks/js/lib/serena-runtime.js && node --check scripts/serena-smoke.cjs && node --check scripts/plugin-update.cjs && node --check hooks/js/lib/plugin-updates.js && node --check hooks/js/lib/runtime-versions.js && node --check hooks/js/lib/runtime-updates.js && node --check scripts/runtime-update.cjs",
     "test:unit": "node scripts/run-tests.cjs",
-    "test": "npm run check:syntax && npm run check && npm run test:unit"
+    "test": "npm run check:syntax && npm run check && npm run test:unit",
+    "test:serena-smoke": "node scripts/serena-smoke.cjs",
+    "updates:doctor": "node scripts/runtime-update.cjs --doctor",
+    "updates:check": "node scripts/runtime-update.cjs --check-now"
   }
 }

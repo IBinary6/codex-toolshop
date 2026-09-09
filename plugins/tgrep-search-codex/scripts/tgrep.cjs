@@ -6,7 +6,8 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const net = require('node:net');
 const { spawn, spawnSync } = require('node:child_process');
-const release = require('./release.json');
+const updates = require('./release-update.cjs');
+const selectedRelease = () => updates.activeRelease(home());
 const SELF = __filename;
 const activeChildren = new Set();
 const hidden = { windowsHide: true, shell: false };
@@ -32,7 +33,8 @@ function context(cwd, explicitRoot) {
   if (git.status !== 0 && !explicitRoot) return null;
   const key = hash(process.platform === 'win32' ? root.toLowerCase() : root);
   const dir = path.join(home(), 'worktrees', key);
-  return { root, dir, index: path.join(dir, 'index'), git: git.status === 0 };
+  const version = selectedRelease().version;
+  return { root, dir, version, index: updates.indexForVersion(dir, version), git: git.status === 0 };
 }
 // mkdir 是跨进程互斥点；只回收确认死亡的拥有者，不以超时猜测活进程身份。
 function lock(dir) {
@@ -61,25 +63,26 @@ function lock(dir) {
   }
   return null;
 }
-function installedHealthy(file) {
+function installedHealthy(file, release = selectedRelease()) {
   if (!fs.existsSync(file)) return false;
   const receipt = readJSON(path.join(path.dirname(file), 'receipt.json'));
-  if (!receipt || receipt.version !== release.version || hash(fs.readFileSync(file)) !== receipt.binarySha256) throw new Error('private tgrep runtime integrity check failed; remove the runtime version directory then run ensure');
+  if (!receipt || receipt.version !== release.version || receipt.archiveSha256 !== release.assets[updates.platformKey()].sha256 || hash(fs.readFileSync(file)) !== receipt.binarySha256) throw new Error('private tgrep runtime integrity check failed; remove the runtime version directory then run ensure');
   return true;
 }
-function executable() {
+function executable(release = selectedRelease()) {
+  updates.validateRelease(release);
   const asset = release.assets[`${process.platform}-${process.arch}`];
   if (!asset) throw new Error(`unsupported platform: ${process.platform}-${process.arch}`);
   return path.join(home(), 'runtime', release.version, `${process.platform}-${process.arch}`, asset.executable);
 }
-async function ensureBinary() {
-  const destination = executable();
-  if (installedHealthy(destination)) return destination;
+async function ensureBinary(release = selectedRelease()) {
+  const destination = executable(release);
+  if (installedHealthy(destination, release)) return destination;
   const unlock = lock(path.join(home(), 'install.lock'));
   if (!unlock) throw new Error('installation pending in another process');
   let stage;
   try {
-    if (installedHealthy(destination)) return destination;
+    if (installedHealthy(destination, release)) return destination;
     const asset = release.assets[`${process.platform}-${process.arch}`];
     const url = new URL(asset.url);
     if (url.protocol !== 'https:' || url.hostname !== 'github.com' || !url.pathname.startsWith('/microsoft/tgrep/releases/download/')) throw new Error('invalid release URL');
@@ -88,11 +91,11 @@ async function ensureBinary() {
     fs.mkdirSync(stage, { recursive: true, mode: 0o700 });
     const archive = path.join(stage, asset.archive);
     // curl 沿用宿主 HTTP(S)_PROXY；没有 curl 时使用 Node 内建 HTTPS。
-    const download = await run('curl', ['--fail', '--location', '--silent', '--show-error', '--connect-timeout', '15', '--max-time', '90', '--output', archive, url.href], stage);
+    const download = await run('curl', ['--fail', '--location', '--proto', '=https', '--proto-redir', '=https', '--silent', '--show-error', '--connect-timeout', '15', '--max-time', '90', '--output', archive, url.href], stage);
     let bytes;
     if (download.code === 0) bytes = fs.readFileSync(archive);
     else if (download.stderr.toString().includes('ENOENT')) {
-      const response = await fetch(url, { signal: AbortSignal.timeout(90000) });
+      const response = await updates.fetchHttps(url, { timeout: 90000 });
       if (!response.ok) throw new Error(`download HTTP ${response.status}`);
       bytes = Buffer.from(await response.arrayBuffer());
       fs.writeFileSync(archive, bytes);
@@ -111,8 +114,9 @@ async function ensureBinary() {
     if (!fs.lstatSync(binary).isFile() || fs.lstatSync(binary).isSymbolicLink()) throw new Error('invalid executable entry');
     fs.chmodSync(binary, 0o700);
     const version = spawnSync(binary, ['--version'], { ...hidden, encoding: 'utf8', timeout: 10000 });
-    if (version.status !== 0 || !version.stdout.includes(release.version)) throw new Error('executable version check failed');
+    if (version.status !== 0 || version.stdout.trim() !== `tgrep ${release.version}`) throw new Error('executable version check failed');
     atomicJSON(path.join(stage, 'receipt.json'), { version: release.version, archiveSha256: asset.sha256, binarySha256: hash(fs.readFileSync(binary)) });
+    atomicJSON(path.join(stage, 'release.json'), release);
     fs.unlinkSync(archive);
     fs.mkdirSync(path.dirname(path.dirname(destination)), { recursive: true, mode: 0o700 });
     fs.renameSync(stage, path.dirname(destination));
@@ -155,6 +159,7 @@ async function supervise(root) {
   if (!ctx?.git || ctx.root !== canonical(root)) return;
   const unlock = lock(path.join(ctx.dir, 'service.lock'));
   if (!unlock) return;
+  const serviceRelease = updates.releaseForVersion(home(), ctx.version);
   let resumedIndex = true;
   let child, phase = 'installing', failure = null, lastTouch = Date.now(), closing = false;
   const id = crypto.randomUUID(), token = crypto.randomBytes(32).toString('hex');
@@ -178,7 +183,7 @@ async function supervise(root) {
         try { status = (await rpc(info.port, { jsonrpc: '2.0', method: 'status', id: 1 })).result; } catch {}
       }
       const ready = status && (!resumedIndex || status.last_reconcile_at) && status.indexing === false && status.reconcile_running === false && status.reconcile_pending === false && status.reconcile_overdue === false && !status.last_reconcile_error && (status.watch_mode_active === 'native' || (status.watch_mode_active === 'poll' && status.last_reconcile_at));
-      socket.end(`${JSON.stringify({ root: ctx.root, pid: process.pid, id, phase: failure ? 'error' : ready ? 'ready' : phase === 'running' ? 'pending' : phase, error: failure, status })}\n`);
+      socket.end(`${JSON.stringify({ root: ctx.root, version: ctx.version, index: ctx.index, pid: process.pid, id, phase: failure ? 'error' : ready ? 'ready' : phase === 'running' ? 'pending' : phase, error: failure, status })}\n`);
       if (request.action === 'stop') shutdown();
     });
   });
@@ -204,8 +209,8 @@ async function supervise(root) {
   process.on('SIGINT', shutdown);
   try {
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
-    atomicJSON(path.join(ctx.dir, 'manager.json'), { root: ctx.root, pid: process.pid, id, token, port: server.address().port });
-    const binary = await ensureBinary();
+    atomicJSON(path.join(ctx.dir, 'manager.json'), { root: ctx.root, version: ctx.version, index: ctx.index, pid: process.pid, id, token, port: server.address().port });
+    const binary = await ensureBinary(serviceRelease);
     if (closing) return;
     resumedIndex = fs.existsSync(path.join(ctx.index, 'meta.json'));
     fs.mkdirSync(ctx.index, { recursive: true, mode: 0o700 });
@@ -303,10 +308,13 @@ function run(binary, args, cwd) {
   });
 }
 async function search(query, ctx) {
+  maybeCheckUpdates();
   const state = ctx.git ? await managed(ctx, 'touch') : null;
   if (ctx.git && !state) start(ctx);
-  const binary = executable();
-  const haveBinary = installedHealthy(binary);
+  ctx = updates.serviceBinding(ctx, state, selectedRelease());
+  const queryRelease = updates.releaseForVersion(home(), ctx.version);
+  const binary = executable(queryRelease);
+  const haveBinary = installedHealthy(binary, queryRelease);
   const outside = query.paths.some(p => { const rel = path.relative(ctx.root, p); return rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel); });
   const scan = query.fresh || outside || !ctx.git || state?.phase !== 'ready';
   const engine = haveBinary ? binary : 'rg';
@@ -322,10 +330,19 @@ async function search(query, ctx) {
   process.stderr.write(result.stderr);
   return result.code;
 }
+function maybeCheckUpdates() {
+  try { updates.maybeCheck(module.exports); } catch {} // 更新调度失败不阻断既有搜索。
+}
 async function main(argv = process.argv.slice(2)) {
+  if (argv[0] === '_check-updates' || argv[0] === 'check-updates') {
+    const result = await updates.checkUpdates(module.exports, { force: argv[0] === 'check-updates' });
+    if (argv[0] === 'check-updates') console.log(JSON.stringify(result, null, 2));
+    return result.outcome === 'error' ? 2 : 0;
+  }
   if (argv[0] === '_supervise') return supervise(argv[1]);
-  if (argv.length === 1 && argv[0] === '--help') { console.log('tgrep.cjs search [--root DIR] [--fresh] [-F] [-n] -- PATTERN [PATH...]\ntgrep.cjs ensure|status|doctor|stop [--root DIR]\nExit: 0 match/success; 1 no match; 2 error. Use separate flags; root controls service, paths retain cwd meaning.'); return 0; }
+  if (argv.length === 1 && argv[0] === '--help') { console.log('tgrep.cjs search [--root DIR] [--fresh] [-F] [-n] -- PATTERN [PATH...]\ntgrep.cjs ensure|status|doctor|stop [--root DIR]\ntgrep.cjs check-updates\nExit: 0 match/success; 1 no match; 2 error. Use separate flags; root controls service, paths retain cwd meaning.'); return 0; }
   const query = parse([...argv]);
+  if (query.command === 'ensure') maybeCheckUpdates();
   const ctx = context(process.cwd(), query.root);
   if (!ctx) throw new Error('outside a Git worktree; provide --root DIR for an explicit disk scan');
   if (query.command === 'search') return search(query, ctx);
@@ -340,9 +357,11 @@ async function main(argv = process.argv.slice(2)) {
   }
   if (['status', 'doctor'].includes(query.command)) {
     const state = await managed(ctx);
-    console.log(JSON.stringify({ root: ctx.root, index: ctx.index, binary: executable(), installed: installedHealthy(executable()), state: state || { phase: ctx.git ? 'stopped' : 'scan-only' }, lastError: readJSON(path.join(ctx.dir, 'last-error.json')) }, null, 2)); return 0;
+    const binding = updates.serviceBinding(ctx, state, selectedRelease());
+    const descriptor = updates.releaseForVersion(home(), binding.version);
+    console.log(JSON.stringify({ root: ctx.root, index: binding.index, activeVersion: selectedRelease().version, serviceVersion: state ? binding.version : null, updates: updates.status(home()), binary: executable(descriptor), installed: installedHealthy(executable(descriptor), descriptor), state: state || { phase: ctx.git ? 'stopped' : 'scan-only' }, lastError: readJSON(path.join(ctx.dir, 'last-error.json')) }, null, 2)); return 0;
   }
   throw new Error(`unknown command: ${query.command}`);
 }
-module.exports = { parse, context, lock, rpc, managed, start, searchArgs, ensureBinary, executable, main, home, run };
+module.exports = { atomicJSON, installedHealthy, selectedRelease, maybeCheckUpdates, parse, context, lock, rpc, managed, start, searchArgs, ensureBinary, executable, main, home, run };
 if (require.main === module) main().then(code => { process.exitCode = code || 0; }).catch(e => { console.error(`[tgrep] ${e.message}`); process.exitCode = 2; });

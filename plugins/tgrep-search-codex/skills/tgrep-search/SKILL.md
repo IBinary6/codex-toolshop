@@ -17,3 +17,5 @@ node "/absolute/plugin/scripts/tgrep.cjs" doctor
 普通查询使用健康服务；pending、服务异常、零命中自动直读磁盘复核。编辑后的关键验证用 `--fresh`，因为 watcher 存在延迟，零命中复核不能补全已有部分命中的结果。默认文件上限 64 MiB；超大文件显式 `--no-max-filesize`，GBK 等内容可用 `-E gbk` 直读，字节精确检索使用 rg。
 
 安装未完成时 wrapper 可用 rg 回退，stderr 会标明引擎；回退并非逐字节等价。未知 flags 会明确失败，不透传。使用 `--help` 查看入口，完整支持选项与生命周期见 [插件说明](../../README.md)。不要将“服务启动”说成“索引完成”，退出码 1 才是本次搜索无匹配，2 是错误。
+
+上游 tgrep 每 7 天在后台检查稳定更新；doctor 的 activeVersion/serviceVersion 可能暂时不同，查询按存活服务版本执行。更新错误不应阻断检索；需要立即重试时运行 `node "/absolute/plugin/scripts/tgrep.cjs" check-updates`。该入口不更新 Codex 插件源码。

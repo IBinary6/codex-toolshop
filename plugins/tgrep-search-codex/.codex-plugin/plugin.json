@@ -1,6 +1,6 @@
 {
   "name": "tgrep-search-codex",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "自动准备 tgrep，为每个 Git 工作树维护后台索引，并提供带实时扫描复核的文本搜索。",
   "author": {
     "name": "IBinary6",
@@ -26,6 +26,6 @@
     "defaultPrompt": [
       "检查当前工作树的 tgrep 搜索状态。"
     ],
-    "longDescription": "自动下载并校验固定版本 tgrep，为每个 Git 工作树后台维护索引。提供实时扫描复核、按需恢复、状态诊断和空闲回收，与 CodeMap 符号检索互补。"
+    "longDescription": "自动安装并校验 tgrep，为每个 Git 工作树在后台维护索引，提供实时扫描复核、服务故障恢复与闲置回收。每周检查官方稳定版，校验资产与搜索服务后供后续启动使用；现有服务继续使用匹配的版本和索引，与 CodeMap、Serena 配合检索。"
   }
 }

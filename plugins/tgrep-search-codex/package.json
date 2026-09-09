@@ -1,12 +1,13 @@
 {
   "name": "tgrep-search-codex",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "engines": {
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test tests/wrapper.test.cjs",
-    "test:smoke": "node scripts/smoke.cjs"
+    "test": "node --test tests/wrapper.test.cjs tests/update.test.cjs",
+    "test:smoke": "node scripts/smoke.cjs",
+    "test:updates": "node scripts/update-smoke.cjs"
   }
 }

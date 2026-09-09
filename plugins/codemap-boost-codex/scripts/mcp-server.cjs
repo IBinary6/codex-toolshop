@@ -4,6 +4,7 @@ const { spawn } = require('child_process');
 const { crgRuntimePaths, ensureCrg } = require('../hooks/js/lib/bootstrap');
 const { enableCodeMap, readBootstrapFailure } = require('../hooks/js/lib/codemap');
 const { nodeRuntimeStatus } = require('../hooks/js/lib/runtime');
+const { scheduleRuntimeUpdates } = require('../hooks/js/lib/runtime-updates');
 
 /**
  * 确保插件私有 CRG 可用，并返回要启动的 MCP 命令。
@@ -21,7 +22,7 @@ function prepareMcpServer(options = {}) {
   const ensure = options.ensureCrg || ensureCrg;
   const runtimePaths = options.crgRuntimePaths || crgRuntimePaths;
   const enable = options.enableCodeMap || enableCodeMap;
-  if (!ensure()) {
+  if (!ensure(options)) {
     const readFailure = options.readBootstrapFailure || readBootstrapFailure;
     return {
       ok: false,
@@ -30,7 +31,11 @@ function prepareMcpServer(options = {}) {
     };
   }
   enable();
-  return { ok: true, command: runtimePaths().command, args: ['serve'] };
+  // 更新器只在已有健康运行时后后台运行，不能占用 stdio 或推迟当前 MCP 启动。
+  if (!options.ensureCrg || options.scheduleRuntimeUpdates) {
+    try { (options.scheduleRuntimeUpdates || scheduleRuntimeUpdates)(options); } catch (_) {}
+  }
+  return { ok: true, command: runtimePaths(options).command, args: ['serve'] };
 }
 
 /**

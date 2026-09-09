@@ -16,6 +16,8 @@ const {
 
 async function main() {
   const input = await readStdinJson({ timeoutMs: 2000 });
+  // 原生插件源码刷新与工具运行时升级分开，后台每周检查一次。
+  try { require('./lib/plugin-updates').schedulePluginUpdate(); } catch (_) {}
   // Git 自身解析父目录与 worktree 的 .git 文件，非工作区不探测运行时或写入配置。
   const cwd = repoRoot(hookCwd(input));
   if (!cwd) return passSilent();

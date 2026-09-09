@@ -81,12 +81,14 @@ try {
   assert.ok(content.includes('code-review-graph'), 'first point keeps graph-first structural retrieval');
   assert.ok(content.includes('tgrep-search-codex'), 'first point keeps indexed text and file discovery routing');
   assert.ok(content.includes('已安装且就绪'), 'tgrep cooperation is conditional on plugin availability');
-  assert.ok(content.includes('否则使用 rg 等可用的实时搜索'), 'standalone installs retain a usable text-search route');
+  assert.ok(content.includes('否则使用 rg 等实时搜索'), 'standalone installs retain a usable text-search route');
   assert.ok(!CONTEXT.includes('tool-priority'), 'published guidance must not depend on a personal skill');
   assert.ok(content.includes('先用 code-review-graph 定位，再按返回的路径和行号读取源码'), 'implementation discovery starts with the graph and verifies source');
   assert.ok(content.includes('图未命中、不可用或覆盖不足时'), 'text discovery follows graph failure or insufficient coverage');
-  assert.ok(content.includes('文本找到候选符号或路径后，按需回到图查询'), 'text candidates can feed a more precise graph query');
-  assert.ok(content.includes('已有充分证据时停止检索'), 'cooperation does not force redundant round trips');
+  assert.ok(content.includes('候选符号或路径可按需交给图或 Serena 继续查证'), 'candidates can feed graph or semantic queries');
+  assert.ok(content.includes('证据充分即停止，无需轮流调用所有工具'), 'cooperation does not force redundant round trips');
+  assert.ok(content.includes('需要精确的符号定义、实现或引用时，用可用的 Serena/LSP 补充'), 'semantic retrieval complements the graph');
+  assert.ok(content.includes('激活当前目标项目的绝对根目录'), 'Serena must activate the actual target project');
   assert.ok(content.includes('已知文件直接读；纯文本、日志、配置键或文件名枚举'), 'known files and literal searches retain direct routes');
   assert.ok(content.includes('每个 worktree 使用独立根目录和索引'), 'second point keeps worktree isolation');
   assert.ok(content.includes('读取前 barrier'), 'second point keeps the graph read barrier');

@@ -2,11 +2,12 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
-const { context, managed, start } = require('./tgrep.cjs');
+const { context, managed, start, maybeCheckUpdates } = require('./tgrep.cjs');
 (async () => {
   let input = {};
   try { input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}'); } catch {}
   const event = process.argv[2] === 'session_start' ? 'SessionStart' : 'UserPromptSubmit';
+  maybeCheckUpdates();
   const ctx = context(input.cwd || process.cwd());
   if (!ctx?.git) return;
   const state = await managed(ctx, 'touch');

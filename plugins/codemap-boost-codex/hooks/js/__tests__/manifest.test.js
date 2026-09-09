@@ -59,8 +59,11 @@ assert.strictEqual(
 );
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'package.json'), 'utf8'));
-assert.strictEqual(plugin.version, '0.1.30', 'plugin manifest stays on the condensed-guidance release');
-assert.strictEqual(packageJson.version, '0.1.30', 'package metadata stays on the condensed-guidance release');
+assert.strictEqual(plugin.version, '0.1.31', 'plugin manifest includes the bundled Serena release');
+assert.strictEqual(packageJson.version, '0.1.31', 'package metadata matches the bundled Serena release');
+assert.deepStrictEqual(mcp.mcpServers.serena, {
+  type: 'stdio', command: 'node', args: ['scripts/serena-server.cjs'], cwd: '.', startup_timeout_sec: MCP_STARTUP_TIMEOUT_SEC,
+}, 'Serena is available through the installed plugin without a user-specific MCP registration');
 assert.strictEqual(MINIMUM_NODE_MAJOR, 18, 'Node 18 is the minimum supported launcher runtime');
 assert.strictEqual(packageJson.engines && packageJson.engines.node, '>=18.0.0', 'package declares its Node runtime prerequisite');
 

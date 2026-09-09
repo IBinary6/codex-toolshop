@@ -9,6 +9,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'tgrep-smoke-'));
 const repo = path.join(temp, 'repo');
 process.env.TGREP_SEARCH_HOME = path.join(temp, 'private');
 process.env.TGREP_IDLE_MS = '5000';
+process.env.TGREP_DISABLE_UPDATES = '1';
 const api = require('./tgrep.cjs');
 const contexts = [];
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -114,6 +115,24 @@ async function cli(args, cwd = repo) {
       fs.unlinkSync(outsideAlias);
       fs.unlinkSync(alias);
     }
+    // 在隔离 data 中模拟已验证的新 active 指针；存活服务仍应使用启动时版本。
+    const updates = require('./release-update.cjs');
+    const next = JSON.parse(JSON.stringify(updates.fallback));
+    next.version = '2.0.0';
+    for (const asset of Object.values(next.assets)) { asset.url = asset.url.replaceAll('v1.0.5', 'v2.0.0'); asset.archive = asset.archive.replace('v1.0.5', 'v2.0.0'); }
+    const activeFile = path.join(api.home(), 'active-release.json');
+    api.atomicJSON(activeFile, next);
+    try {
+      const held = await cli(['search', '-F', '--', 'initial-needle', '.']);
+      assert.equal(held.code, 0, held.stderr);
+      assert.doesNotMatch(held.stderr, /scanning disk|verifying by disk/);
+      const diagnostic = await cli(['doctor']);
+      assert.equal(diagnostic.code, 0, diagnostic.stderr);
+      const details = JSON.parse(diagnostic.stdout);
+      assert.equal(details.activeVersion, '2.0.0');
+      assert.equal(details.serviceVersion, '1.0.5');
+      assert.equal(details.index, ctx.index);
+    } finally { fs.unlinkSync(activeFile); }
     result = await cli(['search', '-F', '--', 'root-only-marker', '.'], path.join(repo, 'src'));
     assert.equal(result.code, 1, result.stdout + result.stderr);
     fs.writeFileSync(path.join(repo, 'src', 'a.txt'), 'updated-needle\n');

@@ -1,35 +1,31 @@
 ---
 name: codemap-upgrade-runtime
-description: Upgrade only the code-review-graph dependency inside CodeMap Boost's private runtime. Use when the user explicitly asks to update the underlying CRG service without upgrading or changing codemap-boost-codex itself.
+description: Inspect or immediately check CodeMap Boost's managed CRG and Serena runtime updates, including weekly checks, candidate validation, and failed-update diagnosis. Use when the user asks about the underlying tools rather than the plugin source.
 ---
 
-# Upgrade CodeMap Runtime
+# CodeMap Runtime Updates
 
-Upgrade only the plugin-managed `code-review-graph[all]` package. Do not change the CodeMap Boost plugin version or source, and do not run upstream `code-review-graph install`.
+CRG and Serena check official stable releases automatically, at most once every seven days when the plugin is used. A healthy runtime keeps serving while a candidate is prepared in a separate version directory. Successful compatibility checks publish a version pointer for later launches. Failed checks retain the previous runtime and record the error.
+
+## Inspect or check now
+
+Resolve the installed plugin root from this skill or `codex plugin list --json`. Use the plugin's own update entry point:
+
+```bash
+node <plugin-root>/scripts/runtime-update.cjs --doctor
+node <plugin-root>/scripts/runtime-update.cjs --check-now
+```
+
+1. Read the doctor output for effective versions, update timestamps, and failures. Doctor is read-only.
+2. When the user requests an immediate check, run `--check-now`. Package installer success alone is insufficient: the updater must pass its runtime and integration checks before changing the active version.
+3. Report each tool's outcome separately: already current, updated for later launches, failed with the old version retained, or disabled. Existing MCP processes keep their original environment; a new task loads the selected version.
+
+The default update source is official PyPI. Serena's initial compatibility baseline is 1.7.0, not a permanent version ceiling. CRG candidates must pass parser and graph-refresh adapter checks; Serena candidates must preserve Codex MCP tooling and the disabled dashboard/browser/GUI behavior. Language-server capability still depends on the target project's language and build setup.
 
 ## Boundaries
 
-- Resolve the installed plugin root from this skill location or `codex plugin list --json`; never hardcode a plugin version.
-- Resolve the marketplace-qualified plugin data directory through the plugin doctor. The target must be its `crg-runtime` child.
-- Do not modify PATH, user site-packages, MCP registrations, `AGENTS.md`, `.gitignore`, project graphs, or cc-switch configuration.
-- Never remove a same-name global `uvx code-review-graph serve` registration. Report it separately because only the user can confirm its ownership.
-- Use `uv pip --python` against the private runtime. Never use `pip install --user`, `python -m pip`, or a global Python environment.
-
-## Workflow
-
-1. Run `node <plugin-root>/scripts/setup.cjs --doctor` from the current Git repository and record the private runtime path and health.
-2. Read the current private version from `<runtime>/Scripts/code-review-graph.exe --version` on Windows or `<runtime>/bin/code-review-graph --version` elsewhere.
-3. Query the published PyPI version. If it equals the private version, stop without modifying anything and report that the runtime is current.
-4. Check whether the private runtime or any child process from it is currently serving this task. Do not kill processes. If backup, upgrade, or rollback reports sharing violation, access denied, or any locked path, stop immediately; do not retry deletion or fall back to an overlay copy. Report the stage and locked path, then give the user the exact command to run after fully exiting Codex.
-5. Before mutation, resolve canonical paths and reject a runtime, parent, or backup path that traverses a symlink, junction, or Windows reparse point. Create a uniquely named sibling backup only when that destination does not already exist, and verify the canonical source and backup are different children of the same plugin data directory.
-6. Upgrade only the private environment:
-
-   ```text
-   uv pip install --python <runtime-python> --upgrade --refresh code-review-graph[all]
-   ```
-
-7. Verify the upgraded CLI version, then rerun doctor. The private runtime check must pass, including Python, JavaScript, TypeScript, and TSX parser probes. A separately reported global MCP override does not invalidate a healthy private runtime.
-8. On any installation or private-runtime verification failure, never copy the backup over the failed runtime. Rename the failed runtime to a unique sibling failure directory, rename the intact backup back to the exact original `crg-runtime` path, then verify the restored CLI version and all four parser probes. Report rollback failure separately and preserve every recoverable directory for manual recovery.
-9. On success, retain the backup until the user restarts Codex, creates a new task, and confirms the plugin-native MCP exposes graph tools. Report old version, new version, backup path, doctor result, and restart requirement.
-
-Do not claim success from a package installer exit code alone.
+- Keep venvs versioned and independent. Do not upgrade an active environment in place, move its directory, overlay a backup, or delete locked files.
+- Do not modify PATH, user site-packages, project graphs/configuration, user MCP registrations, or CC Switch settings.
+- `CODEMAP_BOOST_DISABLE_RUNTIME_UPDATES=1` explicitly disables automatic runtime updates; report this state instead of silently overriding it.
+- Plugin source updates are separate: `scripts/plugin-update.cjs --doctor|--check-now` uses Codex's native update flow for the configured official codex-toolshop marketplace. Do not confuse a marketplace refresh with runtime validation.
+- tgrep owns its release checks in `tgrep-search-codex`; use that plugin's doctor/update commands when investigating text-search version changes.

@@ -1,6 +1,6 @@
 # CodeMap Boost for Codex
 
-`codemap-boost-codex` 是一个 Codex 插件，用来把 `code-review-graph` 驱动的代码结构图工作流接入 Codex。
+`codemap-boost-codex` 自带 `code-review-graph` 和 Serena 两个原生 MCP：代码图负责结构定位与影响面，Serena 通过语言服务补充符号定义、实现和引用。
 
 插件本身不会读取或修改旧宿主目录。Codex 持久提示写入 `$CODEX_HOME/AGENTS.md`，运行数据写入 Codex 插件数据目录。
 
@@ -18,7 +18,53 @@
 
 CodeMap 的常驻规则由托管 `AGENTS.md` 块与入口注入共用同一份三点文案：工具分工、范围与刷新、查询与证据。安装、运行时和 hook 的按需技术细节见下文；图工具验证与文本检索降级见 [setup skill 的 Verification](skills/codemap-boost-setup/SKILL.md#verification)。
 
-CodeMap 可独立安装，不依赖个人技能。定位实现、函数、类或调用关系时先查图，再按返回的路径和行号读取源码；图未命中、不可用或覆盖不足时，使用已安装且就绪的 tgrep 插件补充定位，否则使用 `rg` 等实时搜索。文本得到候选符号或路径后，可以回到图查询定义、引用和调用关系，证据充分后即可结束。已知文件直接读取；纯文本、日志、配置键和文件名枚举可直接使用文本工具。刚修改的内容和最终完整性核查以实时读取或扫描为准。
+CodeMap 可独立安装，不依赖个人技能。工具按问题相互配合：
+
+1. **图先定位**：查实现、函数、类、调用链和影响面时，先查图，再读取返回路径和行号附近的源码。
+2. **语义补充、文本找线索**：需要精确符号、实现或引用时使用 Serena；图未命中或覆盖不足时，也可用 Serena 或已安装且就绪的 tgrep 插件继续定位，文本工具不可用时用 `rg`。例如先搜到函数名，再用图查看调用关系，或用 Serena 找定义与引用。
+3. **以证据结束**：只补足当前缺少的证据，不要求全部工具轮流调用。已知文件直接读；日志、配置键和纯文本可直接搜索；刚修改的内容和最终完整性核查使用实时读取或扫描。
+
+## 内置 Serena：安静启动与项目边界
+
+从 0.1.31 起，插件安装后由原生 MCP 自动准备 Serena，初始兼容基线为 `serena-agent==1.7.0`，后续按周自动检查更新，无需另写 `uvx` 配置。Serena 和 CRG 使用各自的私有 venv；Serena 的全局配置、日志及语言服务缓存通过 `SERENA_HOME` 放在 `<plugin-data>/serena-home`，运行时使用独立版本目录。
+
+每次启动都显式传入以下参数，即使配置文件曾启用界面，也保持无界面启动：
+
+```text
+start-mcp-server --context codex
+--enable-web-dashboard false
+--open-web-dashboard false
+--enable-gui-log-window false
+```
+
+三个选项分别关闭 Dashboard 服务、浏览器自动打开和 GUI 日志窗口。末尾单独写一个 `false` 会被上游解析成项目名，不能用来关闭界面。[官方启动参数](https://github.com/oraios/serena/blob/v1.7.0/src/serena/cli.py)
+
+MCP 的工作目录用于定位插件脚本，所以启动器不使用 `--project-from-cwd`，也不把插件仓库自动激活为用户项目。模型首次使用语义工具前，通过 Serena `activate_project` 激活当前目标的绝对根目录，切换项目后重新确认。已有项目的 `.serena/project.yml` 仍会生效；插件不重写项目配置，也不修改 CC Switch 或其他管理器登记的 Serena。已有另一套 Serena 时选一个实例使用；是否禁用旧实例由用户在对应宿主管理。
+
+封装支持 Windows、macOS 和 Linux。Serena 1.7.0 要求 Python 3.11–3.14；包安装成功与语言服务可用是两项检查。语言服务可能在首次激活时下载依赖；例如 C/C++ 使用 clangd，跨文件分析通常需要项目提供 `compile_commands.json`。具体平台和依赖以 [官方语言支持说明](https://oraios.github.io/serena/01-about/020_programming-languages.html) 为准。语言服务不可用时继续使用图、源码和文本证据。
+
+只读诊断命令为 `node "<plugin-root>/scripts/serena-server.cjs" --doctor`；完整运行时验证使用插件目录下的 `npm run test:serena-smoke`，覆盖隔离安装、MCP 握手、无界面启动、临时项目激活和真实符号查询。正常使用不需要执行这些诊断命令。
+
+## 每周自动更新
+
+工具运行时与插件源码分别更新，安装成功不会永久跳过上游版本检查：
+
+- **CRG 与 Serena**：健康 MCP 启动后，后台检查官方 PyPI 稳定版。所有任务共用 7 天检查间隔与安装锁。候选版本安装到独立目录，CRG 通过 parser 与刷新适配器检查，Serena 通过 MCP/CLI 契约及关闭界面验证后，才更新版本指针；后续启动使用新版。
+- **tgrep**：由独立 `tgrep-search-codex` 插件负责按周检查 GitHub 官方 release、校验发布资产并验证搜索服务。CodeMap 不重复启动 tgrep 更新流程。
+- **插件源码**：已从官方 `codex-toolshop` Git marketplace 安装的 CodeMap，在 SessionStart 后台每周调用 Codex 原生 marketplace 更新入口，并检查已启用插件的缓存版本。此流程覆盖该市场的已安装插件，不安装未安装的插件，不主动启用已禁用的插件，不更新其他市场。源码目录中的开发测试不会触发用户插件升级。
+
+运行时更新不替换正在使用的 venv，也不删除旧版；网络、安装或兼容性验证失败时继续使用旧版，并记录检查时间和错误。现有 MCP 不在任务中途重启；插件源码更新也需要后续新任务加载。如果 Codex CLI 缺失、缓存被占用或原生更新失败，记录诊断并保留现有缓存，不强行终止进程或删除锁定目录。
+
+这是“使用时触发、每 7 天至多自动检查一次”，不是电脑关闭时仍运行的定时任务。没有版本变化时不会重装。需要主动检查或查看状态时，在插件目录运行：
+
+```bash
+node scripts/runtime-update.cjs --doctor
+node scripts/runtime-update.cjs --check-now
+node scripts/plugin-update.cjs --doctor
+node scripts/plugin-update.cjs --check-now
+```
+
+`--doctor` 只读；`--check-now` 显式执行一次检查。受控环境可用 `CODEMAP_BOOST_DISABLE_RUNTIME_UPDATES=1` 固定工具版本，用 `CODEX_TOOLSHOP_DISABLE_PLUGIN_UPDATES=1` 关闭插件源码自动刷新。禁用更新不妨碍首次准备缺失的基本运行时。
 
 ## 安装即用
 
@@ -29,7 +75,7 @@ CodeMap 可独立安装，不依赖个人技能。定位实现、函数、类或
 - 独立 `codex` CLI 仅用于旧版全局 MCP 覆盖迁移与 doctor 的可选检查，不是插件原生 MCP 启动的前提。
 - 依赖安装器推荐使用 `uv`，插件会用它创建固定 Python 3.12 的私有 venv；无 `uv` 时使用支持 `venv` 的 Python，依次尝试 3.12、3.11 和当前 Python。
 
-不要求用户预先安装 `code-review-graph`，也不要求安装后再运行 setup。正常安装只有两条命令：
+不要求用户预先安装 `code-review-graph` 或 Serena，也不要求安装后再运行 setup。正常安装只有两条命令：
 
 ```bash
 codex plugin marketplace add https://github.com/IBinary6/codex-toolshop.git
@@ -39,7 +85,7 @@ codex plugin marketplace add https://github.com/IBinary6/codex-toolshop.git
 codex plugin add codemap-boost-codex@codex-toolshop
 ```
 
-安装后创建一个新的 Codex 任务。插件自带的 `.mcp.json` 会在任务加载 MCP 时直接启动跨平台 Node 入口；入口会在 Codex 插件数据目录中创建或修复隔离的 CRG venv，然后启动 `code-review-graph serve`。首次安装不依赖 SessionStart 事后注册 MCP，因此主代理和自动子代理能在同一新任务中获得图工具。
+安装后创建一个新的 Codex 任务。插件自带的 `.mcp.json` 会在任务加载 MCP 时启动两个跨平台 Node 入口，分别准备隔离的 CRG 与 Serena venv，再启动各自的 stdio 服务。首次安装不依赖 SessionStart 事后注册 MCP，因此主代理和自动子代理能在同一新任务中发现工具。
 
 插件原生 MCP 明确设置 `startup_timeout_sec = 600`。启动器把其中 570 秒作为共享绝对预算，安装锁等待、venv 创建、依赖安装与健康探针都只能使用剩余时间；最后 30 秒留给 MCP 子进程启动。单条安装命令仍以 5 分钟为上限，等待安装锁仍以 9 分钟为上限，但二者不会再各自重新获得完整超时。多个任务同时首次启动时通过安装锁串行化，不会并发重建同一个 venv。
 
@@ -69,7 +115,7 @@ MCP 工具可能以 deferred 方式注入，因此不会出现在静态 schema �
 
 setup 会执行这些动作：
 
-- 在插件数据目录维护独立的 `crg-runtime` venv，不读取用户级 site-packages，也不修改用户 PATH。
+- 在插件数据目录维护独立 CRG venv：初始目录为 `crg-runtime`，按周更新验证通过的版本位于 `crg-runtimes/<version>`。以 doctor 返回的实际路径为准，不读取用户级 site-packages，也不修改用户 PATH。
 - 优先用 `uv` + Python 3.12 创建 venv；无 uv 时用系统 Python 的 `venv`，然后只向该 venv 安装 `code-review-graph[all]`。
 - 安装后用与上游相同的 Python `-I` 隔离模式加载 Python、JavaScript、TypeScript、TSX parser；仅 CLI 存在不再视为健康。
 - 检查同名 MCP；只自动移除能由插件数据目录路径证明归属的旧版私有运行时全局覆盖，不再创建全局 MCP 注册，也不会擅自删除用户创建的 `uvx` 配置。

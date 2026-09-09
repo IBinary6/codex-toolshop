@@ -60,6 +60,12 @@ function main() {
   assert(JSON.stringify(crgServer.args) === JSON.stringify(['scripts/mcp-server.cjs']), 'bundled MCP launcher path is wrong');
   assert(crgServer.cwd === '.', 'bundled MCP cwd must resolve from the plugin root');
   assert(crgServer.startup_timeout_sec === MCP_STARTUP_TIMEOUT_SEC, 'bundled MCP startup timeout must match bootstrap budget');
+  const serenaServer = mcp.mcpServers.serena;
+  assert(serenaServer && serenaServer.type === 'stdio', 'MCP manifest must include Serena stdio');
+  assert(serenaServer.command === 'node', 'Serena must use the cross-platform Node launcher');
+  assert(JSON.stringify(serenaServer.args) === JSON.stringify(['scripts/serena-server.cjs']), 'Serena launcher path is wrong');
+  assert(serenaServer.cwd === '.', 'Serena cwd must locate the plugin launcher');
+  assert(serenaServer.startup_timeout_sec === MCP_STARTUP_TIMEOUT_SEC, 'Serena startup timeout must match bootstrap budget');
 
   const hooks = readJson(path.join(pluginRoot, 'hooks', 'hooks.json'), 'hooks manifest');
   const legacyHooks = readJson(path.join(pluginRoot, 'hooks', 'codex-hooks.json'), 'legacy hooks manifest');

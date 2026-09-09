@@ -42,7 +42,7 @@ codex plugin add system-proxy-codex@codex-toolshop
 | 插件 | 当前用途 | 日常用法 |
 | --- | --- | --- |
 | [Dbg](plugins/dbg-codex/README.md) | 发现 Scoop、Homebrew 和手动安装的调试工具，部署 x64dbg、Ghidra、WinDbg、IDA 的扩展及 MCP。 | 首次加载自动部署；`dbg doctor` 再次检测、更新、修复；不兼容版本明确跳过，全程由脚本执行。 |
-| `codemap-boost-codex` | 自动接入 `code-review-graph` 代码结构图，提供符号、调用、引用和影响面检索能力。 | 新会话自动 bootstrap、自动 build/update。涉及代码结构时优先用 `mcp__code_review_graph__*` 工具。 |
+| `codemap-boost-codex` | 内置 `code-review-graph` 代码图与 Serena 语义 MCP，提供结构、符号、引用和影响面检索。 | 自动准备独立运行时并维护图谱；图先定位，Serena 按需补充。默认关闭 Serena Dashboard、自动打开浏览器和 GUI 日志窗口。 |
 | [tgrep-search-codex](plugins/tgrep-search-codex/README.md) | 自动准备固定版本 tgrep，按 Git 工作树维护文本搜索索引和后台服务，与 CodeMap 配合。 | 任务启动自动准备；通过 hook 给出的搜索入口查询。索引未就绪或服务异常时实时扫描，`--fresh` 用于刚修改的内容和完整性核查。 |
 | `cpp-style-enforcer-codex` | 自动执行团队 C++ 风格流程，包括 clang-format、版权头、BOM、cpplint 和提交前检查。 | 正常编辑即可；写入 C/C++ 文件后 hook 自动处理，`git commit` 前会检查暂存区 C++ 文件。 |
 | `agent-dispatch-codex` | 面向产品、设计、QA、研究、运营和开发，按调查、规划、制作、验证、审查分配有界任务与模型。 | 新会话自动注入通用调度策略；按交付物验收，子代理直接执行、报告结果，并在整合后及时释放。 |
@@ -111,10 +111,13 @@ Dbg 自动填写发现到的宿主、Python、JDK、扩展目录及 MCP 路径�
 
 ## CodeMap Boost 怎么用
 
-安装 `codemap-boost-codex` 后，新会话的 `SessionStart` 会主动做这些事：
+CodeMap/Serena 与 tgrep 的封装运行时支持每周自动检查上游稳定版，在独立目录验证后供后续启动使用，失败保留旧版。CodeMap 还会对官方 `codex-toolshop` 市场中的已安装插件按周调用 Codex 原生更新入口；没有使用时不额外唤醒电脑。更新机制、关闭选项与只读状态命令见 [CodeMap 每周自动更新](plugins/codemap-boost-codex/README.md#每周自动更新)。
+
+安装 `codemap-boost-codex` 后，新任务的原生 MCP 启动器与 hooks 会主动做这些事：
 
 - 检查 `code-review-graph` 是否可用；缺失时先完成 bootstrap，再继续本次启动刷新。
 - 通过插件自身 `.mcp.json` 暴露 MCP，不另注册一个同名全局服务器；运行时安装只准备所需依赖。
+- 自动安装固定 Serena 1.7.0 到独立私有 venv，关闭 Dashboard、浏览器自动打开和 GUI 日志窗口；保留用户已有的 MCP 管理器配置。语义查询前激活实际目标项目，避免误用插件目录。
 - 更新 `$CODEX_HOME/AGENTS.md` 中边界明确的托管块，保留块外内容；边界损坏时报告问题，不猜测替换范围。
 - 当前目录是 Git 仓库时，同步完成 build/update；存在未跟踪源码时使用临时 Git index 做 full build。
 - 结构、依赖、调用链与影响面优先查询可用图工具，再读源码核对。SessionStart、结构请求和子代理入口保留规则；常见源码搜索前每用户轮补充一次短提醒，用户补充后复位，不阻断命令或重复刷新。
@@ -130,24 +133,25 @@ Dbg 自动填写发现到的宿主、Python、JDK、扩展目录及 MCP 路径�
 常用验证命令：
 
 ```bash
-code-review-graph --version
-code-review-graph status
+codex mcp get code-review-graph --json
+codex mcp get serena --json
 codex plugin list
 ```
 
-## tgrep 与 CodeMap 怎么配合
+## CodeMap、Serena 与 tgrep 怎么配合
 
 安装 `tgrep-search-codex` 后，受宿主信任的 `SessionStart` hook 在 Git 任务启动或恢复时自动准备 tgrep 并启动 `serve`；缺少索引由服务建立，无需手动执行 `tgrep index` 或 `tgrep serve`。首次下载和建索引在后台进行，查询入口会处理未就绪状态。打开 Codex 首页本身不等于触发任务启动 hook。
 
 | 需求 | 使用方式 |
 | --- | --- |
 | 调用链、符号关系、引用和影响面 | CodeMap 图查询，再读源码核对。 |
+| 精确符号定义、实现与引用 | 图先缩小范围，按需用内置 Serena/LSP 补充；语言服务未就绪时采用源码和文本证据。 |
 | 普通仓库文本搜索 | 使用 tgrep 插件注入的 CLI 包装入口，健康索引负责加速。 |
 | 刚修改的内容、需要完整且最新的结论 | 包装入口加 `--fresh` 实时扫描；也可使用 `rg`。 |
 | 文件发现 | 索引可用时使用 `--files`；即时列表使用 `--fresh --files` 或 `rg --files`。 |
 | 已知文件 | 直接读取。 |
 
-包装入口按真实工作树隔离状态、复用服务，索引未完成、服务异常或索引查询零命中时走实时扫描。实时扫描仍遵守查询过滤与大小限制；特殊编码、原始字节或索引范围以外的需求按 [tgrep 插件说明](plugins/tgrep-search-codex/README.md)选择参数。CodeMap 负责图检索与刷新；代码定位先查图，图未命中或覆盖不足时由文本搜索补充候选，必要时再回图核对关系。tgrep 插件负责自己的安装、启动和查询降级，不接管图谱刷新。
+包装入口按真实工作树隔离状态、复用服务，索引未完成、服务异常或索引查询零命中时走实时扫描。实时扫描仍遵守查询过滤与大小限制；特殊编码、原始字节或索引范围以外的需求按 [tgrep 插件说明](plugins/tgrep-search-codex/README.md)选择参数。代码定位先查图；未命中或覆盖不足时由 Serena 或文本搜索补充候选，必要时再交给图查关系或 Serena 查符号。证据充分即可结束，不要求每次调用全部工具。tgrep 插件独立负责安装、启动和查询降级；Serena 的语言服务依赖及项目激活见 [CodeMap 说明](plugins/codemap-boost-codex/README.md#内置-serena安静启动与项目边界)。
 
 ## Local Knowledge 怎么用
 

@@ -71,6 +71,30 @@ jobs:
       - name: Verify pinned release and isolated worktree search lifecycle
         working-directory: plugins/tgrep-search-codex
         run: npm run test:smoke
+      - name: Verify official release update and candidate service contract
+        working-directory: plugins/tgrep-search-codex
+        run: npm run test:updates
+
+  serena-runtime:
+    name: Serena runtime on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - name: Verify isolated Serena MCP, no dashboard, and symbol lookup
+        working-directory: plugins/codemap-boost-codex
+        run: npm run test:serena-smoke
 
   codemap-runtime:
     name: CodeMap CRG ${{ matrix.crg }} on ${{ matrix.os }}

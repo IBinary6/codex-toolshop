@@ -1,5 +1,12 @@
 {
   "mcpServers": {
+    "serena": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["scripts/serena-server.cjs"],
+      "cwd": ".",
+      "startup_timeout_sec": 600
+    },
     "code-review-graph": {
       "type": "stdio",
       "command": "node",

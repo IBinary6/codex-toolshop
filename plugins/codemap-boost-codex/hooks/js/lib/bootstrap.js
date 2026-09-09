@@ -6,9 +6,11 @@ const fs = require('fs');
 const path = require('path');
 const { isWindows, markerPath, pluginDataDir, writeMarker } = require('./runtime');
 const { commandExists } = require('./runtime');
+const { activeRuntimeVersion } = require('./runtime-versions');
 
 const CRG_PACKAGE = 'code-review-graph[all]';
 const CRG_RUNTIME_DIR = 'crg-runtime';
+const CRG_VERSIONED_RUNTIME_DIR = 'crg-runtimes';
 const CRG_PYTHON_VERSION = '3.12';
 const MCP_STARTUP_TIMEOUT_SEC = 10 * 60;
 const MCP_BOOTSTRAP_RESERVE_MS = 30 * 1000;
@@ -62,7 +64,12 @@ function crgRuntimePaths(options = {}) {
   const platform = options.platform || process.platform;
   const windows = platform === 'win32';
   const pathApi = windows ? path.win32 : path.posix;
-  const dir = pathApi.resolve(options.runtimeDir || pathApi.join(pluginDataDir(), CRG_RUNTIME_DIR));
+  // `runtimeDir` 用于 doctor/候选验证，必须比活动版本指针优先。
+  const data = options.pluginDataDir || pluginDataDir(options);
+  const version = options.version || activeRuntimeVersion('crg', { pluginDataDir: data });
+  const dir = pathApi.resolve(options.runtimeDir || (version
+    ? pathApi.join(data, CRG_VERSIONED_RUNTIME_DIR, version)
+    : pathApi.join(data, CRG_RUNTIME_DIR)));
   const binDir = pathApi.join(dir, windows ? 'Scripts' : 'bin');
   return {
     dir,
@@ -140,6 +147,10 @@ function probeCrgRuntime(options = {}) {
       diagnosticLabel: 'managed CRG 版本探针',
     })) return false;
     const parserProbe = [
+      ...(options.expectedVersion ? [
+        'from importlib.metadata import version',
+        `assert version('code-review-graph') == ${JSON.stringify(String(options.expectedVersion))}, version('code-review-graph')`,
+      ] : []),
       'from tree_sitter_language_pack import get_parser',
       "for grammar in ('python', 'javascript', 'typescript', 'tsx'):",
       '    get_parser(grammar)',
@@ -250,8 +261,8 @@ function isPidAlive(pid) {
   try {
     process.kill(pid, 0);
     return true;
-  } catch (_) {
-    return false;
+  } catch (error) {
+    return !!error && error.code === 'EPERM';
   }
 }
 
@@ -356,7 +367,13 @@ function ensureCrg(options = {}) {
   const deadlineMs = Number.isFinite(options.deadlineMs)
     ? Math.min(options.deadlineMs, ownDeadline)
     : ownDeadline;
-  const runtimeOptions = { ...options, deadlineMs, diagnostics };
+  // 已提升的版本只能修复为同一精确包；升级必须经过候选验证与原子 pointer promotion。
+  const activeVersion = !options.runtimeDir && (options.version || activeRuntimeVersion('crg', {
+    pluginDataDir: options.pluginDataDir || pluginDataDir(options),
+  }));
+  const expectedVersion = options.expectedVersion || activeVersion || '';
+  const installPackage = expectedVersion ? `${CRG_PACKAGE}==${expectedVersion}` : CRG_PACKAGE;
+  const runtimeOptions = { ...options, deadlineMs, diagnostics, ...(expectedVersion ? { expectedVersion } : {}) };
   const clearMarker = () => {
     try { fs.rmSync(markerFile, { force: true }); } catch (_) {}
   };
@@ -386,7 +403,7 @@ function ensureCrg(options = {}) {
       }
       let installed = false;
       if (!healthy) {
-        try { installed = !!install(CRG_PACKAGE, runtimeOptions); } catch (error) {
+        try { installed = !!install(installPackage, runtimeOptions); } catch (error) {
           recordDiagnostic(runtimeOptions, `隔离运行环境安装异常：${errorSummary(error)}`);
         }
         try { healthy = installed && !!probe(runtimeOptions); } catch (error) {
@@ -415,6 +432,7 @@ function ensureGraphify() {
 
 module.exports = {
   CRG_PACKAGE,
+  CRG_VERSIONED_RUNTIME_DIR,
   INSTALL_COMMAND_TIMEOUT_MS,
   INSTALL_LOCK_WAIT_MS,
   MCP_BOOTSTRAP_BUDGET_MS,
