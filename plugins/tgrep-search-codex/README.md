@@ -78,6 +78,8 @@ SessionStart 和查询/ensure 入口在后台按 **7 天（604800000 毫秒）**
 
 运行中的服务继续使用启动时版本。查询选择该 manager 声明的版本和同版本索引；旧 manager 没有版本字段时兼容绑定 1.0.5/legacy index。active 更新不会强制重启当前服务；空闲退出或显式 stop 后，下次启动采用新版本及独立索引，因此不会拿新 CLI 读旧服务索引。`doctor` 可同时显示 active 与服务版本。
 
+在 GitHub Actions 等共享出口遇到 API 限流时，可显式设置 `TGREP_GITHUB_TOKEN`（CI 使用只读的内置 token）。认证只通过 Node fetch 发往固定官方 latest API，禁止重定向；token 不写入 curl 参数、状态文件或日志。未设置时仍使用现有 curl/代理兼容路径，普通用户无需提供 token。
+
 这项功能更新的是 **tgrep 上游工具**，不是 Codex 插件源码。它不修改 marketplace 或插件缓存。
 
 ## 验证

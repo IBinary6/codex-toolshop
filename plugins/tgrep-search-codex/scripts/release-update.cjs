@@ -106,6 +106,19 @@ async function fetchHttps(url, { timeout = 90000, headers } = {}) {
   throw new Error('too many release redirects');
 }
 async function fetchLatest(api) {
+  const token = process.env.TGREP_GITHUB_TOKEN?.trim();
+  if (token) {
+    // 认证仅用于固定官方 API，拒绝重定向；不把 token 放入子进程参数或错误文本。
+    let response;
+    try {
+      response = await fetch(API_URL, {
+        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'codex-tgrep-search', Authorization: `Bearer ${token}` },
+        redirect: 'error', signal: AbortSignal.timeout(30000),
+      });
+    } catch { throw new Error('latest release authenticated request failed'); }
+    if (!response.ok) throw new Error(`latest release HTTP ${response.status}`);
+    try { return await response.json(); } catch { throw new Error('latest release API response is not valid JSON'); }
+  }
   const result = await api.run('curl', ['--fail', '--location', '--proto', '=https', '--proto-redir', '=https', '--silent', '--show-error', '--connect-timeout', '10', '--max-time', '30', '-H', 'Accept: application/vnd.github+json', '-H', 'User-Agent: codex-tgrep-search', API_URL], api.home());
   if (result.code === 0) return JSON.parse(result.stdout.toString());
   if (!result.stderr.toString().includes('ENOENT')) throw new Error(`latest release check failed: ${result.stderr}`);
@@ -202,4 +215,4 @@ async function checkUpdates(api, { force = false, fetchRelease = () => fetchLate
     }
   } finally { unlock(); }
 }
-module.exports = { fetchHttps, WEEK_MS, API_URL, fallback, platformKey, compareVersions, validateRelease, fromLatest, activeRelease, releaseForVersion, indexForVersion, serviceBinding, due, status, maybeCheck, checkUpdates, validateCandidate };
+module.exports = { fetchLatest, fetchHttps, WEEK_MS, API_URL, fallback, platformKey, compareVersions, validateRelease, fromLatest, activeRelease, releaseForVersion, indexForVersion, serviceBinding, due, status, maybeCheck, checkUpdates, validateCandidate };

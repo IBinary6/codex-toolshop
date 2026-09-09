@@ -1,11 +1,12 @@
 'use strict';
 
 const assert = require('node:assert');
+const { spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { crgRuntimePaths, ensureCrg } = require('../lib/bootstrap');
-const { serenaRuntimePaths } = require('../lib/serena-runtime');
+const { ensureSerena, serenaRuntimePaths } = require('../lib/serena-runtime');
 const { main: runtimeUpdateMain } = require('../../../scripts/runtime-update.cjs');
 const {
   WEEK_MS,
@@ -45,21 +46,55 @@ async function main() {
     assert.ok(runtimeDir('crg', '2.1.0', { pluginDataDir: data }).startsWith(path.join(data, 'crg-runtimes')));
 
     let repaired = false;
+    let crgProbeCount = 0;
+    const selectedCrgDir = path.join(data, 'crg-runtimes', '2.0.0');
     assert.strictEqual(ensureCrg({
       pluginDataDir: data,
       markerPath: path.join(data, '.crg-install-failed'),
       probeRuntime: (options) => {
         assert.strictEqual(options.expectedVersion, '2.0.0', 'active runtime repair must require the selected version');
+        assert.strictEqual(options.runtimeDir, selectedCrgDir, 'active pointer changes cannot redirect this repair venv');
+        if (crgProbeCount++ === 0) promoteRuntimeVersion('crg', '2.1.0', { pluginDataDir: data });
         return repaired;
       },
       acquireInstallLock: () => 'lock-token', releaseInstallLock: () => {},
       installRuntime: (pkg, options) => {
         assert.strictEqual(pkg, 'code-review-graph[all]==2.0.0');
         assert.strictEqual(options.expectedVersion, '2.0.0');
+        assert.strictEqual(options.version, '2.0.0');
+        assert.strictEqual(options.runtimeDir, selectedCrgDir);
         repaired = true;
         return true;
       },
     }), true, 'active runtime repair remains pinned to its selected version');
+    assert.strictEqual(activeRuntimeVersion('crg', { pluginDataDir: data }), '2.1.0', 'test actively changes pointer during repair');
+    promoteRuntimeVersion('crg', '2.0.0', { pluginDataDir: data });
+
+    promoteRuntimeVersion('serena', '1.7.0', { pluginDataDir: data });
+    let serenaRepaired = false;
+    let serenaProbeCount = 0;
+    const selectedSerenaDir = path.join(data, 'serena-runtime', '1.7.0');
+    assert.strictEqual(ensureSerena({
+      pluginDataDir: data, markerPath: path.join(data, '.serena-install-failed'),
+      probeRuntime: (options) => {
+        assert.strictEqual(options.version, '1.7.0');
+        assert.strictEqual(options.expectedVersion, '1.7.0');
+        assert.strictEqual(options.runtimeDir, selectedSerenaDir);
+        if (serenaProbeCount++ === 0) promoteRuntimeVersion('serena', '1.8.0', { pluginDataDir: data });
+        return serenaRepaired;
+      },
+      acquireInstallLock: () => 'serena-lock', releaseInstallLock: () => {},
+      installRuntime: (pkg, options) => {
+        assert.strictEqual(pkg, 'serena-agent==1.7.0');
+        assert.strictEqual(options.version, '1.7.0');
+        assert.strictEqual(options.expectedVersion, '1.7.0');
+        assert.strictEqual(options.runtimeDir, selectedSerenaDir);
+        serenaRepaired = true;
+        return true;
+      },
+    }), true, 'Serena repair retains its initially selected version and venv');
+    assert.strictEqual(activeRuntimeVersion('serena', { pluginDataDir: data }), '1.8.0');
+    promoteRuntimeVersion('serena', '1.7.0', { pluginDataDir: data });
 
     const installed = [];
     const first = await runRuntimeUpdates({
@@ -152,6 +187,27 @@ async function main() {
     onChildError(new Error('mock spawn failure'));
     assert.ok(!fs.existsSync(updateLockPath({ pluginDataDir: data })), '异步启动错误必须释放本次锁');
     assert.strictEqual(readUpdateState({ pluginDataDir: data }).scheduler.status, 'failed');
+
+    const runtimeUpdates = path.resolve(__dirname, '../lib/runtime-updates.js');
+    const missingExecutable = path.join(data, 'does-not-exist-runtime-updater');
+    const childScript = [
+      'const fs = require("fs");',
+      'const { spawn } = require("child_process");',
+      'const { scheduleRuntimeUpdates, readUpdateState, updateLockPath } = require(process.argv[1]);',
+      `const data = ${JSON.stringify(data)};`,
+      `const ok = scheduleRuntimeUpdates({ pluginDataDir: data, now: () => ${WEEK_MS * 3}, spawn: () => spawn(${JSON.stringify(missingExecutable)}, [], { stdio: 'ignore' }) });`,
+      'if (ok) process.exit(10);',
+      'setTimeout(() => {',
+      '  const state = readUpdateState({ pluginDataDir: data });',
+      '  if (fs.existsSync(updateLockPath({ pluginDataDir: data })) || !state.scheduler || state.scheduler.status !== "failed") process.exit(11);',
+      '  process.exit(0);',
+      '}, 100);',
+    ].join('\n');
+    const failedSpawn = spawnSync(process.execPath, ['-e', childScript, runtimeUpdates], {
+      encoding: 'utf8', timeout: 5000, windowsHide: process.platform === 'win32',
+    });
+    assert.ifError(failedSpawn.error);
+    assert.strictEqual(failedSpawn.status, 0, `missing updater executable must not crash MCP parent: ${failedSpawn.stderr}`);
 
     const disabled = await runRuntimeUpdates({ pluginDataDir: data, env: { CODEMAP_BOOST_DISABLE_RUNTIME_UPDATES: '1' } });
     assert.strictEqual(disabled.status, 'disabled');

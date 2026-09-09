@@ -56,7 +56,8 @@ function serenaHomeDir(options = {}) {
 
 function runtimeOptions(options = {}) {
   const paths = serenaRuntimePaths(options);
-  return { ...options, runtimeDir: paths.dir, pluginDataDir: paths.data };
+  // 冻结 version 与绝对 venv 目录，不能在安装锁等待期间重新读取 active pointer。
+  return { ...options, runtimeDir: paths.dir, version: paths.version, pluginDataDir: paths.data };
 }
 
 function recordDiagnostic(options, message) {
@@ -141,7 +142,8 @@ function ensureSerena(options = {}) {
   const now = typeof options.now === 'function' ? options.now() : Date.now();
   const ownDeadline = now + MCP_BOOTSTRAP_BUDGET_MS;
   const deadlineMs = Number.isFinite(options.deadlineMs) ? Math.min(options.deadlineMs, ownDeadline) : ownDeadline;
-  const scoped = runtimeOptions({ ...options, diagnostics, deadlineMs });
+  const selected = runtimeOptions({ ...options, diagnostics, deadlineMs });
+  const scoped = { ...selected, expectedVersion: selected.version };
   const marker = serenaFailureMarker(scoped);
   const probe = scoped.probeRuntime || probeSerenaRuntime;
   const install = scoped.installRuntime || installManagedCrg;

@@ -59,6 +59,8 @@ jobs:
     name: tgrep runtime on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -73,6 +75,8 @@ jobs:
         run: npm run test:smoke
       - name: Verify official release update and candidate service contract
         working-directory: plugins/tgrep-search-codex
+        env:
+          TGREP_GITHUB_TOKEN: ${{ github.token }}
         run: npm run test:updates
 
   serena-runtime:

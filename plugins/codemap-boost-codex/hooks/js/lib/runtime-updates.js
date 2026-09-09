@@ -360,18 +360,31 @@ function scheduleRuntimeUpdates(options = {}) {
   if (!lock) return false;
   const script = path.resolve(__dirname, '../../../scripts/runtime-update.cjs');
   try {
-    const child = (options.spawn || spawn)(process.execPath, [script, '--background', '--lock-token', lock.token], {
+    const fail = (reason) => {
+      recordScheduleError(options, reason);
+      releaseUpdateLock(lock);
+      return false;
+    };
+    const child = (options.spawn || spawn)(options.nodeCommand || process.execPath, [script, '--background', '--lock-token', lock.token], {
       detached: true, stdio: 'ignore', windowsHide: process.platform === 'win32',
       env: { ...process.env, ...(options.env || {}), PLUGIN_DATA: path.resolve(options.pluginDataDir || pluginDataDir(options)) },
     });
-    if (!child || !transferUpdateLock(lock, Number(child.pid))) { releaseUpdateLock(lock); return false; }
-    if (typeof child.once === 'function') child.once('error', (error) => {
+    if (!child || typeof child.once !== 'function') return fail('后台更新器未返回可监听的子进程');
+    // spawn 可能先返回 ChildProcess、之后才异步触发 error；必须在检查 pid 前订阅。
+    child.once('error', (error) => {
       recordScheduleError(options, error && error.message || error || '后台更新器启动失败');
       releaseUpdateLock(lock);
     });
+    if (!Number.isInteger(Number(child.pid)) || Number(child.pid) <= 0) return fail('后台更新器未获得有效进程 PID');
+    if (!transferUpdateLock(lock, Number(child.pid))) return fail('后台更新器安装锁移交失败');
+    if (typeof child.unref !== 'function') return fail('后台更新器不支持 detached unref');
     child.unref();
     return true;
-  } catch (_) { releaseUpdateLock(lock); return false; }
+  } catch (error) {
+    recordScheduleError(options, error && error.message || error || '后台更新器启动异常');
+    releaseUpdateLock(lock);
+    return false;
+  }
 }
 
 function adoptedUpdateLock(token, options = {}) {

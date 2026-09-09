@@ -360,7 +360,6 @@ function ensureCli(command, pkg, marker, opts = {}) {
 function ensureCrg(options = {}) {
   const probe = options.probeRuntime || probeCrgRuntime;
   const install = options.installRuntime || installManagedCrg;
-  const markerFile = options.markerPath || markerPath('.crg-install-failed');
   const diagnostics = Array.isArray(options.diagnostics) ? options.diagnostics : [];
   const now = typeof options.now === 'function' ? options.now() : Date.now();
   const ownDeadline = now + MCP_BOOTSTRAP_BUDGET_MS;
@@ -368,12 +367,20 @@ function ensureCrg(options = {}) {
     ? Math.min(options.deadlineMs, ownDeadline)
     : ownDeadline;
   // 已提升的版本只能修复为同一精确包；升级必须经过候选验证与原子 pointer promotion。
-  const activeVersion = !options.runtimeDir && (options.version || activeRuntimeVersion('crg', {
+  const activeVersion = options.expectedVersion || options.version || (!options.runtimeDir && activeRuntimeVersion('crg', {
     pluginDataDir: options.pluginDataDir || pluginDataDir(options),
   }));
-  const expectedVersion = options.expectedVersion || activeVersion || '';
+  const expectedVersion = activeVersion || '';
+  // 从此刻起不再读取 active pointer：probe、锁和安装共用一个版本和绝对目录快照。
+  const frozenRuntimeDir = path.resolve(options.runtimeDir || crgRuntimePaths({
+    ...options, ...(expectedVersion ? { version: expectedVersion } : {}),
+  }).dir);
+  const markerFile = options.markerPath || markerPath('.crg-install-failed');
   const installPackage = expectedVersion ? `${CRG_PACKAGE}==${expectedVersion}` : CRG_PACKAGE;
-  const runtimeOptions = { ...options, deadlineMs, diagnostics, ...(expectedVersion ? { expectedVersion } : {}) };
+  const runtimeOptions = {
+    ...options, runtimeDir: frozenRuntimeDir, deadlineMs, diagnostics,
+    ...(expectedVersion ? { version: expectedVersion, expectedVersion } : {}),
+  };
   const clearMarker = () => {
     try { fs.rmSync(markerFile, { force: true }); } catch (_) {}
   };
@@ -385,7 +392,7 @@ function ensureCrg(options = {}) {
     clearMarker();
     return true;
   }
-  const lockFile = options.installLockPath || `${crgRuntimePaths(options).dir}.install.lock`;
+  const lockFile = options.installLockPath || `${frozenRuntimeDir}.install.lock`;
   const acquire = options.acquireInstallLock || acquireInstallLock;
   const release = options.releaseInstallLock || releaseInstallLock;
   let lockToken = null;

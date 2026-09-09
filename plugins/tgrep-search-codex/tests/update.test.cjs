@@ -103,3 +103,45 @@ test('fetch fallback refuses an HTTPS-to-HTTP redirect', async t => {
   await assert.rejects(updates.fetchHttps('https://github.com/microsoft/tgrep/releases/download/example'), /non-HTTPS/);
   assert.equal(requests, 1);
 });
+function setToken(t, value) {
+  const previous = process.env.TGREP_GITHUB_TOKEN;
+  if (value === undefined) delete process.env.TGREP_GITHUB_TOKEN;
+  else process.env.TGREP_GITHUB_TOKEN = value;
+  t.after(() => { if (previous === undefined) delete process.env.TGREP_GITHUB_TOKEN; else process.env.TGREP_GITHUB_TOKEN = previous; });
+}
+test('explicit token uses only fixed API fetch with redirects forbidden', async t => {
+  setToken(t, 'fixture-token-never-log');
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(url, updates.API_URL);
+    assert.equal(new URL(url).hostname, 'api.github.com');
+    assert.equal(options.redirect, 'error');
+    assert.equal(options.headers.Authorization, 'Bearer fixture-token-never-log');
+    assert.equal(options.headers.Accept, 'application/vnd.github+json');
+    assert.ok(options.signal instanceof AbortSignal);
+    return { ok: true, json: async () => metadata() };
+  });
+  const result = await updates.fetchLatest({ run: async () => assert.fail('token must not enter curl') });
+  assert.equal(result.tag_name, 'v1.0.6');
+});
+test('authenticated HTTP and transport errors cannot reveal token or response body', async t => {
+  const secret = 'fixture-token-sensitive';
+  setToken(t, secret);
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => ({ ok: false, status: 403, json: async () => { throw new Error(secret); } }));
+  await assert.rejects(updates.fetchLatest({}), error => error.message === 'latest release HTTP 403');
+  fetchMock.mock.mockImplementation(async () => { throw new Error(`transport detail ${secret}`); });
+  await assert.rejects(updates.fetchLatest({}), error => error.message === 'latest release authenticated request failed' && !error.message.includes(secret));
+});
+test('without explicit token latest lookup preserves curl proxy-compatible path', async t => {
+  setToken(t, undefined);
+  t.mock.method(globalThis, 'fetch', async () => assert.fail('curl succeeded; fetch is not needed'));
+  let called = false;
+  const result = await updates.fetchLatest({ home: () => os.tmpdir(), run: async (command, args) => {
+    called = true;
+    assert.equal(command, 'curl');
+    assert.equal(args.at(-1), updates.API_URL);
+    assert.ok(!args.some(value => /Authorization|Bearer/.test(value)));
+    return { code: 0, stdout: Buffer.from(JSON.stringify(metadata())), stderr: Buffer.alloc(0) };
+  } });
+  assert.equal(called, true);
+  assert.equal(result.tag_name, 'v1.0.6');
+});
