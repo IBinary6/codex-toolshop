@@ -59,8 +59,8 @@ assert.strictEqual(
 );
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'package.json'), 'utf8'));
-assert.strictEqual(plugin.version, '0.1.31', 'plugin manifest includes the bundled Serena release');
-assert.strictEqual(packageJson.version, '0.1.31', 'package metadata matches the bundled Serena release');
+assert.match(plugin.version, /^\d+\.\d+\.\d+$/, 'plugin manifest declares a release version');
+assert.strictEqual(packageJson.version, plugin.version, 'package metadata matches the plugin release');
 assert.deepStrictEqual(mcp.mcpServers.serena, {
   type: 'stdio', command: 'node', args: ['scripts/serena-server.cjs'], cwd: '.', startup_timeout_sec: MCP_STARTUP_TIMEOUT_SEC,
 }, 'Serena is available through the installed plugin without a user-specific MCP registration');

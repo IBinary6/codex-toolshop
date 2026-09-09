@@ -20,7 +20,7 @@
     },
     {
       "name": "codemap-boost-codex",
-      "version": "0.1.32",
+      "version": "0.1.33",
       "description": "CodeMap semantic graph search with synchronized graph-read barriers and complementary tgrep text-search routing.",
       "source": {
         "source": "local",
