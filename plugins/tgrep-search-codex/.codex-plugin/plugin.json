@@ -1,6 +1,6 @@
 {
   "name": "tgrep-search-codex",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "自动准备 tgrep，为每个 Git 工作树维护后台索引，并提供带实时扫描复核的文本搜索。",
   "author": {
     "name": "IBinary6",

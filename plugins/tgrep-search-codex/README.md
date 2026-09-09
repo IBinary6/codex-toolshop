@@ -1,6 +1,6 @@
 # tgrep Search for Codex
 
-独立插件 `tgrep-search-codex@codex-toolshop`。Node.js 18+，无 npm 依赖，无 MCP。插件自动准备 Microsoft tgrep **v1.0.5**，按真实 Git 工作树维护服务与私有索引，用于文本、字符串和候选文件搜索。符号、调用链、依赖和影响面仍由 CodeMap 负责，已知文件直接读取。
+独立插件 `tgrep-search-codex@codex-toolshop`（0.1.1）。Node.js 18+，无 npm 依赖，无 MCP。插件自动准备 Microsoft tgrep **v1.0.5**，按真实 Git 工作树维护服务与私有索引，用于文本、字符串和候选文件搜索。符号、调用链、依赖和影响面仍由 CodeMap 负责，已知文件直接读取。
 
 ## 自动运行
 
@@ -27,7 +27,7 @@ node scripts/tgrep.cjs stop
 node scripts/tgrep.cjs --help
 ```
 
-Windows Git Bash 路径含空格时用单引号引用完整脚本路径。flags 位于 `--` 前并分开写（`-F -n`，不接受 `-Fn`）；`--` 后是 pattern 与 paths。使用 `-e/-f` 或 `--files` 时，位置参数全是 paths。`--root` 指定服务 root，但不改变 paths 的含义；指定 Git 子目录时服务 root 会提升为该工作树根，默认查询范围仍是调用目录。非 Git 目录必须显式 `--root`，只实时扫描，不启动服务。显式指定工作树外 paths 时也直读扫描。
+Windows Git Bash 路径含空格时用单引号引用完整脚本路径。flags 位于 `--` 前并分开写（`-F -n`，不接受 `-Fn`）；`--` 后是 pattern 与 paths。使用 `-e/-f` 或 `--files` 时，位置参数全是 paths。`--root` 指定服务 root，但不改变 paths 的含义；指定 Git 子目录时服务 root 会提升为该工作树根，默认查询范围仍是调用目录。非 Git 目录必须显式 `--root`，只实时扫描，不启动服务。显式指定工作树外 paths 时也直读扫描。Windows 已存在的查询路径会解析短文件名和 junction，使用真实路径判断范围并传给后端，因此输出可能显示真实长路径；缺失或不可读路径仍保留，由后端报告错误。Unix 路径处理保持原有行为。
 
 `ensure` 是手动同步安装诊断入口，成功后请求启动服务，不等于索引 ready。`doctor/status` 输出 JSON，包含实际 root、index、runtime、管理状态与最近安装/服务错误。退出码：0 为匹配或管理成功，1 为无匹配，2 为错误。未知或不可映射的 flags 明确退出 2。
 

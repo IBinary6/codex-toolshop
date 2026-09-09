@@ -72,3 +72,32 @@ test('corrupt private runtime is rejected rather than considered installed', asy
     await assert.rejects(api.ensureBinary(), /integrity check failed/);
   } finally { if (saved === undefined) delete process.env.TGREP_SEARCH_HOME; else process.env.TGREP_SEARCH_HOME = saved; }
 });
+test('Windows directory aliases map to the same physical query scope', { skip: process.platform !== 'win32' }, () => {
+  const real = path.join(root, 'alias-target');
+  const alias = path.join(root, 'alias-junction');
+  fs.mkdirSync(path.join(real, 'src'), { recursive: true });
+  fs.symlinkSync(real, alias, 'junction');
+  const canonicalSource = fs.realpathSync.native(path.join(real, 'src'));
+  const explicit = parse(['search', '-F', '--', 'needle', path.join(alias, 'src')], root);
+  const implicit = parse(['search', '-F', '--', 'needle', '.'], path.join(alias, 'src'));
+  assert.deepEqual(explicit.paths, [canonicalSource]);
+  assert.deepEqual(implicit.paths, [canonicalSource]);
+  const missing = path.join(alias, 'does-not-exist');
+  assert.deepEqual(parse(['search', '--', 'needle', missing], root).paths, [missing]);
+});
+test('Windows real 8.3 paths expand for explicit and implicit query scopes', { skip: process.platform !== 'win32' }, () => {
+  const { spawnSync } = require('node:child_process');
+  const long = path.join(root, 'long-directory-for-short-path-regression');
+  fs.mkdirSync(long);
+  // cmd 的 %~sI 查询实际 Windows 短文件名，不拼造 ~1 路径。
+  const result = spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/v:off', '/c', 'for %I in ("%TGREP_TEST_PATH%") do @echo %~sI'], { env: { ...process.env, TGREP_TEST_PATH: long }, encoding: 'utf8', windowsHide: true, windowsVerbatimArguments: true, shell: false });
+  assert.equal(result.status, 0, result.stderr);
+  const short = result.stdout.trim();
+  assert.match(short, /~/, 'this regression requires an actual 8.3 alias');
+  const physical = fs.realpathSync.native(long);
+  assert.equal(fs.realpathSync.native(short), physical);
+  assert.deepEqual(parse(['search', '--', 'needle', short], root).paths, [physical]);
+  assert.deepEqual(parse(['search', '--', 'needle', '.'], short).paths, [physical]);
+  const missing = path.join(short, 'missing');
+  assert.deepEqual(parse(['search', '--', 'needle', missing], root).paths, [missing]);
+});

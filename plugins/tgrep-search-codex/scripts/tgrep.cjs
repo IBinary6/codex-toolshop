@@ -23,7 +23,8 @@ function home() {
   return path.resolve(process.env.TGREP_SEARCH_HOME || process.env.PLUGIN_DATA || path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'plugins', 'data', 'tgrep-search-codex-codex-toolshop'));
 }
 function alive(pid) { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } }
-function canonical(dir) { return fs.realpathSync(dir); }
+// Windows native realpath 同时展开 junction 与真实 8.3 短文件名；JS realpath 不保证后者。
+function canonical(dir) { return process.platform === 'win32' ? fs.realpathSync.native(dir) : fs.realpathSync(dir); }
 function context(cwd, explicitRoot) {
   const start = canonical(explicitRoot || cwd);
   const git = spawnSync('git', ['-C', start, 'rev-parse', '--show-toplevel'], { ...hidden, encoding: 'utf8', timeout: 3000 });
@@ -234,6 +235,15 @@ async function supervise(root) {
 }
 const switches = new Set('-i --ignore-case -s --case-sensitive -S --smart-case -F --fixed-strings -w --word-regexp -x --line-regexp -v --invert-match -l --files-with-matches --files-without-match -c --count -o --only-matching -q --quiet -n --line-number -N --no-line-number -H --with-filename -I --no-filename --json --files --column --trim --hidden --no-ignore --no-require-git --no-max-filesize -U --multiline --multiline-dotall -a --text --binary -L --follow --stats --no-index'.split(' '));
 const values = new Set('-e --regexp -f --file -g --glob --iglob -t --type -T --type-not -m --max-count -A --after-context -B --before-context -C --context --color --max-filesize -E --encoding --max-depth --ignore-file'.split(' '));
+function queryPath(value, cwd) {
+  const resolved = path.resolve(cwd, value);
+  // Windows 的短文件名和 junction 可指向同一工作树；与 canonical root 使用同一身份。
+  // 只规范化可解析的实际路径，不把缺失/不可读路径换成父目录或扩大查询范围。
+  if (process.platform === 'win32') {
+    try { return canonical(resolved); } catch {}
+  }
+  return resolved;
+}
 function parse(argv, cwd = process.cwd()) {
   const command = argv.shift() || 'status';
   let root, fresh = false, positional = false;
@@ -256,7 +266,7 @@ function parse(argv, cwd = process.cwd()) {
   }
   const patternProvided = ['-e', '--regexp', '-f', '--file', '--files'].some(x => flags.has(x));
   const pattern = patternProvided ? [] : positions.splice(0, 1);
-  const paths = (positions.length ? positions : [cwd]).map(x => path.resolve(cwd, x));
+  const paths = (positions.length ? positions : [cwd]).map(x => queryPath(x, cwd));
   if (command === 'search' && !patternProvided && !pattern.length) throw new Error('search requires a pattern or --files');
   const widen = [...flags].some(x => ['--hidden', '--no-ignore', '--no-require-git', '--no-max-filesize', '--max-filesize', '-a', '--text', '--binary', '-L', '--follow', '-E', '--encoding', '--ignore-file', '--max-depth'].includes(x));
   return { command, root, fresh: fresh || widen || flags.has('--no-index'), flags, options, pattern, paths };

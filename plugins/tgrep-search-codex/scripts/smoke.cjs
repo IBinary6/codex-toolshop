@@ -40,6 +40,50 @@ async function cli(args, cwd = repo) {
     console.log(`SessionStart cold install; startup phase: ${status.phase}`);
     let result = await cli(['search', '-F', '-n', '--', 'initial-needle', '.']);
     assert.equal(result.code, 0, result.stderr); assert.match(result.stdout, /initial-needle/); assert.doesNotMatch(result.stderr, /scanning disk|verifying by disk/);
+    if (process.platform === 'win32') {
+      // 从系统查询真实 8.3 名称；junction 回归不能替代这条路径。
+      const shortResult = spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/v:off', '/c', 'for %I in ("%TGREP_TEST_PATH%") do @echo %~sI'], { env: { ...process.env, TGREP_TEST_PATH: repo }, encoding: 'utf8', windowsHide: true, windowsVerbatimArguments: true, shell: false });
+      assert.equal(shortResult.status, 0, shortResult.stderr);
+      const short = shortResult.stdout.trim();
+      assert.match(short, /~/, 'Windows smoke requires a real 8.3 path');
+      assert.equal(api.context(short).root, ctx.root);
+      assert.equal(api.context(short).index, ctx.index);
+      for (const [queryPath, queryCwd] of [[short, repo], ['.', short]]) {
+        const shortQuery = await cli(['search', '-F', '--', 'initial-needle', queryPath], queryCwd);
+        assert.equal(shortQuery.code, 0, shortQuery.stderr);
+        assert.doesNotMatch(shortQuery.stderr, /scanning disk|verifying by disk/);
+      }
+      const shortNarrow = await cli(['search', '-F', '--', 'root-only-marker', path.join(short, 'src')]);
+      assert.equal(shortNarrow.code, 1, shortNarrow.stdout + shortNarrow.stderr);
+      const shortMissing = await cli(['search', '-F', '--', 'initial-needle', path.join(short, 'missing')]);
+      assert.equal(shortMissing.code, 2, shortMissing.stdout + shortMissing.stderr);
+      console.log('PASS: real Windows 8.3 explicit path and cwd use ready index; missing path remains error 2');
+      const alias = path.join(temp, 'repo-junction');
+      fs.symlinkSync(repo, alias, 'junction');
+      const aliasContext = api.context(alias);
+      assert.equal(aliasContext.root, ctx.root);
+      assert.equal(aliasContext.index, ctx.index);
+      const aliasResult = await cli(['search', '-F', '--', 'initial-needle', alias]);
+      assert.equal(aliasResult.code, 0, aliasResult.stderr);
+      assert.doesNotMatch(aliasResult.stderr, /scanning disk|verifying by disk/);
+      const aliasCwd = await cli(['search', '-F', '--', 'initial-needle', '.'], alias);
+      assert.equal(aliasCwd.code, 0, aliasCwd.stderr);
+      assert.doesNotMatch(aliasCwd.stderr, /scanning disk|verifying by disk/);
+      const narrow = await cli(['search', '-F', '--', 'root-only-marker', path.join(alias, 'src')]);
+      assert.equal(narrow.code, 1, narrow.stdout + narrow.stderr);
+      const missing = await cli(['search', '-F', '--', 'initial-needle', path.join(alias, 'missing')]);
+      assert.equal(missing.code, 2, missing.stdout + missing.stderr);
+      const outside = path.join(temp, 'outside');
+      fs.mkdirSync(outside);
+      fs.writeFileSync(path.join(outside, 'outside.txt'), 'outside-only-marker');
+      const outsideAlias = path.join(repo, 'outside-junction');
+      fs.symlinkSync(outside, outsideAlias, 'junction');
+      const external = await cli(['search', '-F', '--', 'outside-only-marker', outsideAlias]);
+      assert.equal(external.code, 0, external.stderr);
+      assert.match(external.stderr, /scanning disk/);
+      fs.unlinkSync(outsideAlias);
+      fs.unlinkSync(alias);
+    }
     result = await cli(['search', '-F', '--', 'root-only-marker', '.'], path.join(repo, 'src'));
     assert.equal(result.code, 1, result.stdout + result.stderr);
     fs.writeFileSync(path.join(repo, 'src', 'a.txt'), 'updated-needle\n');
@@ -74,7 +118,7 @@ async function cli(args, cwd = repo) {
     git(['worktree', 'add', '--detach', linked]);
     const linkedCtx = api.context(linked);
     assert.notEqual(linkedCtx.dir, ctx.dir);
-    assert.equal(linkedCtx.root, fs.realpathSync(linked));
+    assert.equal(linkedCtx.root, process.platform === 'win32' ? fs.realpathSync.native(linked) : fs.realpathSync(linked));
     fs.writeFileSync(path.join(linked, 'only-linked.txt'), 'linked-unique-marker');
     const linkedResult = await cli(['search', '--fresh', '-F', '--', 'linked-unique-marker', '.'], linked);
     assert.equal(linkedResult.code, 0, linkedResult.stderr);
