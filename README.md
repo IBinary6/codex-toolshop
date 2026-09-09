@@ -15,6 +15,7 @@ codex plugin marketplace add https://github.com/IBinary6/codex-toolshop.git
 ```bash
 codex plugin add dbg-codex@codex-toolshop
 codex plugin add codemap-boost-codex@codex-toolshop
+codex plugin add tgrep-search-codex@codex-toolshop
 codex plugin add cpp-style-enforcer-codex@codex-toolshop
 codex plugin add agent-dispatch-codex@codex-toolshop
 codex plugin add local-knowledge-codex@codex-toolshop
@@ -26,13 +27,13 @@ codex plugin add system-proxy-codex@codex-toolshop
 
 ## 平台支持
 
-市场主要面向 Windows 和 macOS；Dbg 另外提供 Linux 的部署脚本与 CI 验证。各插件的依赖和兼容范围以其说明为准，不能把一种插件的验证范围套用于整个市场。所有插件要求 Node.js 18 或更高版本：
+市场主要面向 Windows 和 macOS；Dbg 和 tgrep 另外提供 Linux 的部署脚本与 CI 验证。各插件的依赖和兼容范围以其说明为准，不能把一种插件的验证范围套用于整个市场。所有插件要求 Node.js 18 或更高版本：
 
 | 平台 | 支持的终端/运行方式 | CI 配置 |
 | --- | --- | --- |
 | Windows | PowerShell、Git Bash、Windows Python launcher | GitHub Actions `windows-latest` |
 | macOS | zsh、bash、`python3`、Apple Silicon 常用工具链 | GitHub Actions `macos-latest` |
-| Linux（Dbg） | bash、Python、Homebrew/Linuxbrew 或手动安装的工具 | Dbg 的 GitHub Actions `ubuntu-latest` |
+| Linux（Dbg、tgrep） | bash；Dbg 需要 Python 及适用调试工具，tgrep 使用固定发布包 | 对应插件的 GitHub Actions `ubuntu-latest` |
 
 `codemap-boost-codex` 还需要 Git，以及 `uv` 或支持 `venv` 的 Python；`cpp-style-enforcer-codex` 的 `clang-format` 和 `iconv-lite` 为可选能力。
 
@@ -42,6 +43,7 @@ codex plugin add system-proxy-codex@codex-toolshop
 | --- | --- | --- |
 | [Dbg](plugins/dbg-codex/README.md) | 发现 Scoop、Homebrew 和手动安装的调试工具，部署 x64dbg、Ghidra、WinDbg、IDA 的扩展及 MCP。 | 首次加载自动部署；`dbg doctor` 再次检测、更新、修复；不兼容版本明确跳过，全程由脚本执行。 |
 | `codemap-boost-codex` | 自动接入 `code-review-graph` 代码结构图，提供符号、调用、引用和影响面检索能力。 | 新会话自动 bootstrap、自动 build/update。涉及代码结构时优先用 `mcp__code_review_graph__*` 工具。 |
+| [tgrep-search-codex](plugins/tgrep-search-codex/README.md) | 自动准备固定版本 tgrep，按 Git 工作树维护文本搜索索引和后台服务，与 CodeMap 配合。 | 任务启动自动准备；通过 hook 给出的搜索入口查询。索引未就绪或服务异常时实时扫描，`--fresh` 用于刚修改的内容和完整性核查。 |
 | `cpp-style-enforcer-codex` | 自动执行团队 C++ 风格流程，包括 clang-format、版权头、BOM、cpplint 和提交前检查。 | 正常编辑即可；写入 C/C++ 文件后 hook 自动处理，`git commit` 前会检查暂存区 C++ 文件。 |
 | `agent-dispatch-codex` | 面向产品、设计、QA、研究、运营和开发，按调查、规划、制作、验证、审查分配有界任务与模型。 | 新会话自动注入通用调度策略；按交付物验收，子代理直接执行、报告结果，并在整合后及时释放。 |
 | `local-knowledge-codex` | 为 Codex 提供本地索引知识，覆盖错误方案、用户偏好、事实、决策和工作流。 | 按作用域和相关性只读召回；明确要求保存或存在已验证且获授权的可复用内容时，再按宿主策略写入。 |
@@ -116,7 +118,7 @@ Dbg 自动填写发现到的宿主、Python、JDK、扩展目录及 MCP 路径�
 - 更新 `$CODEX_HOME/AGENTS.md` 中边界明确的托管块，保留块外内容；边界损坏时报告问题，不猜测替换范围。
 - 当前目录是 Git 仓库时，同步完成 build/update；存在未跟踪源码时使用临时 Git index 做 full build。
 - 结构、依赖、调用链与影响面优先查询可用图工具，再读源码核对。SessionStart、结构请求和子代理入口保留规则；常见源码搜索前每用户轮补充一次短提醒，用户补充后复位，不阻断命令或重复刷新。
-- 源码修改后在后台合并刷新，读取图谱前通过同步 barrier 等待。已知文件、文件名与文本检索可直接读取或使用 `rg`，图不可用或覆盖不足时核对源码并说明限制。
+- 源码修改后在后台合并刷新，读取图谱前通过同步 barrier 等待。已知文件直接读取；普通仓库文本与文件发现优先使用可用的 tgrep 搜索入口，需要即时内容或索引不可用时实时扫描。图不可用或覆盖不足时核对源码并说明限制。
 - 把 `.code-review-graph/` 和 `graphify-out/` 写入当前仓库的 `.git/info/exclude`，不改项目 `.gitignore`。
 
 如果想手动预热或排障，可以在 Codex 中说：
@@ -132,6 +134,20 @@ code-review-graph --version
 code-review-graph status
 codex plugin list
 ```
+
+## tgrep 与 CodeMap 怎么配合
+
+安装 `tgrep-search-codex` 后，受宿主信任的 `SessionStart` hook 在 Git 任务启动或恢复时自动准备 tgrep 并启动 `serve`；缺少索引由服务建立，无需手动执行 `tgrep index` 或 `tgrep serve`。首次下载和建索引在后台进行，查询入口会处理未就绪状态。打开 Codex 首页本身不等于触发任务启动 hook。
+
+| 需求 | 使用方式 |
+| --- | --- |
+| 调用链、符号关系、引用和影响面 | CodeMap 图查询，再读源码核对。 |
+| 普通仓库文本搜索 | 使用 tgrep 插件注入的 CLI 包装入口，健康索引负责加速。 |
+| 刚修改的内容、需要完整且最新的结论 | 包装入口加 `--fresh` 实时扫描；也可使用 `rg`。 |
+| 文件发现 | 索引可用时使用 `--files`；即时列表使用 `--fresh --files` 或 `rg --files`。 |
+| 已知文件 | 直接读取。 |
+
+包装入口按真实工作树隔离状态、复用服务，索引未完成、服务异常或索引查询零命中时走实时扫描。实时扫描仍遵守查询过滤与大小限制；特殊编码、原始字节或索引范围以外的需求按 [tgrep 插件说明](plugins/tgrep-search-codex/README.md)选择参数。`tool-priority` 与 CodeMap 只决定工具路由，tgrep 插件负责安装、启动和查询降级，不接管图谱刷新。
 
 ## Local Knowledge 怎么用
 
@@ -191,6 +207,7 @@ py -3 -m pip install clang-format==18.1.8
 codex plugin marketplace upgrade codex-toolshop
 codex plugin add dbg-codex@codex-toolshop
 codex plugin add codemap-boost-codex@codex-toolshop
+codex plugin add tgrep-search-codex@codex-toolshop
 codex plugin add cpp-style-enforcer-codex@codex-toolshop
 codex plugin add agent-dispatch-codex@codex-toolshop
 codex plugin add local-knowledge-codex@codex-toolshop
@@ -210,6 +227,7 @@ codex plugin list
 - `failed to parse plugin hooks config ... unknown field description`：更新到新版插件，并确认缓存中的 `hooks/hooks.json` 顶层只有 `hooks`。
 - CodeMap 没有图谱：确认当前目录是 Git 仓库，运行 `code-review-graph status`；新会话会在使用前等待首次 build 完成。
 - CodeMap 完全不工作：检查是否设置了 `CODEMAP_BOOST_DISABLE_GRAPH=1` 或 `CODEMAP_BOOST_DISABLE_BOOTSTRAP=1`。
+- tgrep 未就绪或新文件未命中：使用插件搜索入口的 `--fresh` 实时扫描，通过该入口的 `status` / `doctor` 查看状态；首次下载、建索引及文件变化同步是不同阶段。hook 未受信任时按宿主界面处理，插件不会自行授予信任。
 - C++ 风格检查没有格式化：确认 `clang-format` 可用；缺失时格式化会跳过，但 cpplint 等流程仍继续。
 - Agent Dispatch 没有生效：新建任务后打开 `/hooks`，审查并信任当前插件 Hook 哈希。
 - 新会话没有自动命名：确认 `conversation-namer-codex` 已启用；新建任务后打开 `/hooks`，审查并信任当前插件 Hook 哈希。升级 hook 后需要重新新建任务。

@@ -1,0 +1,41 @@
+{
+  "version": "1.0.5",
+  "assets": {
+    "darwin-arm64": {
+      "url": "https://github.com/microsoft/tgrep/releases/download/v1.0.5/tgrep-v1.0.5-aarch64-apple-darwin.tar.gz",
+      "sha256": "aa7644819d3a6e0202013e6c7c2be2623d5a2bef710249c0b31cc00aa80e19ad",
+      "archive": "tgrep-v1.0.5-aarch64-apple-darwin.tar.gz",
+      "executable": "tgrep"
+    },
+    "win32-arm64": {
+      "url": "https://github.com/microsoft/tgrep/releases/download/v1.0.5/tgrep-v1.0.5-aarch64-pc-windows-msvc.zip",
+      "sha256": "f49b68f97810530688a8fe71282dfc384ed4ff99ffe7a8a769e43e68a7c633fe",
+      "archive": "tgrep-v1.0.5-aarch64-pc-windows-msvc.zip",
+      "executable": "tgrep.exe"
+    },
+    "linux-arm64": {
+      "url": "https://github.com/microsoft/tgrep/releases/download/v1.0.5/tgrep-v1.0.5-aarch64-unknown-linux-musl.tar.gz",
+      "sha256": "4d8d6c3cd6c2ca9055f5ab62473e7d772c6383e091a2065d4c5d0fd6d1540639",
+      "archive": "tgrep-v1.0.5-aarch64-unknown-linux-musl.tar.gz",
+      "executable": "tgrep"
+    },
+    "darwin-x64": {
+      "url": "https://github.com/microsoft/tgrep/releases/download/v1.0.5/tgrep-v1.0.5-x86_64-apple-darwin.tar.gz",
+      "sha256": "a0352e5648ae4c744e344cead5d3b87e7ab3a12c060928db87c379c12036a210",
+      "archive": "tgrep-v1.0.5-x86_64-apple-darwin.tar.gz",
+      "executable": "tgrep"
+    },
+    "win32-x64": {
+      "url": "https://github.com/microsoft/tgrep/releases/download/v1.0.5/tgrep-v1.0.5-x86_64-pc-windows-msvc.zip",
+      "sha256": "5b6ba08ffddb5bc1b436c5c83b4f0c9e66c70a006b3853ed57daf51e7a75986c",
+      "archive": "tgrep-v1.0.5-x86_64-pc-windows-msvc.zip",
+      "executable": "tgrep.exe"
+    },
+    "linux-x64": {
+      "url": "https://github.com/microsoft/tgrep/releases/download/v1.0.5/tgrep-v1.0.5-x86_64-unknown-linux-musl.tar.gz",
+      "sha256": "072b8b5db49bd76d19d2466c1494e579baf4d8a7c74397c9e54c11018f79d333",
+      "archive": "tgrep-v1.0.5-x86_64-unknown-linux-musl.tar.gz",
+      "executable": "tgrep"
+    }
+  }
+}

@@ -16,7 +16,7 @@
 | 检索引导 | AGENTS、SessionStart、结构请求与子代理入口保留图优先规则；搜索前每用户轮一次短提醒 | `Grep` / `Agent` 强提示优先用图谱 |
 | 依赖安装 | 插件原生 MCP 首次加载时自动准备私有运行时 | 通过 `/codemap-boost-setup` 显式确认安装 |
 
-结构、调用、依赖和影响面查询优先使用可用图工具，再读取源码核对。`AGENTS.md` 持久保存规则，SessionStart 与 SubagentStart 在上下文入口补充规则，UserPromptSubmit 提醒结构性请求，命令行搜索前提供低频纠偏。已知文件直接读取，文件名与纯文本检索使用 `rg`；图工具不可用或不覆盖目标时读取源码核对关系并说明限制。
+结构、调用、依赖和影响面查询优先使用可用图工具，再读取源码核对。`AGENTS.md` 持久保存规则，SessionStart 与 SubagentStart 在上下文入口补充规则，UserPromptSubmit 提醒结构性请求，命令行搜索前提供低频纠偏。已知文件直接读取；普通仓库文本检索优先使用已就绪的 `tgrep-search-codex` 包装入口（其 hook 注入绝对命令，入口为 `node <plugin>/scripts/tgrep.cjs search [--fresh] <args>`）。缺失、索引未完成、状态异常、范围不符或要求即时内容时，使用实时 `rg` 或 `tgrep --no-index`；零命中不是不存在证据，最终完整性与刚修改内容用实时扫描核查。健康索引的文件发现使用 `tgrep --files`，即时文件列表使用 `rg --files`。这些路由不覆盖更高层宿主规则。图工具不可用或不覆盖目标时读取源码核对关系并说明限制。
 
 ## 安装即用
 
@@ -133,7 +133,7 @@ py -3 -m pip install "graphifyy[all]"
 | `SessionStart` | 迁移旧版插件全局 MCP 覆盖，维护 `$CODEX_HOME/AGENTS.md` 的 CodeMap 托管块，同步维护图谱，并在启动、恢复或压缩后补充图优先规则。 |
 | `PostToolUse` | Codex 写文件或执行可能修改源码的 Bash 后启动后台合并刷新；同一源码状态不会重复 build/update，只读 Bash 命令不会触发刷新。 |
 | `PreToolUse:MCP` | 调用 code-review-graph 项目图工具前同步刷新；CLI 不可用或刷新失败时阻止该读取。全局仓库注册表查询不依赖当前项目图。 |
-| `PreToolUse:Bash` | 常见源码搜索前补充一句条件式图优先提醒；同一用户轮内原子去重，不阻断/改写命令，不刷新图谱。明确的文件名、文档、配置和日志检索静默。 |
+| `PreToolUse:Bash` | 常见源码搜索前补充一句条件式图优先提醒；同一用户轮内原子去重，不阻断/改写命令，不刷新图谱。tgrep 的命令注入与提醒由 `tgrep-search-codex` 独立管理，CodeMap 不重复注入。明确的文件名、文档、配置和日志检索静默。 |
 | `UserPromptSubmit` | 结构问题只提示图谱能力，不同步构建；实际查询前由 MCP 屏障保证刷新。 |
 | `SubagentStart` | 子代理启动时只注入 CodeMap 使用规则，不重复 build/update；首次图谱读取仍由 `PreToolUse:MCP` 屏障同步兜底。 |
 

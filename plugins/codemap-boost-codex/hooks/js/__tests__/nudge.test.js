@@ -95,6 +95,10 @@ function parseOutput(result) {
   assert.ok(payload.hookSpecificOutput.additionalContext.includes('deferred'));
   assert.ok(payload.hookSpecificOutput.additionalContext.includes('ALL_TOOLS'));
   assert.ok(payload.hookSpecificOutput.additionalContext.includes('top-level tool list alone does not prove'));
+  assert.ok(payload.hookSpecificOutput.additionalContext.includes('tgrep-search-codex'));
+  assert.ok(payload.hookSpecificOutput.additionalContext.includes('tgrep --no-index'));
+  assert.ok(payload.hookSpecificOutput.additionalContext.includes('rg --files'));
+  assert.ok(payload.hookSpecificOutput.additionalContext.includes('zero result is not absence evidence'));
   assert.ok(!payload.hookSpecificOutput.additionalContext.includes('refresh completed'));
 }
 

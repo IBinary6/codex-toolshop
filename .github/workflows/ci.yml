@@ -39,6 +39,10 @@ jobs:
         working-directory: plugins/codemap-boost-codex
         run: npm test
 
+      - name: Validate tgrep-search-codex
+        working-directory: plugins/tgrep-search-codex
+        run: npm test
+
       - name: Validate local-knowledge-codex
         working-directory: plugins/local-knowledge-codex
         run: npm test
@@ -50,6 +54,23 @@ jobs:
       - name: Validate system-proxy-codex
         working-directory: plugins/system-proxy-codex
         run: npm test
+
+  tgrep-runtime:
+    name: tgrep runtime on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify pinned release and isolated worktree search lifecycle
+        working-directory: plugins/tgrep-search-codex
+        run: npm run test:smoke
 
   codemap-runtime:
     name: CodeMap CRG ${{ matrix.crg }} on ${{ matrix.os }}

@@ -85,6 +85,10 @@ try {
   assert.ok(content.includes('deferred'), 'block explains deferred MCP loading');
   assert.ok(content.includes('ALL_TOOLS'), 'block checks ALL_TOOLS before claiming MCP absence');
   assert.ok(content.includes('顶层列表缺少'), 'block does not treat top-level schema absence as proof');
+  assert.ok(content.includes('tgrep-search-codex'), 'block routes ordinary repository text search to the ready tgrep wrapper');
+  assert.ok(content.includes('tgrep --no-index'), 'block documents the unindexed live-search fallback');
+  assert.ok(content.includes('rg --files'), 'block distinguishes live file enumeration from indexed discovery');
+  assert.ok(content.includes('零命中不构成不存在证据'), 'block treats zero search results as insufficient absence evidence');
   assert.ok(!fs.existsSync(path.join(home, '.claude')), 'SessionStart must not create old host directories');
   assert.ok(fs.readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8').includes('.code-review-graph/'), 'SessionStart ignores generated graph output locally');
 

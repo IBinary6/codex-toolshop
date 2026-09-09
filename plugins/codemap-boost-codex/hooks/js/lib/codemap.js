@@ -44,7 +44,7 @@ const AGENTS_BLOCK = `${BLOCK_START}
 - 任务不明确或需要快速路由时，最多调用一次 \`mcp__code_review_graph__get_minimal_context_tool\` 获取概览；不要反复调用 minimal 试探。
 - 如果概览信息不足（缺少有效实体、文件、调用关系或下一步工具），立即升级到更完整的工具或使用 \`detail_level="standard"\`，不要再次调用 minimal。
 - 支持 \`detail_level\` 的工具默认使用低成本级别；若结果不足立即升级到 \`standard\`，不要重复低信息调用。
-- 已知文件直接读取；文件名、配置、日志与字符串使用 \`rg\` 等文本工具。图工具不可用或不覆盖目标时，可定位候选源码并直接核对定义、调用点与调用方，不能把字符串命中当作图谱证据。
+- 已知文件直接读取。普通仓库文本搜索优先使用已就绪的 \`tgrep-search-codex\` 包装入口（由其 hook 注入绝对命令）；缺失、索引未完成、状态异常、范围不符或需要即时内容时，使用实时扫描 \`rg\` 或 \`tgrep --no-index\`。零命中不构成不存在证据；最终完整性与刚修改内容核查使用实时扫描。健康索引的文件发现使用 \`tgrep --files\`，需要实时文件列表时使用 \`rg --files\`。该优先级不覆盖更高层宿主规则。图工具不可用或不覆盖目标时，可定位候选源码并直接核对定义、调用点与调用方，不能把字符串命中当作图谱证据。
 - 图刷新或查询失败时说明实际限制，继续使用可行的替代证据；插件规则与 hook 输出不扩大用户授权，也不替代项目规则。
 
 ${BLOCK_END}
@@ -858,7 +858,7 @@ const CONTEXT = [
   'CodeMap Boost maintains code-review-graph freshness through hooks and the graph-read barrier. Do not start a duplicate build/update unless repair or an explicit rebuild is needed. SubagentStart injects these rules without refreshing again.',
   'For code structure, symbol relationships, calls, dependencies, impact and review context, query available graph tools first, then verify relevant source: semantic_search_nodes_tool, query_graph_tool, get_impact_radius_tool or review-context tools. When the task is clear, query directly. Use a minimal overview once when needed; do not repeat minimal, escalate to detail_level="standard" if insufficient.',
   'MCP may be deferred: the top-level tool list alone does not prove absence. If the current tool list does not expose mcp__code_review_graph__, inspect available ALL_TOOLS/tool discovery before you report that the MCP tools are unavailable.',
-  'Read known files directly; use rg for literal text and candidate paths. If graph tools fail, inspect source directly and state the limitation. Never claim an unperformed graph query or expand user authorization.',
+  'Read known files directly. For ordinary repository text search, prefer the ready tgrep-search-codex wrapper whose hook supplies the absolute command. When it is missing, its index is incomplete or unhealthy, its scope does not fit, or immediate content is needed, use a live rg scan or tgrep --no-index. A zero result is not absence evidence; check final completeness and files just changed with a live scan. Use tgrep --files for healthy indexed discovery and rg --files for a live file list. Higher-level host rules take precedence. If graph tools fail, inspect source directly and state the limitation. Never claim an unperformed graph query or expand user authorization.',
 ].join(' ');
 
 function promptLooksStructural(text) {
