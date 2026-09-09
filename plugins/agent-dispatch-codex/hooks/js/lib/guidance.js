@@ -65,9 +65,56 @@ const CODE_CONTEXT_TERMS = [
   'repository', 'repo', 'function', 'code symbol', 'call chain', 'callers',
   'callees', 'code patch', 'code review', 'source diff',
 ];
+const LOW_COST_LOG_TERMS = [
+  '日志', 'log', 'logs', 'trace', 'stack trace', 'stderr', 'stdout', 'dump', 'event log',
+];
+const LOW_COST_DOCUMENT_TERMS = [
+  '文档', 'document', 'documents', 'docs', 'readme', 'markdown', '.md', '.txt',
+  'pdf', 'docx', 'doc', 'rtf', 'xml', 'csv', 'json', 'tsv', 'xlsx', 'spreadsheet',
+];
+const LOW_COST_TEXT_TERMS = ['原文', '文本', 'text', 'transcript'];
+const LOW_COST_EXTRACTION_TERMS = [
+  '提取', '抽取', '摘录', '整理', '汇总', '总结', '归纳', '读取', '阅读',
+  '读写', '写入', '写', '编辑', '更新', '替换', '修改',
+  'extract', 'parse', 'summarize', 'summary', 'organize', 'aggregate', 'collect',
+  'read', 'write', 'edit', 'update', 'replace',
+];
+const LOW_COST_CODE_EVIDENCE_TERMS = [
+  '调用方', '调用关系', '引用关系', '影响面', '依赖关系', '源码检索', '代码检索', '取证',
+  'callers', 'callees', 'call chain', 'reference graph', 'impact radius', 'source search',
+  'code search', 'depends on',
+];
+const LOW_COST_CODE_TEST_TERMS = [
+  'ctest', '单元测试', '回归测试', 'unit test', 'unit tests', 'regression test',
+  'regression tests', '代码测试', '源码测试', 'npm test', 'cargo test', 'pytest',
+];
+const LOW_COST_ESTABLISHED_TEST_TERMS = [
+  '既定测试', '现有测试', '已有测试', 'approved test', 'existing test',
+];
+const LOW_COST_TEST_EXECUTION_TERMS = [
+  '运行', '执行', '开始', '验证', '验收', '核验', 'run', 'execute', 'perform',
+  'verify', 'validate', 'check',
+];
+const CODE_CREATION_ACTION_TERMS = [
+  '实现', '编写', '写', '创建', '新增', '增加', '构建', '开发', '编码',
+  'implement', 'write', 'create', 'add', 'build', 'develop',
+];
+const CODE_CREATION_ARTIFACT_TERMS = [
+  '代码', '源码', '解析器', '处理器', '函数', '方法', '模块', '类', '组件', '服务',
+  '脚本', '算法', 'parser', 'processor', 'handler', 'function', 'method', 'module',
+  'class', 'component', 'service', 'script', 'algorithm',
+];
+const MATERIAL_OPERATION_TERMS = [
+  '已有', '现有', '这些', '指定', '给定', '模板', '原格式', '字段', '版本号', '批量',
+  '保留', 'existing', 'specified', 'given', 'template', 'original format', 'field',
+  'version', 'batch', 'preserve',
+];
+const DOCUMENT_WRITE_TERMS = [
+  '写入', '写', '编辑', '更新', '替换', '修改', 'write', 'edit', 'update', 'replace', 'modify',
+];
 const LOOKUP_TERMS = [
-  '查找', '搜索', '搜寻', '定位', '查询', '调查', '研究', '扫描', '梳理',
-  'find', 'search', 'lookup', 'investigate', 'investigation', 'research', 'scan',
+  '查找', '搜索', '搜寻', '检索', '定位', '查询', '调查', '研究', '扫描', '梳理',
+  'find', 'search', 'retrieve', 'retrieval', 'lookup', 'investigate', 'investigation', 'research', 'scan',
 ];
 const CROSS_FILE_TERMS = [
   '跨文件', '多文件', '多个文件', '调用链', '引用关系', '影响面', '依赖链',
@@ -148,6 +195,127 @@ function profileLabel(config, name) {
   return `${name} (${model}/${effort})`;
 }
 
+function lowCostPolicy(config) {
+  const defaults = {
+    enabled: true,
+    model: 'gpt-5.6-luna',
+    effort: 'max',
+  };
+  const configured = config && config.policy && config.policy.low_cost;
+  if (!configured || typeof configured !== 'object' || Array.isArray(configured)) {
+    return defaults;
+  }
+  return {
+    enabled: configured.enabled !== false,
+    model: typeof configured.model === 'string' && configured.model.trim()
+      ? configured.model.trim() : defaults.model,
+    effort: typeof configured.model_reasoning_effort === 'string'
+      && configured.model_reasoning_effort.trim()
+      ? configured.model_reasoning_effort.trim() : defaults.effort,
+  };
+}
+
+function profileSettings(config, name) {
+  const settings = config && config.agent_profiles;
+  if (!settings || settings.enabled === false || !settings.profiles) return null;
+  const profile = settings.profiles[name];
+  if (!profile || typeof profile !== 'object' || Array.isArray(profile)
+      || profile.enabled === false || profile.role_kind === 'verification') {
+    return null;
+  }
+  const model = typeof profile.model === 'string' ? profile.model.trim() : '';
+  const effort = typeof profile.model_reasoning_effort === 'string'
+    ? profile.model_reasoning_effort.trim() : '';
+  return { model, effort };
+}
+
+/**
+ * 选择默认低成本候选：优先复用已固定为目标模型/档位的 Luna worker，
+ * 再使用未固定的 worker 并要求主代理显式传入目标组合。
+ *
+ * @example lowCostCandidate(config)
+ */
+function lowCostCandidate(config) {
+  const target = lowCostPolicy(config);
+  if (!target.enabled) return null;
+  const targetWarnings = modelEffortWarnings({
+    policy: {
+      low_cost: {
+        enabled: true,
+        model: target.model,
+        model_reasoning_effort: target.effort,
+      },
+    },
+    agent_profiles: { enabled: false },
+  });
+  if (targetWarnings.length) return null;
+
+  const luna = profileSettings(config, 'dispatch_luna_worker');
+  if (luna && luna.model === target.model && luna.effort === target.effort) {
+    return { name: 'dispatch_luna_worker', model: target.model, effort: target.effort, explicit: false };
+  }
+
+  const worker = profileSettings(config, 'dispatch_worker');
+  if (worker && ((worker.model === target.model && worker.effort === target.effort)
+      || (!worker.model && !worker.effort))) {
+    return {
+      name: 'dispatch_worker',
+      model: target.model,
+      effort: target.effort,
+      explicit: !(worker.model === target.model && worker.effort === target.effort),
+    };
+  }
+  return null;
+}
+
+function lowCostLabel(candidate) {
+  if (!candidate) return '';
+  const pair = `${candidate.model}/${candidate.effort}`;
+  return candidate.explicit
+    ? `${candidate.name}（显式 ${pair}）`
+    : `${candidate.name} (${pair})`;
+}
+
+function lowCostKindLabel(kind) {
+  return {
+    logs: '日志检索与摘录',
+    documents: '机械文档读写与文本整理',
+    'structured-data': '机械结构化数据整理',
+    'established-tests': '既定代码测试与失败证据收集',
+    'code-evidence': '代码检索与调用取证',
+  }[kind] || '机械证据处理';
+}
+
+function lowCostGuidance(route, config) {
+  const policy = lowCostPolicy(config);
+  const candidate = lowCostCandidate(config);
+  const kind = lowCostKindLabel(route.lowCostKind);
+  if (!candidate) {
+    return `任务路由：低成本${kind}。当前没有启用并匹配 ${policy.model}/${policy.effort} 的合规低成本角色；不得静默改用更贵模型。请缩小证据子任务并保留阻塞，不把长原文转给主代理。`;
+  }
+  const scope = route.readOnly
+    ? '保持只读，只回传必要证据'
+    : route.lowCostKind === 'documents'
+      ? '文档写入只限指定文件和字段'
+      : route.lowCostKind === 'structured-data'
+        ? '只处理指定字段和记录，保留来源与去重依据'
+    : route.lowCostKind === 'established-tests'
+      ? '只运行既定用例，不修改被测交付物或产品代码'
+      : '保持只读，只回传必要证据';
+  return `任务路由：低成本${kind}。默认委派给 ${lowCostLabel(candidate)}；${scope}，回传证据位置、必要摘录、验证与阻塞，不传整篇原文。主代理仍负责范围、授权和最终整合，并按用户显式偏好与宿主实际支持的模型/推理组合核对是否委派。`;
+}
+
+function lowCostEvidenceGuidance(route, config) {
+  if (!route.lowCostEvidence || !route.lowCostKind) return '';
+  const policy = lowCostPolicy(config);
+  const candidate = lowCostCandidate(config);
+  const kind = lowCostKindLabel(route.lowCostKind);
+  if (!candidate) {
+    return ` 任务包含可拆分的${kind}证据，但当前没有匹配 ${policy.model}/${policy.effort} 的低成本角色；保留为有界证据子任务或暂缓，不静默使用更贵模型，也不把整单降级。`;
+  }
+  return ` 任务中的${kind}可先拆分为低成本证据子任务，交给${lowCostLabel(candidate)}收集必要证据；复杂实现、关键方案和代码审查仍由主代理按实际复杂度选择，不把整单降级。`;
+}
+
 function roleFallback(config, names) {
   const selected = firstEnabled(config, names);
   if (!selected) {
@@ -188,6 +356,32 @@ function exactNarrowLookup(text) {
     && includesAny(text, SINGLE_LOOKUP_TERMS)
     && !includesAny(text, CROSS_FILE_TERMS)
     && !includesAny(text, BROAD_SCAN_TERMS);
+}
+
+function detectLowCostKind(text, explicitCodeContext, lookup, crossFile, codeCreationIntent) {
+  const hasLogs = includesAny(text, LOW_COST_LOG_TERMS);
+  const hasDocuments = includesAny(text, LOW_COST_DOCUMENT_TERMS);
+  const hasStructuredData = includesAny(text, ['csv', 'json', 'tsv', 'xlsx', 'spreadsheet']);
+  const hasText = includesAny(text, LOW_COST_TEXT_TERMS);
+  const hasExtractionAction = includesAny(text, LOW_COST_EXTRACTION_TERMS)
+    || includesAny(text, ['查看', '分析', '运行', '执行', 'inspect', 'review']);
+  const codeEvidence = explicitCodeContext
+    && (lookup || crossFile || includesAny(text, LOW_COST_CODE_EVIDENCE_TERMS));
+  const testExecution = includesAny(text, LOW_COST_TEST_EXECUTION_TERMS);
+  const explicitCodeTest = includesAny(text, LOW_COST_CODE_TEST_TERMS);
+  const establishedTestWithCodeContext = includesAny(text, LOW_COST_ESTABLISHED_TEST_TERMS)
+    && explicitCodeContext
+    && includesAny(text, ['测试', '用例', 'test', 'case', 'qa']);
+  if (hasLogs && (hasExtractionAction || lookup
+      || includesAny(text, ['修复', '排查', 'debug', 'fix', 'crash', 'error']))) return 'logs';
+  if (codeEvidence) return 'code-evidence';
+  if (!codeCreationIntent && testExecution && (explicitCodeTest || establishedTestWithCodeContext)) {
+    return 'established-tests';
+  }
+  if (codeCreationIntent) return '';
+  if (hasStructuredData && hasExtractionAction) return 'structured-data';
+  if ((hasDocuments || hasText) && hasExtractionAction) return 'documents';
+  return '';
 }
 
 /**
@@ -232,7 +426,7 @@ function routePrompt(prompt, config) {
   const codeRegressionReview = /\b(?:inspect|check)\b.{0,40}\b(?:patch|diff)\b.{0,30}\bregressions?\b/.test(text);
   const review = includesAny(text, REVIEW_TERMS) || regressionReview;
   const highRisk = !constraints.wordingOnly && includesAny(text, HIGH_RISK_TERMS);
-  const hard = includesAny(text, HARD_TERMS)
+  const hardSignal = includesAny(text, HARD_TERMS)
     || (includesAny(text, ['调试', 'debug', '排查', 'diagnose'])
       && includesAny(text, ['复杂', '疑难', '困难', 'complex', 'difficult', 'hard']));
   const plan = includesAny(text, PLAN_TERMS);
@@ -250,12 +444,23 @@ function routePrompt(prompt, config) {
   const verification = includesAny(text, VERIFICATION_TERMS)
     && (includesAny(text, VERIFICATION_ACTION_TERMS)
       || directVerification
-      || /(?:按|依据|依照|使用|执行|run|execute|perform|use).{0,30}(?:用例|测试|验证|验收|cases?|tests?|qa|verification)/.test(text));
+      || /(?:按|依据|依照|使用|运行|执行|run|execute|perform|use).{0,30}(?:用例|测试|验证|验收|cases?|tests?|qa|verification)/.test(text));
   const explicitModificationAction = /^(?:请|帮我)?(?:实现|修复|修改|改动|迁移|重构|编码|开发)/.test(text)
     || /(?:并|然后|再|之后|后|[，,;；])\s*(?:再)?(?:实现|修复|修改|改动|迁移|重构|编码|开发)/.test(text)
     || /^(?:please\s+)?(?:implement|fix|modify|edit|migrate|refactor|develop)\b/.test(text)
     || /\b(?:and|then|after that)\s+(?:implement|fix|modify|edit|migrate|refactor|develop)\b/.test(text);
-  const implementation = !constraints.readOnly && hasImplementationTerm
+  const testImplementation = /(?:写|编写|添加|补|补充|新增|增加|覆盖).{0,8}(?:单元测试|回归测试|测试用例|代码测试|源码测试)/.test(text)
+    || /\b(?:write|add|cover|implement)\b.{0,24}\b(?:unit tests?|regression tests?|test cases?|code tests?)\b/i.test(text);
+  const codeCreationIntent = !constraints.readOnly
+    && includesAny(text, CODE_CREATION_ACTION_TERMS)
+    && includesAny(text, CODE_CREATION_ARTIFACT_TERMS);
+  const hard = hardSignal || ((testImplementation || codeCreationIntent)
+    && includesAny(text, ['复杂', '疑难', '困难', 'complex', 'difficult', 'hard']));
+  const modificationIntent = explicitModificationAction || includesAny(text, [
+    '实现', '修复', '修改', '改动', '迁移', '重构', '编码', '开发',
+    'implement', 'fix', 'modify', 'edit', 'migrate', 'refactor', 'develop',
+  ]) || testImplementation || codeCreationIntent;
+  const implementation = !constraints.readOnly && (hasImplementationTerm || testImplementation || codeCreationIntent)
     && (!verification || explicitModificationAction);
   const externalResearch = includesAny(text, EXTERNAL_RESEARCH_TERMS)
     && includesAny(text, [...LOOKUP_TERMS, '调研', '核对', '比较', 'compare', 'verify']);
@@ -275,9 +480,45 @@ function routePrompt(prompt, config) {
   const explicitCodeContext = includesAny(text, CODE_CONTEXT_TERMS)
     || codeRegressionReview
     || /\b[a-z_][a-z0-9_.:-]*\s+module\b|\b[a-z_][a-z0-9_.:-]*\s+模块/i.test(text);
+  const lowCostKind = detectLowCostKind(text, explicitCodeContext, lookup, crossFile, codeCreationIntent);
+  const policyDiscussion = (
+    includesAny(text, ['agent dispatch', 'agentdispatch', '调度', '路由', '分派', '委派'])
+    && includesAny(text, ['配置', '优化', '讨论', '策略', '规则', '设置', '交给', 'policy', 'configure', 'configuration'])
+  ) || (
+    includesAny(text, ['低成本', 'luna max', '模型'])
+    && includesAny(text, ['配置', '优化', '讨论', '策略', '规则', '设置', 'configure', 'configuration'])
+  );
+  const materialKind = ['documents', 'structured-data'].includes(lowCostKind);
+  const materialWriteIntent = materialKind && includesAny(text, DOCUMENT_WRITE_TERMS);
+  const boundedMaterialWrite = !materialWriteIntent || includesAny(text, MATERIAL_OPERATION_TERMS);
+  const documentRoutineWrite = materialKind
+    && boundedMaterialWrite
+    && !includesAny(text, [
+      '实现', '修复', '迁移', '重构', '编码', 'implement', 'fix', 'migrate', 'refactor', 'develop',
+    ]);
+  const unboundedMaterialWrite = !constraints.readOnly && materialWriteIntent && !boundedMaterialWrite;
+  const lowCostRoute = Boolean(lowCostKind
+    && lowCostPolicy(config).enabled
+    && !unboundedMaterialWrite
+    && (!modificationIntent || documentRoutineWrite)
+    && !(lowCostKind === 'established-tests' && delivery && !testImplementation)
+    && !review
+    && !nonTrivialPlan);
   const needsGraph = !constraints.wordingOnly && explicitCodeContext
     && (crossFile || broad || inspectArchitecture || review);
-  const result = (category, extra = {}) => ({ category, route: category, shouldDispatch: true, needsGraph, ...constraints, ...extra });
+  const result = (category, extra = {}) => ({
+    category,
+    route: category,
+    shouldDispatch: true,
+    needsGraph,
+    lowCostKind,
+    lowCostEvidence: Boolean(lowCostPolicy(config).enabled && lowCostKind
+      && !(lowCostKind === 'established-tests' && testImplementation)
+      && !lowCostRoute
+      && (modificationIntent || implementation || highRisk || hard || nonTrivialPlan || review)),
+    ...constraints,
+    ...extra,
+  });
   if (constraints.primaryOnly) return result('primary-only', { shouldDispatch: false });
   if (constraints.wordingOnly) return result('generic', { shouldDispatch: false, reason: 'wording-only document edit/review' });
   if (constraints.narrow || (!review && exactNarrowLookup(text))) {
@@ -285,8 +526,13 @@ function routePrompt(prompt, config) {
       shouldDispatch: false, reason: 'explicit narrow scope is primary-agent work',
     });
   }
+  if (policyDiscussion) {
+    return result('generic', { shouldDispatch: false, reason: 'dispatch policy discussion is primary-agent work' });
+  }
   if (review) return result(highRisk ? 'high-risk-review' : 'review');
   if (nonTrivialPlan && !hard) return result('plan');
+  if (lowCostRoute) return result('low-cost');
+  if (unboundedMaterialWrite) return result('execution');
   if (verification && !implementation && (!delivery || directVerification)) return result('verification');
   if (externalResearch) return result('external-research', { needsGraph: false });
   if (constraints.readOnly) {
@@ -337,6 +583,8 @@ function promptGuidance(prompt, config) {
 /** 生成与已解析范围一致的角色建议。@example routeGuidance(route, config) */
 function routeGuidance(route, config) {
   switch (route.category) {
+    case 'low-cost':
+      return lowCostGuidance(route, config);
     case 'diagnosis':
       return `任务路由：只读诊断。仅收集现象、根因证据和验证办法，不执行修复。${roleFallback(config, ['dispatch_explorer', 'dispatch_mapper'])} 子任务必须保持只读。`;
     case 'verification':
@@ -344,15 +592,15 @@ function routeGuidance(route, config) {
     case 'external-research':
       return `任务路由：外部研究。${roleFallback(config, ['dispatch_researcher'])} 明确来源、日期和事实/推断边界；工作区已有材料的证据改用 explorer 或由主代理读取。`;
     case 'high-risk-implementation':
-      return `任务路由：涉及安全、权限或并发等风险的修改。主代理先核对实际工作流程、契约、已有授权和验收标准，涉及代码时核对真实调用路径；明确边界后才委派有界修改，不因关键词扩大权限或重复请求已有授权。${dynamicWriterGuidance(config)} ${REVIEW_FEEDBACK_GUIDANCE}`;
+      return `任务路由：涉及安全、权限或并发等风险的修改。主代理先核对实际工作流程、契约、已有授权和验收标准，涉及代码时核对真实调用路径；明确边界后才委派有界修改，不因关键词扩大权限或重复请求已有授权。${dynamicWriterGuidance(config)} ${REVIEW_FEEDBACK_GUIDANCE}${lowCostEvidenceGuidance(route, config)}`;
     case 'high-risk-review':
       return `任务路由：高风险审查。${roleFallback(config, ['dispatch_deep_reviewer', 'dispatch_reviewer'])}`;
     case 'hard-task': {
       const writer = dynamicWriterGuidance(config);
       if (!route.requiresPlanner) {
-        return `任务路由：困难任务执行。主代理先固定范围和验收标准；${writer} ${REVIEW_FEEDBACK_GUIDANCE} 不要仅因任务困难启动规划角色。`;
+        return `任务路由：困难任务执行。主代理先固定范围和验收标准；${writer} ${REVIEW_FEEDBACK_GUIDANCE} 不要仅因任务困难启动规划角色。${lowCostEvidenceGuidance(route, config)}`;
       }
-      return `任务路由：包含规划的困难任务。先核对现有方案，主代理负责关键方案和公开契约决策。${roleFallback(config, ['dispatch_planner'])} 已有可执行方案时直接推进，无需重复规划；委派分析后先整合结果，再执行依赖它的工作。${writer} ${REVIEW_FEEDBACK_GUIDANCE}`;
+      return `任务路由：包含规划的困难任务。先核对现有方案，主代理负责关键方案和公开契约决策。${roleFallback(config, ['dispatch_planner'])} 已有可执行方案时直接推进，无需重复规划；委派分析后先整合结果，再执行依赖它的工作。${writer} ${REVIEW_FEEDBACK_GUIDANCE}${lowCostEvidenceGuidance(route, config)}`;
     }
     case 'plan':
       return `任务路由：非琐碎计划/方案。${roleFallback(config, ['dispatch_planner'])}`;
@@ -361,9 +609,9 @@ function routeGuidance(route, config) {
     case 'bounded-search':
       return `任务路由：有界只读调查。${roleFallback(config, ['dispatch_explorer'])} 不在调查子任务中修改材料；精确的小范围快速查找由主代理直接完成。`;
     case 'implementation':
-      return `任务路由：常规实现。${dynamicWriterGuidance(config)} ${REVIEW_FEEDBACK_GUIDANCE}`;
+      return `任务路由：常规实现。${dynamicWriterGuidance(config)} ${REVIEW_FEEDBACK_GUIDANCE}${lowCostEvidenceGuidance(route, config)}`;
     case 'execution':
-      return `任务路由：内容制作/交付执行。主代理先固定交付物、受众、格式和验收标准；${dynamicWriterGuidance(config)} ${REVIEW_FEEDBACK_GUIDANCE}`;
+      return `任务路由：内容制作/交付执行。主代理先固定交付物、受众、格式和验收标准；${dynamicWriterGuidance(config)} ${REVIEW_FEEDBACK_GUIDANCE}${lowCostEvidenceGuidance(route, config)}`;
     case 'review':
       return `任务路由：常规审查。${roleFallback(config, ['dispatch_reviewer'])}`;
     case 'generic':
@@ -376,13 +624,19 @@ function mainAgentGuidance(config, compact = false) {
   const maxParallel = Number(config.policy.max_parallel_subagents) || 3;
   const profiles = profileSummary(config);
   const modelWarnings = modelEffortWarnings(config);
+  const lowCost = lowCostPolicy(config);
+  const lowCostPair = `${lowCost.model}/${lowCost.effort}`;
   if (compact) {
     const lines = [
       'Agent Dispatch：你是主代理。需求澄清、关键方案与公开契约决策、任务拆分、结果审查和最终整合由主代理负责；',
       '调查、规划分析、内容或产品制作、运营/文档/数据处理、代码实现、验证和审查等明确有界子任务，可按收益交给匹配角色；琐碎读取、小改和强耦合步骤直接完成。',
       '按角色描述、歧义、约束、验收反馈及整个任务的总成本（上下文、返工、审查、延迟）从已启用候选中选角色、模型和推理强度；高歧义可直接选更强候选，不机械按关键词或给所有角色拉满。关键词路由不覆盖授权、只读范围或已有方案。',
       '未固定模型的 writer 必须显式传 model 与 effort，避免无意继承昂贵主模型。原生 TOML 固定值优先于 spawn 参数；临时组合应选未固定字段角色并显式传参。按宿主规则，当前完整历史 fork 不接受覆盖，应按宿主支持仅传最小必要上下文。',
-      '启动前核对模型/推理组合，不把主任务的 ultra 强加给不支持它的模型；默认组合不可用时选受支持组合或由主代理处理，用户明确指定的模型不得擅自替换。',
+      ...(lowCost.enabled ? [`低成本路由优先：日志、常规文档/结构化数据、文本提取、代码取证和既定代码测试，默认委派给 policy.low_cost 指定的合规角色（${lowCostPair}）；不可用时保留有界阻塞，不静默升级或把长原文回退给主代理，主代理只保留最小必要决策。`] : []),
+      lowCost.enabled
+        ? `代码任务按阶段取证：默认委派给低成本角色（${lowCostPair}）收集位置和必要摘录，关键接口与方案由主代理决定，实现、受影响测试和必要审查按复杂度选择。`
+        : '代码任务按阶段取证：先收集位置和必要摘录，关键接口与方案由主代理决定，实现、受影响测试和必要审查按复杂度选择；按当前启用候选分派。',
+      'policy.low_cost 之外的常规路由启动前核对模型/推理组合；默认组合不可用时选受支持组合或由主代理处理，不把主任务的 ultra 强加给不支持它的模型，用户明确指定的模型不得擅自替换。',
       '只有明确的代码结构、调用关系或代码审查任务才优先使用代码图；Agent Dispatch 只负责选代理，图刷新和检索规则由 CodeMap Boost 负责，不要把普通设计评审或业务依赖送入代码图。',
       '按交付物选择验证证据，不要求非代码成果运行构建。涉及代码时，默认不审查或格式化/lint 第三方实现，只核对自有代码集成与必要依赖接口。',
       `独立且并行有收益时委派；最多 ${maxParallel} 个子代理并发。普通单条 Git CLI 保持安静并由主代理串行执行；只有用户请求或明确 skill 工作流要求完整本地提交准备时，才可把准备阶段交给同工作区一个指定可写代理。准备阶段不并行操作 Git，主代理校验快照后执行 commit、远程操作和历史改写。`,
@@ -401,7 +655,11 @@ function mainAgentGuidance(config, compact = false) {
     '- Delegate bounded investigation, planning analysis, content or product production, operations, document or data work, code implementation, verification, and review when a separate role has clear value, even when that work is sequential.',
     '- Choose among enabled candidates from role descriptions, ambiguity, constraints, acceptance feedback, explicit user preference, host availability, and total task cost including context, rework, review, and latency. High ambiguity may justify a stronger candidate immediately; do not route domains mechanically by keywords or maximize every role.',
     '- For an unpinned writer, explicitly pass model and effort so it does not accidentally inherit an expensive primary model. Native TOML model/effort values override spawn parameters; for a temporary combination choose a role with unpinned fields and pass both explicitly. Under the host rules, the current full-history fork does not accept overrides, so pass only the minimum needed context using a host-supported combination.',
-    '- Profile defaults and keyword routes are suggestions, not proof of runtime availability or permission to override user scope. Verify the host-supported model/effort pair before spawning; never carry ultra blindly into a model that does not support it. Fall back from unavailable defaults to supported settings or primary-agent work, but do not silently replace an explicitly requested model.',
+    ...(lowCost.enabled ? [`- Delegate bounded log, routine document or structured-data, text-extraction, code-evidence, and established code-test work to the configured low-cost candidate (${lowCostPair}) by default. If it is unavailable, keep the subtask bounded or blocked rather than silently upgrading or sending long raw text to the primary; keep only the minimum necessary decision with the primary.`] : []),
+    lowCost.enabled
+      ? `- For code work, by default delegate evidence locations and necessary excerpts to the configured low-cost candidate (${lowCostPair}); keep key interfaces and plans with the primary, and choose implementation, affected tests, and necessary review by complexity.`
+      : '- For code work, gather evidence locations and necessary excerpts first, keep key interfaces and plans with the primary, and choose implementation, affected tests, and necessary review by complexity using current enabled candidates.',
+    '- For routing outside policy.low_cost, profile defaults and keyword routes are suggestions, not proof of runtime availability or permission to override user scope. Verify the host-supported model/effort pair before spawning; if an ordinary default combination is unavailable, use supported settings or primary-agent work, never carry ultra blindly into a model that does not support it, and do not silently replace an explicitly requested model.',
     '- Only for explicit code structure, call-relationship, or code-review tasks, prefer available graph tools. Agent Dispatch selects the agent; CodeMap Boost owns graph refresh and retrieval policy. Do not send ordinary design reviews or business dependencies to a code graph.',
     '- Choose validation evidence for the actual deliverable; builds and code tests are not universal requirements. For code work, exclude vendored third-party implementations from review, formatting, and lint unless explicitly requested, and review first-party integration contracts.',
     '- Delegate independent bounded subtasks in parallel when useful.',

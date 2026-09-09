@@ -18,6 +18,7 @@ process.env.PLUGIN_DATA = data;
 const {
   PROJECT_DIR,
   ensureConfigFiles,
+  loadDefaults,
   loadConfig,
   mergeConfig,
   projectConfigPath,
@@ -50,6 +51,11 @@ try {
   const effective = loadConfig(repo);
   assert.equal(effective.modules.prompt_guidance, false);
   assert.equal(effective.policy.max_parallel_subagents, 2);
+  assert.deepEqual(effective.policy.low_cost, {
+    enabled: true,
+    model: 'gpt-5.6-luna',
+    model_reasoning_effort: 'max',
+  });
   assert.equal(effective.agent_profiles.profiles.dispatch_worker.model, 'gpt-5.6');
   assert.equal(effective.agent_profiles.profiles.dispatch_worker.sandbox_mode, 'workspace-write');
   assert.ok(effective.whitelist.shell_heads.includes('my-tool'));
@@ -58,6 +64,15 @@ try {
 
   const merged = mergeConfig(effective, { overrides: { shell_heads_add: ['my-tool'] } });
   assert.equal(merged.whitelist.shell_heads.filter((item) => item === 'my-tool').length, 1);
+
+  const lowCostOverride = mergeConfig(loadDefaults(), {
+    policy: { low_cost: { enabled: false } },
+  });
+  assert.deepEqual(lowCostOverride.policy.low_cost, {
+    enabled: false,
+    model: 'gpt-5.6-luna',
+    model_reasoning_effort: 'max',
+  });
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
 }

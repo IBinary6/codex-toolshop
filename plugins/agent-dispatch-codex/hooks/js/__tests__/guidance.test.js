@@ -24,6 +24,9 @@ assert.match(mainAgentGuidance(config), /dispatch_worker \(inherit, inherit\)/);
 assert.match(mainAgentGuidance(config), /Choose among enabled candidates/);
 assert.match(mainAgentGuidance(config), /total task cost including context, rework, review, and latency/);
 assert.match(mainAgentGuidance(config), /explicitly pass model and effort/);
+assert.match(mainAgentGuidance(config), /configured low-cost candidate \(gpt-5\.6-luna\/max\)/);
+assert.match(mainAgentGuidance(config), /Delegate bounded .*configured low-cost candidate \(gpt-5\.6-luna\/max\) by default/);
+assert.match(mainAgentGuidance(config), /code-evidence/);
 assert.doesNotMatch(mainAgentGuidance(config), /cost-efficient execution agent/);
 assert.doesNotMatch(mainAgentGuidance(config), /clear development.*Luna/);
 assert.doesNotMatch(mainAgentGuidance(config), /difficult execution.*Terra ultra/);
@@ -54,6 +57,8 @@ assert.match(mainAgentGuidance(config, true), /最多 3 个子代理并发/);
 assert.doesNotMatch(mainAgentGuidance(config, true), /必须并行委派/);
 assert.match(mainAgentGuidance(config, true), /整个任务的总成本/);
 assert.match(mainAgentGuidance(config, true), /未固定模型的 writer 必须显式传 model 与 effort/);
+assert.match(mainAgentGuidance(config, true), /低成本路由优先/);
+assert.match(mainAgentGuidance(config, true), /代码任务按阶段取证/);
 assert.match(mainAgentGuidance(config, true), /原生 TOML 固定值优先于 spawn 参数/);
 assert.match(mainAgentGuidance(config, true), /当前完整历史 fork 不接受覆盖/);
 assert.match(mainAgentGuidance(config, true), /复用原 writer 有界修复/);
@@ -63,6 +68,23 @@ assert.match(mainAgentGuidance(config, true), /上下文缺失、假设性风险
 assert.match(mainAgentGuidance(config, true), /不自动返修，也不触发确认停工/);
 assert.match(mainAgentGuidance(config, true), /按交付物选择验证证据/);
 assert.match(mainAgentGuidance(config, true), /不新增对外发布、发送、付费、生产环境或真实数据变更的授权/);
+const lowCostDisabledSession = JSON.parse(JSON.stringify(config));
+lowCostDisabledSession.policy.low_cost.enabled = false;
+for (const compact of [false, true]) {
+  const guidance = mainAgentGuidance(lowCostDisabledSession, compact);
+  assert.doesNotMatch(guidance, /Prefer the configured low-cost candidate|低成本路由优先/);
+  assert.match(guidance, /For code work|代码任务按阶段取证/);
+}
+const customLowCostSession = JSON.parse(JSON.stringify(config));
+customLowCostSession.policy.low_cost.model = 'gpt-5.5';
+customLowCostSession.policy.low_cost.model_reasoning_effort = 'high';
+assert.match(
+  mainAgentGuidance(customLowCostSession),
+  /configured low-cost candidate \(gpt-5\.5\/high\)/
+);
+assert.match(mainAgentGuidance(customLowCostSession, true), /低成本路由优先：.*gpt-5\.5\/high/);
+assert.doesNotMatch(mainAgentGuidance(customLowCostSession), /configured low-cost candidate \(gpt-5\.6-luna\/max\)/);
+assert.doesNotMatch(mainAgentGuidance(customLowCostSession, true), /指定的合规角色（gpt-5\.6-luna\/max）/);
 assert.match(subagentGuidance(config), /do not spawn or delegate/i);
 assert.match(subagentGuidance(config), /every file you changed/i);
 assert.match(subagentGuidance(config), /Do not run Git commands/);
@@ -107,6 +129,72 @@ assert.equal(routePrompt('设计一个按钮', config).shouldDispatch, false);
 assert.equal(routePrompt('请实现一个 getter', config).shouldDispatch, false);
 assert.equal(routePrompt('请先制定计划然后实现用户模块', config).category, 'plan');
 
+for (const [prompt, kind] of [
+  ['检索最近构建日志并摘录失败原因', 'logs'],
+  ['读取这些 Markdown 文档，汇总重复条目', 'documents'],
+  ['完成常规文档读写并保留原格式', 'documents'],
+  ['运行现有 CTest 用例，汇总失败输出', 'established-tests'],
+  ['查找源码中所有调用方和影响面', 'code-evidence'],
+  ['按模板批量更新文档中的版本号', 'documents'],
+  ['从 CSV 提取字段并去重统计', 'structured-data'],
+  ['读取 JSON 汇总指定字段', 'structured-data'],
+]) {
+  const route = routePrompt(prompt, config);
+  assert.equal(route.category, 'low-cost', prompt);
+  assert.equal(route.lowCostKind, kind, prompt);
+  assert.equal(route.shouldDispatch, true, prompt);
+  const guidance = promptGuidance(prompt, config);
+  assert.match(guidance, /低成本/, prompt);
+  assert.match(guidance, /默认委派给/, prompt);
+  assert.match(guidance, /gpt-5\.6-luna\/max/, prompt);
+  assert.match(guidance, /dispatch_luna_worker/, prompt);
+  assert.doesNotMatch(guidance, /dispatch_(?:terra|sol|astra)_worker/, prompt);
+}
+for (const [prompt, category] of [
+  ['新增单元测试用例覆盖接口', 'implementation'],
+  ['请新增复杂单元测试用例', 'hard-task'],
+  ['增加回归测试用例覆盖接口', 'implementation'],
+  ['执行既定测试验收结账流程', 'verification'],
+  ['运行现有测试并汇总失败', 'verification'],
+  ['Write a complex implementation for a JSON parser', 'hard-task'],
+  ['编写一个复杂 JSON 处理器', 'hard-task'],
+]) {
+  const route = routePrompt(prompt, config);
+  assert.equal(route.category, category, prompt);
+  assert.notEqual(route.category, 'low-cost', prompt);
+}
+assert.equal(routePrompt('验证代码的现有测试', config).category, 'low-cost');
+assert.equal(routePrompt('验证代码的现有测试', config).lowCostKind, 'established-tests');
+assert.match(promptGuidance('执行既定测试验收结账流程', config), /验证执行/);
+assert.doesNotMatch(promptGuidance('执行既定测试验收结账流程', config), /低成本|dispatch_luna_worker/);
+assert.equal(routePrompt('Run the existing test suite against the prototype', config).category, 'verification');
+assert.equal(routePrompt('Run the existing test suite for the source code', config).category, 'low-cost');
+assert.match(promptGuidance('编写一个复杂 JSON 处理器', config), /困难任务/);
+assert.doesNotMatch(promptGuidance('编写一个复杂 JSON 处理器', config), /低成本机械结构化数据整理/);
+assert.equal(routePrompt('写入一份 JSON 文档', config).category, 'execution');
+assert.equal(routePrompt('写入指定 JSON 字段', config).category, 'low-cost');
+assert.equal(routePrompt('查找源码中所有调用方和影响面', config).needsGraph, true);
+const mixedEvidence = routePrompt('根据构建日志修复复杂崩溃，并补回归测试', config);
+assert.equal(mixedEvidence.category, 'hard-task');
+assert.equal(mixedEvidence.lowCostKind, 'logs');
+assert.equal(mixedEvidence.lowCostEvidence, true);
+assert.match(promptGuidance('根据构建日志修复复杂崩溃，并补回归测试', config), /先拆分.*低成本/);
+assert.match(promptGuidance('根据构建日志修复复杂崩溃，并补回归测试', config), /gpt-5\.6-luna\/max/);
+assert.match(promptGuidance('根据构建日志修复复杂崩溃，并补回归测试', config), /可写执行角色/);
+assert.equal(routePrompt('检索构建日志里的 crash 和 error', config).category, 'low-cost');
+assert.match(promptGuidance('检索构建日志里的 crash 和 error', config), /gpt-5\.6-luna\/max/);
+assert.equal(routePrompt('请优化 Agent Dispatch，让日志读取交给 Luna Max', config).category, 'generic');
+assert.equal(promptGuidance('请优化 Agent Dispatch，让日志读取交给 Luna Max', config), '');
+assert.equal(routePrompt('写单元测试覆盖新的接口行为', config).category, 'implementation');
+assert.match(promptGuidance('写单元测试覆盖新的接口行为', config), /常规实现/);
+assert.equal(routePrompt('写单元测试覆盖新的接口行为', config).lowCostEvidence, false);
+const readOnlyDocuments = promptGuidance('只读读取 Markdown 文档并汇总重复条目，不修改文件', config);
+assert.match(readOnlyDocuments, /保持只读/);
+assert.doesNotMatch(readOnlyDocuments, /文档写入只限/);
+assert.equal(routePrompt('只用主代理检索构建日志，不要子代理', config).category, 'primary-only');
+assert.equal(promptGuidance('只用主代理检索构建日志，不要子代理', config), '');
+assert.equal(routePrompt('请讨论低成本模型配置，不执行任务', config).category, 'generic');
+
 const highRisk = promptGuidance('请审查安全权限和生产并发风险', config);
 assert.match(highRisk, /高风险审查/);
 assert.match(highRisk, /dispatch_deep_reviewer/);
@@ -129,9 +217,11 @@ assert.doesNotMatch(plannedHard, /dispatch_worker|dispatch_hard_worker|gpt-5\.6-
 
 assert.match(promptGuidance('请设计新的架构和接口方案', config), /dispatch_planner/);
 assert.match(promptGuidance('请设计新的架构和接口方案', config), /gpt-6-astra\/xhigh/);
-assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', config), /dispatch_mapper/);
+assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', config), /dispatch_luna_worker/);
+assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', config), /gpt-5\.6-luna\/max/);
 assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', config), /图刷新由 CodeMap Boost 负责/);
-assert.match(promptGuidance('请搜索多个文件中的调用链和影响面', config), /dispatch_explorer/);
+assert.match(promptGuidance('请搜索多个文件中的调用链和影响面', config), /dispatch_luna_worker/);
+assert.match(promptGuidance('请搜索多个文件中的调用链和影响面', config), /gpt-5\.6-luna\/max/);
 assert.match(promptGuidance('请搜索多个文件中的调用链和影响面', config), /不要重复 build\/update/);
 const implementation = promptGuidance('请实现这个常规功能', config);
 assert.match(implementation, /可写执行角色/);
@@ -246,7 +336,8 @@ for (const prompt of [
   assert.equal(promptGuidance(prompt, config), '', prompt);
 }
 for (const prompt of ['What depends on the auth module?', 'Find all callers of authService.', '请分析 auth 模块的依赖关系']) {
-  assert.match(promptGuidance(prompt, config), /dispatch_explorer/);
+  assert.match(promptGuidance(prompt, config), /dispatch_luna_worker/);
+  assert.match(promptGuidance(prompt, config), /gpt-5\.6-luna\/max/);
   assert.match(promptGuidance(prompt, config), /优先图查询/);
 }
 for (const prompt of ['Please inspect this patch for regressions.', 'Please check this change for regressions.', '审查跨模块调用链修改']) {
@@ -402,13 +493,39 @@ disabled.agent_profiles.profiles.dispatch_tester.enabled = false;
 disabled.agent_profiles.profiles.dispatch_researcher.enabled = false;
 assert.doesNotMatch(promptGuidance('请审查安全权限风险', disabled), /dispatch_deep_reviewer|dispatch_reviewer/);
 assert.match(promptGuidance('请审查安全权限风险', disabled), /主代理/);
-assert.doesNotMatch(promptGuidance('请扫描整个仓库的跨模块调用链', disabled), /dispatch_mapper/);
-assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', disabled), /dispatch_explorer/);
+assert.doesNotMatch(promptGuidance('请扫描整个仓库的跨模块调用链', disabled), /dispatch_mapper|dispatch_explorer/);
+assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', disabled), /没有.*低成本|Luna max/);
 assert.match(promptGuidance('请实现这个常规功能', disabled), /当前没有启用的可写执行角色，由主代理直接完成/);
 assert.match(promptGuidance('按已有用例验证流程，不修改产品', disabled), /由主代理直接完成/);
 assert.doesNotMatch(promptGuidance('按已有用例验证流程，不修改产品', disabled), /dispatch_tester/);
 assert.match(promptGuidance('research competitor pricing from official sources', disabled), /由主代理直接完成/);
 assert.doesNotMatch(promptGuidance('research competitor pricing from official sources', disabled), /dispatch_researcher/);
+
+const unpinnedLowCost = JSON.parse(JSON.stringify(config));
+unpinnedLowCost.agent_profiles.profiles.dispatch_luna_worker.model_reasoning_effort = 'medium';
+assert.match(
+  promptGuidance('检索最近构建日志并摘录失败原因', unpinnedLowCost),
+  /dispatch_worker.*gpt-5\.6-luna\/max/
+);
+assert.doesNotMatch(
+  promptGuidance('检索最近构建日志并摘录失败原因', unpinnedLowCost),
+  /dispatch_luna_worker.*gpt-5\.6-luna\/max/
+);
+const noLowCost = JSON.parse(JSON.stringify(config));
+noLowCost.agent_profiles.profiles.dispatch_luna_worker.enabled = false;
+noLowCost.agent_profiles.profiles.dispatch_worker.model = 'gpt-5.6-sol';
+noLowCost.agent_profiles.profiles.dispatch_worker.model_reasoning_effort = 'medium';
+assert.match(promptGuidance('检索最近构建日志并摘录失败原因', noLowCost), /没有.*低成本/);
+assert.doesNotMatch(promptGuidance('检索最近构建日志并摘录失败原因', noLowCost), /dispatch_(?:sol|terra|astra)_worker/);
+noLowCost.policy.low_cost.model = 'gpt-5.5';
+noLowCost.policy.low_cost.model_reasoning_effort = 'high';
+const mixedNoLowCostGuidance = promptGuidance('根据构建日志修复复杂崩溃，并补回归测试', noLowCost);
+assert.match(mixedNoLowCostGuidance, /没有匹配 gpt-5\.5\/high 的低成本角色/);
+assert.doesNotMatch(mixedNoLowCostGuidance, /没有匹配的 Luna max/);
+const lowCostDisabled = JSON.parse(JSON.stringify(config));
+lowCostDisabled.policy.low_cost.enabled = false;
+assert.equal(routePrompt('检索最近构建日志并摘录失败原因', lowCostDisabled).category, 'implementation');
+assert.doesNotMatch(promptGuidance('检索最近构建日志并摘录失败原因', lowCostDisabled), /低成本/);
 
 const testerOnly = JSON.parse(JSON.stringify(config));
 for (const name of [

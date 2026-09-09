@@ -27,21 +27,41 @@ const KNOWN_MODEL_EFFORTS = new Map([
 
 function modelEffortWarnings(config) {
   const settings = config && config.agent_profiles;
-  if (!settings || settings.enabled === false) return [];
   const warnings = [];
-  for (const [name, profile] of Object.entries(settings.profiles || {})) {
-    if (!profile || profile.enabled === false) continue;
-    const model = typeof profile.model === 'string' ? profile.model.trim() : '';
-    const effort = typeof profile.model_reasoning_effort === 'string'
-      ? profile.model_reasoning_effort.trim() : '';
-    if (!model) continue;
-    const supported = KNOWN_MODEL_EFFORTS.get(model);
-    if (!supported) {
-      warnings.push(`${name}: 本插件未记录 ${model} 的能力；按宿主实际支持校验，不自动映射其他型号。`);
-    } else if (effort && !supported.includes(effort)) {
-      warnings.push(`${name}: ${model}/${effort} 超出本插件已知能力（${supported.join(', ')}）。配置保留；启动前核对宿主支持，不能直接使用未获支持的组合或擅自替换显式模型。`);
-    } else if (!effort) {
-      warnings.push(`${name}: ${model} 继承主任务推理档位；启动前确认该档位受支持，不能直接继承不兼容的 ultra。`);
+  if (settings && settings.enabled !== false) {
+    for (const [name, profile] of Object.entries(settings.profiles || {})) {
+      if (!profile || profile.enabled === false) continue;
+      const model = typeof profile.model === 'string' ? profile.model.trim() : '';
+      const effort = typeof profile.model_reasoning_effort === 'string'
+        ? profile.model_reasoning_effort.trim() : '';
+      if (!model) continue;
+      const supported = KNOWN_MODEL_EFFORTS.get(model);
+      if (!supported) {
+        warnings.push(`${name}: 本插件未记录 ${model} 的能力；按宿主实际支持校验，不自动映射其他型号。`);
+      } else if (effort && !supported.includes(effort)) {
+        warnings.push(`${name}: ${model}/${effort} 超出本插件已知能力（${supported.join(', ')}）。配置保留；启动前核对宿主支持，不能直接使用未获支持的组合或擅自替换显式模型。`);
+      } else if (!effort) {
+        warnings.push(`${name}: ${model} 继承主任务推理档位；启动前确认该档位受支持，不能直接继承不兼容的 ultra。`);
+      }
+    }
+  }
+
+  const lowCost = config && config.policy && config.policy.low_cost;
+  if (lowCost && lowCost.enabled !== false) {
+    const model = typeof lowCost.model === 'string' ? lowCost.model.trim() : '';
+    const effort = typeof lowCost.model_reasoning_effort === 'string'
+      ? lowCost.model_reasoning_effort.trim() : '';
+    if (!model) {
+      warnings.push('policy.low_cost: 未配置 model；低成本路由不能确认目标模型。');
+    } else {
+      const supported = KNOWN_MODEL_EFFORTS.get(model);
+      if (!supported) {
+        warnings.push(`policy.low_cost: 本插件未记录 ${model} 的能力；按宿主实际支持校验，不自动映射其他型号。`);
+      } else if (effort && !supported.includes(effort)) {
+        warnings.push(`policy.low_cost: ${model}/${effort} 超出本插件已知能力（${supported.join(', ')}）。配置保留；启动前核对宿主支持，不能直接使用未获支持的组合。`);
+      } else if (!effort) {
+        warnings.push(`policy.low_cost: ${model} 继承主任务推理档位；启动前确认该档位受支持，不能直接继承不兼容的 ultra。`);
+      }
     }
   }
   return warnings;
@@ -94,7 +114,16 @@ function mergeConfig(base, layer) {
     Object.assign(result.modules, layer.modules);
   }
   if (layer.policy && typeof layer.policy === 'object' && !Array.isArray(layer.policy)) {
-    Object.assign(result.policy, layer.policy);
+    const lowCost = layer.policy.low_cost;
+    const policy = { ...layer.policy };
+    delete policy.low_cost;
+    Object.assign(result.policy, policy);
+    if (lowCost && typeof lowCost === 'object' && !Array.isArray(lowCost)) {
+      result.policy.low_cost = {
+        ...(result.policy.low_cost || {}),
+        ...lowCost,
+      };
+    }
   }
   if (layer.agent_profiles && typeof layer.agent_profiles === 'object'
       && !Array.isArray(layer.agent_profiles)) {

@@ -95,9 +95,24 @@ try {
     hook_event_name: 'UserPromptSubmit',
     prompt: '请搜索多个文件中的调用链和影响面',
   }));
-  assert.match(searchPrompt.hookSpecificOutput.additionalContext, /dispatch_explorer/);
+  assert.match(searchPrompt.hookSpecificOutput.additionalContext, /dispatch_luna_worker/);
+  assert.match(searchPrompt.hookSpecificOutput.additionalContext, /gpt-5\.6-luna\/max/);
   assert.match(searchPrompt.hookSpecificOutput.additionalContext, /图刷新由 CodeMap Boost 负责/);
   assert.match(searchPrompt.hookSpecificOutput.additionalContext, /不要重复 build\/update/);
+
+  for (const prompt of [
+    '检索最近构建日志并摘录失败原因',
+    '读取这些 Markdown 文档，汇总重复条目',
+    '运行现有 CTest 用例，汇总失败输出',
+  ]) {
+    const lowCostPrompt = parse(run('user_prompt_submit', {
+      hook_event_name: 'UserPromptSubmit',
+      prompt,
+    }));
+    assert.match(lowCostPrompt.hookSpecificOutput.additionalContext, /低成本/);
+    assert.match(lowCostPrompt.hookSpecificOutput.additionalContext, /gpt-5\.6-luna\/max/);
+    assert.match(lowCostPrompt.hookSpecificOutput.additionalContext, /dispatch_luna_worker/);
+  }
 
   const deliveryPrompt = parse(run('user_prompt_submit', {
     hook_event_name: 'UserPromptSubmit',

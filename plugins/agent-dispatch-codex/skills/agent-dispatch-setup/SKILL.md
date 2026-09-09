@@ -41,6 +41,9 @@ Supported policy values:
 - `policy.max_parallel_subagents`
 - `policy.require_changed_file_report`
 - `policy.require_validation_report`
+- `policy.low_cost.enabled`
+- `policy.low_cost.model`
+- `policy.low_cost.model_reasoning_effort`
 
 Supported custom-agent values:
 
@@ -63,7 +66,9 @@ The setup skill is not an installation prerequisite. After the plugin is install
 
 Read the effective profiles and their descriptions before choosing a role. Select among investigation, planning, execution, verification, research, and review by the bounded task and expected evidence. Execution candidates cover repetitive deliverables, balanced everyday work, and difficult interacting constraints; choose by ambiguity, context, acceptance difficulty, and total completion cost including rework. A high-ambiguity task can start with a stronger model. More reasoning is not automatically more economical, and reasoning levels are not equivalent across models.
 
-With the default profiles, consider Sol medium for clearly specified complex deliverables and Astra medium for difficult multi-part execution with interacting constraints and sustained reasoning needs. Mechanical work can use a lighter writer. Do not select a model from the domain name alone. The primary agent still owns key plan and public-contract decisions, and execution by Astra does not replace independent review.
+With the default profiles, consider Sol medium for clearly specified complex deliverables and Astra medium for difficult multi-part execution with interacting constraints and sustained reasoning needs. `policy.low_cost` defaults to `{"enabled": true, "model": "gpt-5.6-luna", "model_reasoning_effort": "max"}` and follows the same three-layer merge. When enabled, use the effective low-cost pair for delegated log retrieval, routine document read/write, mechanical data processing, source evidence, and execution of an established test plan. Keep read and evidence tasks read-only; a profile's workspace-write capability does not authorize changes. Reuse a profile only when its effective `model` and `model_reasoning_effort` both match; the default matching profile is `dispatch_luna_worker`. If no fixed profile matches, use the unpinned `dispatch_worker` only when it is enabled, loaded by the host, and its effective model and effort fields are unfixed, then pass an explicitly supported pair. A role name or an override applied to a fixed TOML does not establish a match. If no compliant role is available or the host cannot support the pair, report the limitation, narrow the task, or wait for an available low-cost route; do not silently fall back to a more expensive model. The primary agent still owns key plan and public-contract decisions, and execution by Astra does not replace independent review.
+
+For code work, use the stages that the task needs: evidence, primary-agent boundary and contract decisions, bounded implementation, affected regression validation, and necessary independent code review. Separate evidence or mechanical work from complex implementation in mixed tasks; do not force every task through the full chain. Short locating or decision reads and small edits may stay with the primary agent, while long logs and batch documents default to the low-cost route. QA planning, product work, and explicit primary-only preferences retain their existing routes.
 
 Complete local commit preparation does not add a role or configuration switch and does not fix a model. The primary agent or the explicit skill workflow selects the single writable candidate for the actual task; when the profile is unpinned, pass a supported model and effort explicitly.
 
@@ -73,7 +78,7 @@ Review against the actual task intent, acceptance criteria, entry points, and us
 
 An explicit custom-agent TOML `model` or `model_reasoning_effort` wins over spawn arguments. For a temporary different pair, use the unpinned `dispatch_worker` / `dispatch_hard_worker` and explicitly pass both values; omitted values can inherit expensive parent settings. Honor the host's fork rules: a full-history fork may not accept model overrides, so use a bounded context handoff where required. Profiles increase available choices, not the number of agents that must run; maintain the configured concurrency limit.
 
-When validating routing, include constraints and conflicting intent, not just positive keywords. A read-only difficult task must not suggest a writer; a primary-only request must not suggest delegation; an approved plan with a requested deliverable must select execution instead of planning. Creating a QA plan selects planning, while running approved cases selects verification and must not modify the deliverable. External-source research selects the researcher. Product or content production selects execution. Ordinary design reviews and business dependencies must not trigger code-graph guidance; only explicit code structure, caller, or code-review work does. These are heuristic suggestions, never a substitute for the full user instructions or authorization.
+When validating routing, include constraints and conflicting intent, not just positive keywords. A read-only difficult task may use a read-only evidence route; its read and evidence scope does not authorize changes. A primary-only request must not suggest delegation; an approved plan with a requested deliverable must select execution instead of planning. Creating a QA plan selects planning, while running approved cases selects verification and must not modify the deliverable. External-source research selects the researcher. Product or content production selects execution. Ordinary design reviews and business dependencies must not trigger code-graph guidance; only explicit code structure, caller, or code-review work does. These are heuristic suggestions, never a substitute for the full user instructions or authorization.
 
 Supported list overrides:
 

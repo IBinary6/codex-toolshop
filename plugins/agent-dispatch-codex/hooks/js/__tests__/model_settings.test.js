@@ -8,6 +8,10 @@ const { mainAgentGuidance } = require('../lib/guidance');
 const baseline = loadDefaults();
 assert.equal(Object.keys(baseline.agent_profiles.profiles).length, 13);
 assert.deepEqual(modelEffortWarnings(baseline), []);
+const invalidLowCost = mergeConfig(loadDefaults(), {
+  policy: { low_cost: { model_reasoning_effort: 'ultra' } },
+});
+assert.match(modelEffortWarnings(invalidLowCost).join('\n'), /policy\.low_cost.*gpt-5\.6-luna\/ultra/);
 for (const profile of Object.values(baseline.agent_profiles.profiles)) {
   assert.notEqual(
     `${profile.model}/${profile.model_reasoning_effort}`,
