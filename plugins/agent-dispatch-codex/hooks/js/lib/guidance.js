@@ -143,6 +143,20 @@ const TRIVIAL_EDIT_TERMS = [
 ];
 const REVIEW_FEEDBACK_GUIDANCE = '交付物由主代理验收并整合；按交付物选择相称证据完成针对性验证后，再独立审查非琐碎成果。若用户限制 reviewer，则由主代理审查并说明范围；只对有具体证据且影响本次验收的实质问题，经主代理核实后复用原 writer 有界修复并复查，提示项不自动返修或停工。';
 
+function reviewLifecycleGuidance(language = 'zh', subagent = false) {
+  if (subagent) {
+    return '若被分派审查但实际 model/effort 与目标不符或不可观察，保留辅助证据并回报主代理，不宣称审查已通过，不得自行转派。';
+  }
+  if (language === 'en') {
+    return 'For every new or reused review agent, reassess its responsibility and autonomously choose a supported model/effort from effective enabled reviewer candidates based on ambiguity, risk, quality needs, and total completion cost; explicit user requirements take precedence. Reassess when scope or risk changes. Judging correctness, compatibility, defects, or acceptance is review even for small, read-only, or follow-up checks; small scope alone does not justify the low-cost evidence route. Keywords are routing hints, not a substitute for task judgment. Fixed profile values override spawn arguments, and a task name is not evidence of the actual model. Before spawning, verify host support and actual profile loading. Before accepting the conclusion, check observable host model/effort metadata; if unavailable, mark it unconfirmed. Reuse only a matching current pair: a message cannot change an existing agent model. Honor primary-only requests and disabled review delegation. When an enabled reviewer target exists but its named role is not loaded, use a supported generic spawn with the selected pair or the primary agent. Evidence collection and established test results do not by themselves constitute an independent review. These hooks provide guidance, not a hard spawn interceptor.';
+  }
+  return '每次新建或复用审查代理，重新判断职责，按歧义、风险、质量要求和总完成成本，从有效且启用的 reviewer 候选自主选择受支持的 model/effort；用户明确指定优先，职责或风险变化时重新评估。判断正确性、兼容性、缺陷或验收结论属于审查，不能仅因范围小、只读或修改后复查就套用取证路线；关键词只作提示，不替代任务判断。profile 固定值高于 spawn 参数，task_name 不是实际模型证据。启动前核对宿主支持及 profile 实际加载，接收结论前核对宿主可观察的实际 model/effort；不可观察时标记未确认。只复用当前组合匹配的代理，不能靠消息更换已有代理模型；不匹配时重新创建合规审查代理或由主代理处理。用户限定主代理或禁用审查分派时由主代理处理；有效 reviewer 目标存在但命名角色未加载时，可用宿主支持的 generic spawn 显式传入选定组合或由主代理处理。纯证据收集或既定测试结果不等于独立审查通过。Hook 仅提供指导，不是 spawn 硬拦截。';
+}
+
+function reviewFeedbackGuidance() {
+  return `${REVIEW_FEEDBACK_GUIDANCE} ${reviewLifecycleGuidance()}`;
+}
+
 function includesAny(text, terms) {
   return terms.some((term) => {
     if (!/^[a-z][a-z -]*$/i.test(term)) return text.includes(term);
@@ -592,15 +606,15 @@ function routeGuidance(route, config) {
     case 'external-research':
       return `任务路由：外部研究。${roleFallback(config, ['dispatch_researcher'])} 明确来源、日期和事实/推断边界；工作区已有材料的证据改用 explorer 或由主代理读取。`;
     case 'high-risk-implementation':
-      return `任务路由：涉及安全、权限或并发等风险的修改。主代理先核对实际工作流程、契约、已有授权和验收标准，涉及代码时核对真实调用路径；明确边界后才委派有界修改，不因关键词扩大权限或重复请求已有授权。${dynamicWriterGuidance(config)} ${REVIEW_FEEDBACK_GUIDANCE}${lowCostEvidenceGuidance(route, config)}`;
+      return `任务路由：涉及安全、权限或并发等风险的修改。主代理先核对实际工作流程、契约、已有授权和验收标准，涉及代码时核对真实调用路径；明确边界后才委派有界修改，不因关键词扩大权限或重复请求已有授权。${dynamicWriterGuidance(config)} ${reviewFeedbackGuidance()}${lowCostEvidenceGuidance(route, config)}`;
     case 'high-risk-review':
-      return `任务路由：高风险审查。${roleFallback(config, ['dispatch_deep_reviewer', 'dispatch_reviewer'])}`;
+      return `任务路由：高风险审查。${roleFallback(config, ['dispatch_deep_reviewer', 'dispatch_reviewer'])} ${reviewLifecycleGuidance()}`;
     case 'hard-task': {
       const writer = dynamicWriterGuidance(config);
       if (!route.requiresPlanner) {
-        return `任务路由：困难任务执行。主代理先固定范围和验收标准；${writer} ${REVIEW_FEEDBACK_GUIDANCE} 不要仅因任务困难启动规划角色。${lowCostEvidenceGuidance(route, config)}`;
+        return `任务路由：困难任务执行。主代理先固定范围和验收标准；${writer} ${reviewFeedbackGuidance()} 不要仅因任务困难启动规划角色。${lowCostEvidenceGuidance(route, config)}`;
       }
-      return `任务路由：包含规划的困难任务。先核对现有方案，主代理负责关键方案和公开契约决策。${roleFallback(config, ['dispatch_planner'])} 已有可执行方案时直接推进，无需重复规划；委派分析后先整合结果，再执行依赖它的工作。${writer} ${REVIEW_FEEDBACK_GUIDANCE}${lowCostEvidenceGuidance(route, config)}`;
+      return `任务路由：包含规划的困难任务。先核对现有方案，主代理负责关键方案和公开契约决策。${roleFallback(config, ['dispatch_planner'])} 已有可执行方案时直接推进，无需重复规划；委派分析后先整合结果，再执行依赖它的工作。${writer} ${reviewFeedbackGuidance()}${lowCostEvidenceGuidance(route, config)}`;
     }
     case 'plan':
       return `任务路由：非琐碎计划/方案。${roleFallback(config, ['dispatch_planner'])}`;
@@ -609,11 +623,11 @@ function routeGuidance(route, config) {
     case 'bounded-search':
       return `任务路由：有界只读调查。${roleFallback(config, ['dispatch_explorer'])} 不在调查子任务中修改材料；精确的小范围快速查找由主代理直接完成。`;
     case 'implementation':
-      return `任务路由：常规实现。${dynamicWriterGuidance(config)} ${REVIEW_FEEDBACK_GUIDANCE}${lowCostEvidenceGuidance(route, config)}`;
+      return `任务路由：常规实现。${dynamicWriterGuidance(config)} ${reviewFeedbackGuidance()}${lowCostEvidenceGuidance(route, config)}`;
     case 'execution':
-      return `任务路由：内容制作/交付执行。主代理先固定交付物、受众、格式和验收标准；${dynamicWriterGuidance(config)} ${REVIEW_FEEDBACK_GUIDANCE}${lowCostEvidenceGuidance(route, config)}`;
+      return `任务路由：内容制作/交付执行。主代理先固定交付物、受众、格式和验收标准；${dynamicWriterGuidance(config)} ${reviewFeedbackGuidance()}${lowCostEvidenceGuidance(route, config)}`;
     case 'review':
-      return `任务路由：常规审查。${roleFallback(config, ['dispatch_reviewer'])}`;
+      return `任务路由：常规审查。${roleFallback(config, ['dispatch_reviewer'])} ${reviewLifecycleGuidance()}`;
     case 'generic':
     default:
       return '任务路由：未命中专门类别；由主代理判断边界并直接处理，琐碎编辑默认不启动子代理。';
@@ -642,6 +656,7 @@ function mainAgentGuidance(config, compact = false) {
       `独立且并行有收益时委派；最多 ${maxParallel} 个子代理并发。普通单条 Git CLI 保持安静并由主代理串行执行；只有用户请求或明确 skill 工作流要求完整本地提交准备时，才可把准备阶段交给同工作区一个指定可写代理。准备阶段不并行操作 Git，主代理校验快照后执行 commit、远程操作和历史改写。`,
       '审查先核对任务意图、真实入口、验收标准与实际使用路径；只有具体证据证明影响本次验收目标的缺陷才阻塞。上下文缺失、假设性风险和风格建议作为非阻塞提示或待核对项，不自动返修，也不触发确认停工。',
       '非琐碎交付完成相称验证后必须独立审查，并按风险与有效配置选 reviewer；若用户限定只用主代理或禁用 reviewer，则由主代理审查并说明范围。实质问题经核实后复用原 writer 有界修复、重跑受影响检查并复查；小修改不强制每个角色。',
+      reviewLifecycleGuidance(),
       '角色、可写权限和委派都不新增对外发布、发送、付费、生产环境或真实数据变更的授权；先核对当前会话已有授权。',
       '子代理须报告修改文件、验证和阻塞；结果已整合或不再需要时立即停止子代理，避免占用有限智能体名额。',
     ];
@@ -667,6 +682,7 @@ function mainAgentGuidance(config, compact = false) {
     '- Keep trivial reads, small edits, tightly coupled steps, and final integration in the primary agent.',
     '- Before treating a review finding as blocking, verify task intent, acceptance criteria, real entry points, and the actual use or execution path. Only a defect supported by concrete evidence and affecting the current acceptance target can block. Missing context, hypothetical risks, and style suggestions are non-blocking notes or items to verify; they do not trigger automatic rework or stop for confirmation.',
     '- After proportionate validation, independently review non-trivial deliverables. If the user requires primary-agent-only work or disables reviewers, the primary agent performs the review and states its scope. Small changes do not require every role.',
+    `- ${reviewLifecycleGuidance('en')}`,
     '- When review finds a verified substantive issue affecting acceptance, the primary agent reuses the original writer for a bounded fix, reruns affected checks, and reviews again. If an issue repeats without new evidence, change the decomposition, raise the model, or intervene in the primary agent instead of adding speculative changes indefinitely.',
     '- Stop subagents promptly after their result is integrated, or when they are blocked or no longer needed; do not leave idle agents occupying limited slots.',
     '- Keep ordinary single-command Git CLI quiet and serial in the primary agent. Only an explicit user or skill request for complete local commit preparation may hand off that preparation to one writable agent in the same workspace; do not run Git concurrently, and have the primary validate the snapshot before the final commit. The final commit, remote operations, and history rewrites remain with the primary agent.',
@@ -690,6 +706,7 @@ function subagentGuidance(config) {
     `- ${GIT_HANDOFF}`,
     '- Use CodeMap Boost only for explicit code structure or code-review work; it owns graph refresh and retrieval. Do not apply code-graph guidance to ordinary design or business relationships.',
     '- Your role and write access do not add authority to publish or send externally, spend money, change production, or alter real data; follow authority already established by the user and primary agent.',
+    `- ${reviewLifecycleGuidance('zh', true)}`,
   ];
   if (config.policy.require_changed_file_report) {
     lines.push('- Report every file you changed, or state explicitly that you made no changes.');

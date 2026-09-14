@@ -44,6 +44,8 @@ try {
   assert.doesNotMatch(fs.readFileSync(workerProfile, 'utf8'), /^model = /m);
   assert.doesNotMatch(fs.readFileSync(workerProfile, 'utf8'), /^model_reasoning_effort = /m);
   assert.match(session.hookSpecificOutput.additionalContext, /do not leave idle agents occupying limited slots/);
+  assert.match(session.hookSpecificOutput.additionalContext, /For every new or reused review agent/);
+  assert.match(session.hookSpecificOutput.additionalContext, /observable host model\/effort metadata/);
 
   const compactSession = parse(run('session_start', { hook_event_name: 'SessionStart', source: 'compact' }));
   assert.match(compactSession.hookSpecificOutput.additionalContext, /独立且并行有收益时委派/);
@@ -51,6 +53,7 @@ try {
   assert.match(compactSession.hookSpecificOutput.additionalContext, /完整本地提交准备/);
   assert.doesNotMatch(compactSession.hookSpecificOutput.additionalContext, /pre_tool_nudge/);
   assert.match(compactSession.hookSpecificOutput.additionalContext, /图刷新和检索规则由 CodeMap Boost 负责/);
+  assert.match(compactSession.hookSpecificOutput.additionalContext, /每次新建或复用审查代理/);
   assert.doesNotMatch(compactSession.hookSpecificOutput.additionalContext, /Agent Dispatch policy for the primary Codex agent/);
 
   for (const source of ['resume', 'clear']) {
@@ -190,6 +193,15 @@ try {
   assert.match(patchReviewPrompt.hookSpecificOutput.additionalContext, /dispatch_reviewer/);
   assert.match(patchReviewPrompt.hookSpecificOutput.additionalContext, /CodeMap Boost|图查询/);
 
+  const reviewModelPrompt = parse(run('user_prompt_submit', {
+    hook_event_name: 'UserPromptSubmit',
+    prompt: '请审查本次改动',
+  }));
+  assert.match(reviewModelPrompt.hookSpecificOutput.additionalContext, /常规审查/);
+  assert.match(reviewModelPrompt.hookSpecificOutput.additionalContext, /dispatch_reviewer/);
+  assert.match(reviewModelPrompt.hookSpecificOutput.additionalContext, /每次新建或复用审查代理/);
+  assert.match(reviewModelPrompt.hookSpecificOutput.additionalContext, /reviewer 候选自主选择/);
+
   const clothingReviewPrompt = parse(run('user_prompt_submit', {
     hook_event_name: 'UserPromptSubmit',
     prompt: 'Review the patch design for a jacket',
@@ -204,6 +216,7 @@ try {
   }));
   assert.match(subagent.hookSpecificOutput.additionalContext, /spawned subagent/);
   assert.match(subagent.hookSpecificOutput.additionalContext, /Do not run Git commands/);
+  assert.match(subagent.hookSpecificOutput.additionalContext, /若被分派审查但实际 model\/effort 与目标不符/);
 
   assert.equal(run('pre_tool_use', {
     hook_event_name: 'PreToolUse',
