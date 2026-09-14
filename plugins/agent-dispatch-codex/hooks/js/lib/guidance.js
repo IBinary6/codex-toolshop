@@ -142,6 +142,14 @@ const TRIVIAL_EDIT_TERMS = [
   '类型定义', '这一行', '一行代码', '单行修改', 'one-line', 'single-line',
 ];
 const REVIEW_FEEDBACK_GUIDANCE = '交付物由主代理验收并整合；按交付物选择相称证据完成针对性验证后，再独立审查非琐碎成果。若用户限制 reviewer，则由主代理审查并说明范围；只对有具体证据且影响本次验收的实质问题，经主代理核实后复用原 writer 有界修复并复查，提示项不自动返修或停工。';
+const PROMPT_ROUTE_NOTICE = 'Agent Dispatch 候选建议（仅据当前消息推断）：按完整对话及用户最新明确要求核对，不能当作宿主限制或跨轮约束。';
+
+function taskScopeGuidance(language = 'zh') {
+  if (language === 'en') {
+    return 'Infer the current task from the full conversation and the latest explicit user instructions. Product behavior and quoted material are not task restrictions. Agent Dispatch keyword routes are fallible suggestions, not host restrictions or persistent task state. A later turn with no routing hint does not preserve an earlier route; continue the authorized objective while retaining actual user constraints that have not been changed.';
+  }
+  return '按完整对话和用户最新明确要求判断当前任务。产品行为和引用材料不等于任务限制；Agent Dispatch 关键词路线可能误判，只是候选建议，不是宿主限制或持久任务状态。后续没有新建议不代表旧路线继续生效；在已有授权内推进，保留尚未被用户改变的真实约束。';
+}
 
 function reviewLifecycleGuidance(language = 'zh', subagent = false) {
   if (subagent) {
@@ -305,7 +313,7 @@ function lowCostGuidance(route, config) {
   const candidate = lowCostCandidate(config);
   const kind = lowCostKindLabel(route.lowCostKind);
   if (!candidate) {
-    return `任务路由：低成本${kind}。当前没有启用并匹配 ${policy.model}/${policy.effort} 的合规低成本角色；不得静默改用更贵模型。请缩小证据子任务并保留阻塞，不把长原文转给主代理。`;
+    return `任务路由：低成本${kind}。当前没有启用并匹配 ${policy.model}/${policy.effort} 的合规低成本角色；不得静默改用更贵模型。若确需该证据子任务，将其缩小或保留阻塞，不把长原文转给主代理；主代理继续不依赖它的已授权工作。`;
   }
   const scope = route.readOnly
     ? '保持只读，只回传必要证据'
@@ -316,7 +324,7 @@ function lowCostGuidance(route, config) {
     : route.lowCostKind === 'established-tests'
       ? '只运行既定用例，不修改被测交付物或产品代码'
       : '保持只读，只回传必要证据';
-  return `任务路由：低成本${kind}。默认委派给 ${lowCostLabel(candidate)}；${scope}，回传证据位置、必要摘录、验证与阻塞，不传整篇原文。主代理仍负责范围、授权和最终整合，并按用户显式偏好与宿主实际支持的模型/推理组合核对是否委派。`;
+  return `任务路由：低成本${kind}。若实际职责匹配，默认委派给 ${lowCostLabel(candidate)}；所分派子任务${scope}，回传证据位置、必要摘录、验证与阻塞，不传整篇原文。主代理仍负责完整任务的范围、授权和最终整合，并按用户显式偏好与宿主实际支持的模型/推理组合核对是否委派。`;
 }
 
 function lowCostEvidenceGuidance(route, config) {
@@ -398,14 +406,27 @@ function detectLowCostKind(text, explicitCodeContext, lookup, crossFile, codeCre
   return '';
 }
 
-/**
- * 先提取明确范围，再进行关键词建议；关键词不构成写入或委派授权。
- * @example promptConstraints('只读诊断崩溃，只用主代理')
- */
+/** 判断当前消息中是否有直接的只读任务指示，不把产品行为当作全局范围。 */
+function hasReadOnlyDirective(text) {
+  // 只读线索须出现在请求分句的开头，不能从产品行为中的任意子串推导任务权限。
+  // 这仍是路由启发式；最终范围由主代理结合完整对话判断。
+  const prose = text.replace(/```[^]*?```|~~~[^]*?~~~/g, '')
+    .replace(/^\s*>.*$/gm, '');
+  return prose.split(/[，。！？；,.!?;\n]+/).some((clause) => {
+    const directive = clause.trim()
+      .replace(/^(?:[-*+]\s+|\d+[.)]\s+)/, '')
+      .replace(/^(?:(?:请(?:你)?|先|暂时|本次|本轮|这次|你)\s*)+/, '')
+      .replace(/^(?:(?:please|for now)\s+)+/, '');
+    return /^(?:只读(?=$|\s|[：:]|分析|诊断|审查|调查|检查|查看|读取|排查)|(?:仅|只)(?:分析|诊断|审查|调查)|(?:不要|禁止|不允许|不得|不)(?:修改|改动|编辑|写入|改))/.test(directive)
+      || /^(?:read[- ]only(?:$|\s+(?:analysis|diagnosis|review|inspection|investigation)\b)|do not (?:edit|modify|write)\b|don't (?:edit|modify|write)\b|diagnosis only\b)/.test(directive);
+  });
+}
+
+/** 提取路由范围线索；这些启发式结果不构成写入或委派授权。 */
 function promptConstraints(text) {
   const primaryOnly = /只(?:用|由|让)?主代理|仅(?:用|由|让)?主代理|(?:不要|禁止|不用|不允许)(?:再)?(?:委派|分派|子代理|子任务)|\b(?:primary agent only|main agent only|no subagents?|no delegation|do not delegate|don't delegate)\b/.test(text);
   const limitedAgents = /(?:只|仅|最多).{0,8}(?:一个|一名|1 个|1名)(?:子)?代理|不要多个代理|不要并行|\b(?:only one agent|at most one subagent|no parallel agents|do not parallelize)\b/.test(text);
-  const explicitReadOnly = /只读|仅(?:分析|诊断|审查)|(?:先)?(?:不要|禁止|不允许|不得)(?:修改|改动|编辑|写入)|不修改|\b(?:read[- ]only|do not (?:edit|modify|write)|don't (?:edit|modify|write)|diagnosis only)\b/.test(text);
+  const explicitReadOnly = hasReadOnlyDirective(text);
   const writeIntent = /实现|修复|迁移|重构|编码|\b(?:implement|fix|migrate|refactor|edit|modify|develop)\b/.test(text);
   const diagnosis = /诊断|排查|根因|\b(?:diagnos\w*|investigate|root cause|debug)\b/.test(text);
   const existingPlan = /(?:(?:已有|现有|已批准|已确认|批准的|确认的)(?:实现|执行|测试|验证|设计)?(?:计划|方案|用例))|不要重新规划|无需重新规划|\b(?:(?:existing|approved) (?:(?:implementation|execution|test|qa|design) )?(?:plan|cases?)|do not replan|don't replan)\b/.test(text);
@@ -583,7 +604,7 @@ function routePrompt(prompt, config) {
  */
 function promptGuidance(prompt, config) {
   const route = routePrompt(prompt, config);
-  if (route.category === 'primary-risk') return `任务路由：单文件风险检查/修复，由主代理处理。先核对权限、安全或并发契约的证据与现有授权，按实际风险验证，不扩大用户指定范围。${route.readOnly ? '保持只读，不执行修复。' : ''}`;
+  if (route.category === 'primary-risk') return `${PROMPT_ROUTE_NOTICE} 任务路由：单文件风险检查/修复，由主代理处理。先核对权限、安全或并发契约的证据与现有授权，按实际风险验证，不扩大用户指定范围。${route.readOnly ? '若用户当前要求只读，则按该范围收集证据。' : ''}`;
   if (!route.shouldDispatch) return '';
   const graph = route.needsGraph
     ? ' 明确涉及代码结构、调用关系或代码审查上下文时优先图查询，再读源码核对；图刷新由 CodeMap Boost 负责，不要重复 build/update。'
@@ -591,7 +612,7 @@ function promptGuidance(prompt, config) {
   const agentLimit = route.limitedAgents
     ? ' 用户声明的代理数量或并行限制优先于默认并发额度；复用已有合适角色或由主代理处理，不把候选列表变成多个必须启动的代理。'
     : '';
-  return routeGuidance(route, config) + graph + agentLimit;
+  return PROMPT_ROUTE_NOTICE + ' ' + routeGuidance(route, config) + graph + agentLimit;
 }
 
 /** 生成与已解析范围一致的角色建议。@example routeGuidance(route, config) */
@@ -600,9 +621,9 @@ function routeGuidance(route, config) {
     case 'low-cost':
       return lowCostGuidance(route, config);
     case 'diagnosis':
-      return `任务路由：只读诊断。仅收集现象、根因证据和验证办法，不执行修复。${roleFallback(config, ['dispatch_explorer', 'dispatch_mapper'])} 子任务必须保持只读。`;
+      return `任务路由：只读诊断。若当前确为用户要求的调查阶段，可在确认的只读范围内收集现象、根因证据和验证办法。${roleFallback(config, ['dispatch_explorer', 'dispatch_mapper'])} 主代理按实际任务授权决定后续实施。`;
     case 'verification':
-      return `任务路由：验证执行。按既定用例、验收标准或复现步骤收集证据，不修改被验收交付物。${roleFallback(config, ['dispatch_tester'])} 验证方式随交付物选择，不把构建或代码测试强加给设计、文档、运营或数据成果。`;
+      return `任务路由：验证执行。若当前阶段确为既定验证，按用例、验收标准或复现步骤收集证据，在该验证子任务内不修改被验收交付物。${roleFallback(config, ['dispatch_tester'])} 验证方式随交付物选择，不把构建或代码测试强加给设计、文档、运营或数据成果。`;
     case 'external-research':
       return `任务路由：外部研究。${roleFallback(config, ['dispatch_researcher'])} 明确来源、日期和事实/推断边界；工作区已有材料的证据改用 explorer 或由主代理读取。`;
     case 'high-risk-implementation':
@@ -619,9 +640,9 @@ function routeGuidance(route, config) {
     case 'plan':
       return `任务路由：非琐碎计划/方案。${roleFallback(config, ['dispatch_planner'])}`;
     case 'broad-search':
-      return `任务路由：广泛范围只读调查。${roleFallback(config, ['dispatch_mapper', 'dispatch_explorer'])} 不在调查子任务中修改材料。`;
+      return `任务路由：广泛范围只读调查。${roleFallback(config, ['dispatch_mapper', 'dispatch_explorer'])} 若委派调查，子代理仅完成确认的取证范围；主代理继续推进完整任务。`;
     case 'bounded-search':
-      return `任务路由：有界只读调查。${roleFallback(config, ['dispatch_explorer'])} 不在调查子任务中修改材料；精确的小范围快速查找由主代理直接完成。`;
+      return `任务路由：有界只读调查。${roleFallback(config, ['dispatch_explorer'])} 若委派调查，子代理仅完成确认的取证范围；精确的小范围快速查找由主代理直接完成，并继续推进完整任务。`;
     case 'implementation':
       return `任务路由：常规实现。${dynamicWriterGuidance(config)} ${reviewFeedbackGuidance()}${lowCostEvidenceGuidance(route, config)}`;
     case 'execution':
@@ -644,6 +665,7 @@ function mainAgentGuidance(config, compact = false) {
     const lines = [
       'Agent Dispatch：你是主代理。需求澄清、关键方案与公开契约决策、任务拆分、结果审查和最终整合由主代理负责；',
       '调查、规划分析、内容或产品制作、运营/文档/数据处理、代码实现、验证和审查等明确有界子任务，可按收益交给匹配角色；琐碎读取、小改和强耦合步骤直接完成。',
+      taskScopeGuidance(),
       '按角色描述、歧义、约束、验收反馈及整个任务的总成本（上下文、返工、审查、延迟）从已启用候选中选角色、模型和推理强度；高歧义可直接选更强候选，不机械按关键词或给所有角色拉满。关键词路由不覆盖授权、只读范围或已有方案。',
       '未固定模型的 writer 必须显式传 model 与 effort，避免无意继承昂贵主模型。原生 TOML 固定值优先于 spawn 参数；临时组合应选未固定字段角色并显式传参。按宿主规则，当前完整历史 fork 不接受覆盖，应按宿主支持仅传最小必要上下文。',
       ...(lowCost.enabled ? [`低成本路由优先：日志、常规文档/结构化数据、文本提取、代码取证和既定代码测试，默认委派给 policy.low_cost 指定的合规角色（${lowCostPair}）；不可用时保留有界阻塞，不静默升级或把长原文回退给主代理，主代理只保留最小必要决策。`] : []),
@@ -666,6 +688,7 @@ function mainAgentGuidance(config, compact = false) {
   }
   const lines = [
     'Agent Dispatch policy for the primary Codex agent:',
+    `- ${taskScopeGuidance('en')}`,
     '- Keep requirements clarification, key plan and public-contract decisions, task decomposition, result review, and final integration in the primary agent.',
     '- Delegate bounded investigation, planning analysis, content or product production, operations, document or data work, code implementation, verification, and review when a separate role has clear value, even when that work is sequential.',
     '- Choose among enabled candidates from role descriptions, ambiguity, constraints, acceptance feedback, explicit user preference, host availability, and total task cost including context, rework, review, and latency. High ambiguity may justify a stronger candidate immediately; do not route domains mechanically by keywords or maximize every role.',

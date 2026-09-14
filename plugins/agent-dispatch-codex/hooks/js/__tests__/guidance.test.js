@@ -18,6 +18,9 @@ assert.equal(config.modules.prompt_guidance, true);
 assert.equal(config.modules.pre_tool_nudge, false);
 assert.equal(config.modules.subagent_guidance, true);
 assert.match(mainAgentGuidance(config), /Keep requirements clarification, key plan and public-contract decisions/);
+assert.match(mainAgentGuidance(config), /keyword routes are fallible suggestions/i);
+assert.match(mainAgentGuidance(config), /full conversation and the latest explicit user instructions/i);
+assert.match(mainAgentGuidance(config), /no routing hint does not preserve an earlier route/i);
 assert.match(mainAgentGuidance(config), /even when that work is sequential/);
 assert.match(mainAgentGuidance(config), /no more than 3 subagents/);
 assert.match(mainAgentGuidance(config), /dispatch_worker \(inherit, inherit\)/);
@@ -53,6 +56,9 @@ assert.match(mainAgentGuidance(config), /content or product production/);
 assert.match(mainAgentGuidance(config), /builds and code tests are not universal requirements/);
 assert.match(mainAgentGuidance(config), /does not authorize external publishing or sending/);
 assert.match(mainAgentGuidance(config, true), /普通单条 Git CLI 保持安静并由主代理串行执行/);
+assert.match(mainAgentGuidance(config, true), /关键词路线.*只是候选建议/);
+assert.match(mainAgentGuidance(config, true), /完整对话和用户最新明确要求/);
+assert.match(mainAgentGuidance(config, true), /没有新建议不代表旧路线继续生效/);
 assert.match(mainAgentGuidance(config, true), /完整本地提交准备/);
 assert.match(mainAgentGuidance(config, true), /主代理校验快照后执行 commit、远程操作和历史改写/);
 assert.doesNotMatch(mainAgentGuidance(config, true), /pre_tool_nudge/);
@@ -115,6 +121,36 @@ assert.equal(promptNeedsDispatch('请帮我审查并迁移这个多文件插件'
 assert.equal(promptNeedsDispatch('解释这一行', config), false);
 assert.equal(promptGuidance('解释这一行', config), '');
 assert.equal(promptGuidance('这是一段需要保留的原文。'.repeat(30), config), '', 'length alone does not request delegation');
+assert.equal(promptGuidance('开始工作吧。', config), '');
+
+for (const prompt of [
+  '请实现产品功能：高度值给个默认值即可，用户不修改就用默认。',
+  '请实现只读模式切换：用户不启用只读模式时允许编辑。',
+  '请实现数据保留选项，用户不修改已有数据时保持原值。',
+  'Implement the editor option: when the user does not modify the value, keep the default.',
+]) {
+  const route = routePrompt(prompt, config);
+  assert.equal(route.category, 'implementation', prompt);
+  assert.equal(route.readOnly, false, prompt);
+  const guidance = promptGuidance(prompt, config);
+  assert.match(guidance, /常规实现/, prompt);
+  assert.match(guidance, /候选建议.*仅据当前消息推断/, prompt);
+  assert.doesNotMatch(guidance, /不执行修复/, prompt);
+}
+
+for (const prompt of [
+  '先不要改代码，只分析问题。',
+  '请只读诊断当前异常，禁止修改文件。',
+  'For now do not modify code; inspect the implementation.',
+]) {
+  const route = routePrompt(prompt, config);
+  assert.equal(route.category, 'diagnosis', prompt);
+  assert.equal(route.readOnly, true, prompt);
+  const guidance = promptGuidance(prompt, config);
+  assert.match(guidance, /候选建议.*仅据当前消息推断/, prompt);
+  assert.match(guidance, /完整对话.*最新明确要求/, prompt);
+  assert.doesNotMatch(guidance, /不执行修复/, prompt);
+}
 
 for (const command of [
   'git commit -m "fix: update parser"',
@@ -204,7 +240,7 @@ assert.equal(routePrompt('写单元测试覆盖新的接口行为', config).cate
 assert.match(promptGuidance('写单元测试覆盖新的接口行为', config), /常规实现/);
 assert.equal(routePrompt('写单元测试覆盖新的接口行为', config).lowCostEvidence, false);
 const readOnlyDocuments = promptGuidance('只读读取 Markdown 文档并汇总重复条目，不修改文件', config);
-assert.match(readOnlyDocuments, /保持只读/);
+assert.match(readOnlyDocuments, /确认的只读范围/);
 assert.doesNotMatch(readOnlyDocuments, /文档写入只限/);
 assert.equal(routePrompt('只用主代理检索构建日志，不要子代理', config).category, 'primary-only');
 assert.equal(promptGuidance('只用主代理检索构建日志，不要子代理', config), '');

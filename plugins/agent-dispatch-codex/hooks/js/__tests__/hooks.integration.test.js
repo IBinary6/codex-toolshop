@@ -44,6 +44,9 @@ try {
   assert.doesNotMatch(fs.readFileSync(workerProfile, 'utf8'), /^model = /m);
   assert.doesNotMatch(fs.readFileSync(workerProfile, 'utf8'), /^model_reasoning_effort = /m);
   assert.match(session.hookSpecificOutput.additionalContext, /do not leave idle agents occupying limited slots/);
+  assert.match(session.hookSpecificOutput.additionalContext, /keyword routes are fallible suggestions/i);
+  assert.match(session.hookSpecificOutput.additionalContext, /full conversation and the latest explicit user instructions/i);
+  assert.match(session.hookSpecificOutput.additionalContext, /no routing hint does not preserve an earlier route/i);
   assert.match(session.hookSpecificOutput.additionalContext, /For every new or reused review agent/);
   assert.match(session.hookSpecificOutput.additionalContext, /observable host model\/effort metadata/);
 
@@ -54,6 +57,8 @@ try {
   assert.doesNotMatch(compactSession.hookSpecificOutput.additionalContext, /pre_tool_nudge/);
   assert.match(compactSession.hookSpecificOutput.additionalContext, /图刷新和检索规则由 CodeMap Boost 负责/);
   assert.match(compactSession.hookSpecificOutput.additionalContext, /每次新建或复用审查代理/);
+  assert.match(compactSession.hookSpecificOutput.additionalContext, /关键词路线.*只是候选建议/);
+  assert.match(compactSession.hookSpecificOutput.additionalContext, /没有新建议不代表旧路线继续生效/);
   assert.doesNotMatch(compactSession.hookSpecificOutput.additionalContext, /Agent Dispatch policy for the primary Codex agent/);
 
   for (const source of ['resume', 'clear']) {
@@ -72,8 +77,33 @@ try {
   }));
   assert.equal(prompt.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
   assert.match(prompt.hookSpecificOutput.additionalContext, /任务路由：/);
+  assert.match(prompt.hookSpecificOutput.additionalContext, /候选建议.*仅据当前消息推断/);
   assert.match(prompt.hookSpecificOutput.additionalContext, /dispatch_mapper|dispatch_explorer|dispatch_reviewer|dispatch_worker/);
   assert.doesNotMatch(prompt.hookSpecificOutput.additionalContext, /Agent Dispatch policy for the primary Codex agent/);
+
+  const explicitReadOnly = parse(run('user_prompt_submit', {
+    hook_event_name: 'UserPromptSubmit',
+    prompt: '先不要改代码，只分析问题。',
+  }));
+  assert.match(explicitReadOnly.hookSpecificOutput.additionalContext, /诊断/);
+  assert.match(explicitReadOnly.hookSpecificOutput.additionalContext, /候选建议.*仅据当前消息推断/);
+  assert.match(explicitReadOnly.hookSpecificOutput.additionalContext, /完整对话.*最新明确要求/);
+  assert.match(explicitReadOnly.hookSpecificOutput.additionalContext, /确认的只读范围/);
+  assert.doesNotMatch(explicitReadOnly.hookSpecificOutput.additionalContext, /不执行修复/);
+
+  assert.equal(run('user_prompt_submit', {
+    hook_event_name: 'UserPromptSubmit',
+    prompt: '开始工作吧。',
+  }), '');
+
+  const explicitImplementation = parse(run('user_prompt_submit', {
+    hook_event_name: 'UserPromptSubmit',
+    prompt: '请实现产品功能：用户不修改值时使用默认值。',
+  }));
+  assert.match(explicitImplementation.hookSpecificOutput.additionalContext, /常规实现/);
+  assert.match(explicitImplementation.hookSpecificOutput.additionalContext, /候选建议.*仅据当前消息推断/);
+  assert.match(explicitImplementation.hookSpecificOutput.additionalContext, /完整对话.*最新明确要求/);
+  assert.doesNotMatch(explicitImplementation.hookSpecificOutput.additionalContext, /不执行修复/);
 
   const hardPrompt = parse(run('user_prompt_submit', {
     hook_event_name: 'UserPromptSubmit',
