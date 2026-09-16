@@ -117,7 +117,15 @@ for (const name of ['isCodeMapEnabled', 'canUseCrg', 'refreshCrgSync', 'startAut
   for (const nonRepo of [plain, fakeDirectory, brokenFile]) {
     for (const [name, payload] of nudges) {
       const result = invoke(name, nonRepo, payload);
-      assert.strictEqual(result.output, null, `${name} must ignore ${path.basename(nonRepo)}`);
+      const expectsGuidance = name === 'session_start'
+        || name === 'user_prompt_submit'
+        || name === 'subagent_start';
+      if (expectsGuidance) {
+        assert.match(result.output.additionalContext, /code-review-graph/,
+          `${name} gives lightweight retrieval guidance outside Git`);
+      } else {
+        assert.strictEqual(result.output, null, `${name} ignores non-Git code searches`);
+      }
       assert.deepStrictEqual(result.events, [], 'non-Git hooks do not probe CRG or mutate configuration');
       assert.ok(!fs.existsSync(result.data), 'non-Git hooks do not create plugin state');
     }
@@ -129,10 +137,21 @@ for (const name of ['isCodeMapEnabled', 'canUseCrg', 'refreshCrgSync', 'startAut
     assert.ok(!fs.existsSync(path.join(nonRepo, '.code-review-graph')));
   }
 
+  for (const [name, payload] of nudges.slice(0, 3)) {
+    const disabledNudge = invoke(name, plain, payload, { disabled: true });
+    assert.strictEqual(disabledNudge.output, null, `${name} stays silent when graph behavior is explicitly disabled`);
+    assert.deepStrictEqual(disabledNudge.events, [], 'explicit disable avoids graph probes outside Git');
+    assert.ok(!fs.existsSync(disabledNudge.data), 'explicit disable does not create plugin state outside Git');
+  }
+
   // 真实启动器也不能在非 Git 目录预先创建插件状态。
   for (const [name, payload] of nudges) {
     const result = invoke(name, plain, payload, { runner: true });
-    assert.strictEqual(result.output, null);
+    const expectsGuidance = name === 'session_start'
+      || name === 'user_prompt_submit'
+      || name === 'subagent_start';
+    if (expectsGuidance) assert.match(result.output.additionalContext, /code-review-graph/);
+    else assert.strictEqual(result.output, null);
     assert.ok(!fs.existsSync(result.data), 'launcher does not pre-create state outside Git');
   }
   const launcherBarrier = invoke('pre_graph_tool', plain, graph, { runner: true });

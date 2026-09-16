@@ -39,6 +39,17 @@ jobs:
         working-directory: plugins/codemap-boost-codex
         run: npm test
 
+      - name: Prepare ripgrep for tgrep CLI tests
+        shell: bash
+        run: |
+          if ! command -v rg >/dev/null 2>&1; then
+            case "$RUNNER_OS" in
+              Windows) choco install ripgrep --yes --no-progress ;;
+              macOS) brew install ripgrep ;;
+            esac
+          fi
+          rg --version
+
       - name: Validate tgrep-search-codex
         working-directory: plugins/tgrep-search-codex
         run: npm test

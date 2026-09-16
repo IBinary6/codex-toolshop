@@ -141,7 +141,7 @@ codex plugin list
 
 ## CodeMap、Serena 与 tgrep 怎么配合
 
-安装 `tgrep-search-codex` 后，受宿主信任的 `SessionStart` hook 在 Git 任务启动或恢复时自动准备 tgrep 并启动 `serve`；缺少索引由服务建立，无需手动执行 `tgrep index` 或 `tgrep serve`。首次下载和建索引在后台进行，查询入口会处理未就绪状态。打开 Codex 首页本身不等于触发任务启动 hook。
+安装 `tgrep-search-codex` 后，受宿主信任的 `SessionStart` hook 在 Git 任务启动或恢复时自动准备 tgrep 并启动 `serve`；缺少索引由服务建立，无需手动执行 `tgrep index` 或 `tgrep serve`。首次下载和建索引在后台进行，查询入口会处理未就绪状态。非 Git 任务和子代理也会收到绝对 CLI 入口；子代理提示只提供调用说明，不启动安装、更新或索引服务。打开 Codex 首页本身不等于触发任务启动 hook。
 
 | 需求 | 使用方式 |
 | --- | --- |
@@ -153,6 +153,8 @@ codex plugin list
 | 已知文件 | 直接读取。 |
 
 包装入口按真实工作树隔离状态、复用服务，索引未完成、服务异常或索引查询零命中时走实时扫描。实时扫描仍遵守查询过滤与大小限制；特殊编码、原始字节或索引范围以外的需求按 [tgrep 插件说明](plugins/tgrep-search-codex/README.md)选择参数。代码定位先查图；未命中或覆盖不足时由 Serena 或文本搜索补充候选，必要时再交给图查关系或 Serena 查符号。证据充分即可结束，不要求每次调用全部工具。tgrep 插件独立负责安装、启动和查询降级；Serena 的语言服务依赖及项目激活见 [CodeMap 说明](plugins/codemap-boost-codex/README.md#内置-serena安静启动与项目边界)。
+
+会话目录可以与目标项目不同：图查询显式指定目标 `repo_root`，Serena 激活目标项目，命令使用目标 `workdir` 或明确的搜索路径。tgrep 的 `search` 在非 Git 目录也能按指定路径实时扫描；`--root` 选择服务范围，不改变相对搜索路径的含义。分别核验 CodeMap、Serena 的实际工具入口和 tgrep 的 CLI；某项当前不可见时使用其余能力继续，后续确实需要时再检查，不把一次缺失当作整个任务永久不可用。
 
 ## Local Knowledge 怎么用
 

@@ -4,9 +4,9 @@
 
 ## 自动运行
 
-可信 hook 的 `SessionStart`（startup/resume/clear/compact）快速启动隐藏 supervisor，并注入当前安装位置的绝对查询命令。这里的 SessionStart 是**任务启动或恢复事件**，不是打开 Codex 首页。hook 是否允许执行由宿主的信任与启用状态决定；插件不会替用户批准 hook。
+可信 hook 的 `SessionStart`（startup/resume/clear/compact）和 `SubagentStart` 注入当前安装位置的简短绝对 CLI 入口，并明确它不是 MCP。这里的 SessionStart 是**任务启动或恢复事件**，不是打开 Codex 首页。hook 是否允许执行由宿主的信任与启用状态决定；插件不会替用户批准 hook。
 
-`UserPromptSubmit` 与查询入口会触碰服务的空闲计时器，服务停止后按需恢复。自动 hook 只处理 Git 工作树，不向普通目录或用户主目录扩展扫描。Git linked worktree 的 `.git` 文件受支持，每个 canonical root 有独立服务与索引。服务始终以工作树根目录为 cwd；搜索路径保持调用者目录的相对含义。
+Git 工作树的 `SessionStart` 会快速启动隐藏 supervisor；`UserPromptSubmit` 与查询入口会触碰服务的空闲计时器，服务停止后按需恢复。`SubagentStart` 在任何目录都只输出入口并立即返回，不做仓库探测、更新检查、安装或服务操作；非 Git 目录的 `SessionStart` 也只输出入口。`UserPromptSubmit` 不重复注入提示。Git linked worktree 的 `.git` 文件受支持，每个 canonical root 有独立服务与索引。服务始终以工作树根目录为 cwd；搜索路径保持调用者目录的相对含义。
 
 初次下载和建索引不阻塞 hook。`starting/installing/pending` 不代表索引完成。已有二进制时，pending 查询自动加 `--no-index` 直读磁盘；二进制尚不可用时尝试 rg，stderr 明确标明回退。下载失败记录在 `doctor` 的 lastError；没有 tgrep 或 rg 时退出 2，而不是假报无结果。
 
@@ -28,7 +28,7 @@ node scripts/tgrep.cjs stop
 node scripts/tgrep.cjs --help
 ```
 
-Windows Git Bash 路径含空格时用单引号引用完整脚本路径。flags 位于 `--` 前并分开写（`-F -n`，不接受 `-Fn`）；`--` 后是 pattern 与 paths。使用 `-e/-f` 或 `--files` 时，位置参数全是 paths。`--root` 指定服务 root，但不改变 paths 的含义；指定 Git 子目录时服务 root 会提升为该工作树根，默认查询范围仍是调用目录。非 Git 目录必须显式 `--root`，只实时扫描，不启动服务。显式指定工作树外 paths 时也直读扫描。Windows 已存在的查询路径会解析短文件名和 junction，使用真实路径判断范围并传给后端，因此输出可能显示真实长路径；缺失或不可读路径仍保留，由后端报告错误。Unix 路径处理保持原有行为。
+Windows Git Bash 路径含空格时用单引号引用完整脚本路径。flags 位于 `--` 前并分开写（`-F -n`，不接受 `-Fn`）；`--` 后是 pattern 与 paths。使用 `-e/-f` 或 `--files` 时，位置参数全是 paths。`--root` 指定服务 root，但不改变 paths 的含义；指定 Git 子目录时服务 root 会提升为该工作树根，默认查询范围仍是调用目录。非 Git cwd 的 `search` 无需 `--root`，会按已解析的 paths 实时扫描，不从 paths 猜测索引 root，也不创建服务或索引；相对 path 和省略 path 的默认范围仍以调用 cwd 为准，多个 paths 也只是一次无索引扫描。缺失或不可读 path 原样交给后端并返回错误，不会扩大范围。`ensure/status/doctor/stop` 在非 Git cwd 仍须显式 `--root`。显式指定工作树外 paths 时也直读扫描。Windows 已存在的查询路径会解析短文件名和 junction，使用真实路径判断范围并传给后端，因此输出可能显示真实长路径；缺失或不可读路径仍保留，由后端报告错误。Unix 路径处理保持原有行为。
 
 `ensure` 是手动同步安装诊断入口，成功后请求启动服务，不等于索引 ready。`doctor/status` 输出 JSON，包含实际 root、index、runtime、activeVersion、serviceVersion、updates（最近检查时间、结果和错误）、管理状态与最近安装/服务错误。退出码：0 为匹配或管理成功，1 为无匹配，2 为错误。未知或不可映射的 flags 明确退出 2。
 
@@ -70,7 +70,7 @@ max-memory 是上游索引预算，不是操作系统强制限制。数据目录
 
 ## 上游工具每周更新
 
-SessionStart 和查询/ensure 入口在后台按 **7 天（604800000 毫秒）**检查一次 `https://api.github.com/repos/microsoft/tgrep/releases/latest`。无需单独提醒或弹窗；没有会话/查询时不运行独立定时器，到下次使用时检查。频率从最近一次检查尝试计时，失败也不会每次查询重复联网；`check-updates` 可立即强制重试。共享 data 下使用调度锁、检查锁和时间状态，使不同任务去重。
+Git 工作树的 SessionStart 和常规查询/ensure 入口在后台按 **7 天（604800000 毫秒）**检查一次 `https://api.github.com/repos/microsoft/tgrep/releases/latest`。非 Git cwd 的隐式 scan-only 查询不检查更新。无需单独提醒或弹窗；没有会话/查询时不运行独立定时器，到下次使用时检查。频率从最近一次检查尝试计时，失败也不会每次查询重复联网；`check-updates` 可立即强制重试。共享 data 下使用调度锁、检查锁和时间状态，使不同任务去重。
 
 只接受 stable release、本机六种受支持平台对应的官方 `microsoft/tgrep` release 资产及其 `assets[].digest` SHA256。缺少 digest、资产命名/平台不兼容、下载失败、哈希不符或版本不高于当前版本，都不会替换当前 active 版本；错误记录到 doctor，不影响既有搜索。不会把自己算出的哈希当成官方校验依据。
 

@@ -307,8 +307,8 @@ function run(binary, args, cwd) {
     child.on('close', code => { activeChildren.delete(child); clearTimeout(timer); resolve({ code: failed ? 2 : code ?? 2, stdout: Buffer.concat(stdout), stderr: failed ? Buffer.from(`${failed}\n`) : Buffer.concat(stderr) }); });
   });
 }
-async function search(query, ctx) {
-  maybeCheckUpdates();
+async function search(query, ctx, options = {}) {
+  if (options.checkUpdates !== false) maybeCheckUpdates();
   const state = ctx.git ? await managed(ctx, 'touch') : null;
   if (ctx.git && !state) start(ctx);
   ctx = updates.serviceBinding(ctx, state, selectedRelease());
@@ -340,12 +340,18 @@ async function main(argv = process.argv.slice(2)) {
     return result.outcome === 'error' ? 2 : 0;
   }
   if (argv[0] === '_supervise') return supervise(argv[1]);
-  if (argv.length === 1 && argv[0] === '--help') { console.log('tgrep.cjs search [--root DIR] [--fresh] [-F] [-n] -- PATTERN [PATH...]\ntgrep.cjs ensure|status|doctor|stop [--root DIR]\ntgrep.cjs check-updates\nExit: 0 match/success; 1 no match; 2 error. Use separate flags; root controls service, paths retain cwd meaning.'); return 0; }
+  if (argv.length === 1 && argv[0] === '--help') { console.log('tgrep.cjs search [--root DIR] [--fresh] [-F] [-n] -- PATTERN [PATH...]\ntgrep.cjs ensure|status|doctor|stop [--root DIR]\ntgrep.cjs check-updates\nExit: 0 match/success; 1 no match; 2 error. Search outside Git scans parsed paths from cwd without a service/index; other commands still require Git or --root. Use separate flags; root controls service, paths retain cwd meaning.'); return 0; }
   const query = parse([...argv]);
   if (query.command === 'ensure') maybeCheckUpdates();
-  const ctx = context(process.cwd(), query.root);
+  let ctx = context(process.cwd(), query.root);
+  let implicitScan = false;
+  if (!ctx && query.command === 'search' && !query.root) {
+    // cwd 只提供相对路径基准和后端工作目录；绝不从 paths 猜测或合并索引 root。
+    ctx = context(process.cwd(), process.cwd());
+    implicitScan = true;
+  }
   if (!ctx) throw new Error('outside a Git worktree; provide --root DIR for an explicit disk scan');
-  if (query.command === 'search') return search(query, ctx);
+  if (query.command === 'search') return search(query, ctx, { checkUpdates: !implicitScan });
   if (query.command === 'ensure') {
     const binary = await ensureBinary();
     if (ctx.git && !await managed(ctx, 'touch')) start(ctx);

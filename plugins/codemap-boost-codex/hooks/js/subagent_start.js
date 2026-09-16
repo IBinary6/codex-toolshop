@@ -1,12 +1,11 @@
 'use strict';
 
-const { additionalContext, hookCwd, passSilent, readStdinJson, repoRoot } = require('./lib/runtime');
-const { CONTEXT, isCodeMapEnabled } = require('./lib/codemap');
+const { additionalContext, passSilent, readStdinJson } = require('./lib/runtime');
+const { CONTEXT } = require('./lib/codemap');
 
 async function main() {
-  const input = await readStdinJson({ timeoutMs: 2000 });
-  if (!repoRoot(hookCwd(input))) return passSilent();
-  if (!isCodeMapEnabled()) return passSilent();
+  await readStdinJson({ timeoutMs: 2000 });
+  if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') return passSilent();
   return additionalContext('SubagentStart', CONTEXT);
 }
 

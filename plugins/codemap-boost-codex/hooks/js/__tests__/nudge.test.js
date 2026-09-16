@@ -26,16 +26,16 @@ for (const prompt of ['写一个函数返回版本号', 'write a class to store 
   assert.equal(promptLooksStructural(prompt), false, prompt);
 }
 
-function runHook(name, payload, extraEnv = {}, enabled = true) {
+function runHook(name, payload, extraEnv = {}, availability = 'available') {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-nudge-'));
   try {
     initRepo(tmp);
     const pluginData = path.join(tmp, 'data');
     fs.mkdirSync(pluginData, { recursive: true });
     fs.writeFileSync(path.join(pluginData, '.codemap-boost-enabled'), '1', 'utf8');
-    const graphEnv = enabled
-      ? { CODEMAP_BOOST_ASSUME_CRG: '1' }
-      : { CODEMAP_BOOST_ASSUME_CRG: '1', CODEMAP_BOOST_DISABLE_GRAPH: '1' };
+    const graphEnv = availability === 'disabled'
+      ? { CODEMAP_BOOST_ASSUME_CRG: '1', CODEMAP_BOOST_DISABLE_GRAPH: '1' }
+      : availability === 'missing' ? {} : { CODEMAP_BOOST_ASSUME_CRG: '1' };
     return spawnSync(process.execPath, [runner, name], {
       cwd: tmp,
       input: JSON.stringify(payload || {}),
@@ -63,9 +63,17 @@ function parseOutput(result) {
 }
 
 {
-  const result = runHook('user_prompt_submit', { prompt: '帮我查一下 Foo::Bar 的调用关系' }, {}, false);
+  const result = runHook('user_prompt_submit', { prompt: '帮我查一下 Foo::Bar 的调用关系' }, {}, 'disabled');
   assert.strictEqual(result.status, 0, result.stderr);
   assert.strictEqual(result.stdout, '', 'explicitly disabled CodeMap should not nudge even when CRG exists');
+}
+
+{
+  const result = runHook('user_prompt_submit', { prompt: '帮我查一下 Foo::Bar 的调用关系' }, {}, 'missing');
+  const payload = parseOutput(result);
+  assert.strictEqual(payload.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
+  assert.match(payload.hookSpecificOutput.additionalContext, /当前时点不可用/,
+    'a currently missing runtime still yields fallback and rediscovery guidance');
 }
 
 {
@@ -89,7 +97,8 @@ function parseOutput(result) {
   assert.strictEqual(payload.hookSpecificOutput.additionalContext, CONTEXT,
     'SubagentStart injects the same three-point text as the managed AGENTS block');
   assert.ok(CONTEXT.includes('hooks 负责刷新及读取前 barrier'), 'shared second point preserves hook refresh ownership');
-  assert.ok(CONTEXT.includes('先检查延迟加载与工具发现能力'), 'shared third point preserves deferred-tool discovery');
+  assert.ok(CONTEXT.includes('当前工具目录与延迟发现能力'), 'shared guidance preserves deferred-tool discovery');
+  assert.ok(CONTEXT.includes('不强制每次跑完三套'), 'shared guidance avoids redundant tool rounds');
   assert.ok(CONTEXT.includes('文本命中不等于关系，零命中不证明不存在'), 'shared third point preserves evidence limits');
   assert.ok(!payload.hookSpecificOutput.additionalContext.includes('refresh completed'));
 }

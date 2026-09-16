@@ -13,16 +13,16 @@
 | 会话启动维护图谱 | 原生 MCP 启动器准备运行时，`SessionStart` 同步 build/update | `SessionStart` 后台 build/update，缺 CLI 时提示 setup |
 | 修改后更新图谱 | `PostToolUse` 后台合并刷新 | `PostToolUse` / `CwdChanged` 后台刷新 |
 | 读取前屏障 | 图谱 MCP `PreToolUse` 同步刷新，失败则 deny | 图谱 MCP `PreToolUse` 同步刷新，失败则 deny |
-| 检索引导 | AGENTS、SessionStart、结构请求与子代理入口保留图优先规则；搜索前每用户轮一次短提醒 | `Grep` / `Agent` 强提示优先用图谱 |
+| 检索引导 | AGENTS、SessionStart、结构请求与子代理入口使用同一份工具发现与证据分工规则；非 Git 会话也只获得这份轻量指导 | `Grep` / `Agent` 强提示优先用图谱 |
 | 依赖安装 | 插件原生 MCP 首次加载时自动准备私有运行时 | 通过 `/codemap-boost-setup` 显式确认安装 |
 
-CodeMap 的常驻规则由托管 `AGENTS.md` 块与入口注入共用同一份三点文案：工具分工、范围与刷新、查询与证据。安装、运行时和 hook 的按需技术细节见下文；图工具验证与文本检索降级见 [setup skill 的 Verification](skills/codemap-boost-setup/SKILL.md#verification)。
+CodeMap 的常驻规则由托管 `AGENTS.md` 块与入口注入共用同一份三点文案：工具与目标、文本与回退、证据与刷新。安装、运行时和 hook 的按需技术细节见下文；图工具验证与文本检索降级见 [setup skill 的 Verification](skills/codemap-boost-setup/SKILL.md#verification)。
 
 CodeMap 可独立安装，不依赖个人技能。工具按问题相互配合：
 
-1. **图先定位**：查实现、函数、类、调用链和影响面时，先查图，再读取返回路径和行号附近的源码。
-2. **语义补充、文本找线索**：需要精确符号、实现或引用时使用 Serena；图未命中或覆盖不足时，也可用 Serena 或已安装且就绪的 tgrep 插件继续定位，文本工具不可用时用 `rg`。例如先搜到函数名，再用图查看调用关系，或用 Serena 找定义与引用。
-3. **以证据结束**：只补足当前缺少的证据，不要求全部工具轮流调用。已知文件直接读；日志、配置键和纯文本可直接搜索；刚修改的内容和最终完整性核查使用实时读取或扫描。
+1. **分别发现**：在当前工具目录和延迟发现入口中分别确认 CRG 与 Serena。CRG 显式使用目标 Git 工作树的 `repo_root`；Serena 先激活目标项目的绝对路径。会话或 MCP 启动器的 `cwd` 都不能代替目标根目录。
+2. **按入口回退**：已知文件直接读；文本和文件枚举通过 `tgrep-search-codex` 的实际 CLI 入口核验，并以目标目录为工作目录，未就绪时用 `rg`。工具缺失只是当前时点的结果；当前立即回退，下一轮或后续自然需要时再发现，不忙等或保留永久负缓存。
+3. **按证据互补**：CRG 查关系和影响面，Serena/LSP 查精确符号，tgrep/rg 查文本。只补足当前缺少的证据，证据充分即停，不强制每次调用三套工具。
 
 ## 内置 Serena：安静启动与项目边界
 
@@ -95,7 +95,7 @@ codex plugin add codemap-boost-codex@codex-toolshop
 codex mcp get code-review-graph --json
 ```
 
-正常结果是 stdio、`command = node`、参数为 `scripts/mcp-server.cjs`、`cwd` 位于已安装插件根目录，并显示 `startup_timeout_sec = 600`。这个 `cwd` 只负责稳定定位插件启动脚本；图查询前的 `PreToolUse` 会把当前任务的 Git 根目录补入 CRG 的 `repo_root`，避免误查插件目录。已经启动的旧任务不会动态补载新插件能力，所以“新建任务”是 Codex 的加载边界，不是额外配置步骤。
+正常结果是 stdio、`command = node`、参数为 `scripts/mcp-server.cjs`、`cwd` 位于已安装插件根目录，并显示 `startup_timeout_sec = 600`。这个 `cwd` 只负责稳定定位插件启动脚本；图查询前的 `PreToolUse` 会把当前任务的 Git 根目录补入 CRG 的 `repo_root`，避免误查插件目录。新安装或升级后，建议新建 Codex 任务可靠加载插件能力；当前任务尚未确认工具可用时，先按回退路径工作，并在后续自然需要时重新发现。
 
 MCP 工具可能以 deferred 方式注入，因此不会出现在静态 schema 或顶层工具列表中。仅因当前顶层列表没有 `mcp__code_review_graph__` 不能断言 MCP 未加载；声称不可用前，应在可用时检查 `ALL_TOOLS` 中的 `mcp__code_review_graph__*`，或实际调用合适的图工具，确认后再使用降级检索，也不要声称未执行的图查询已经完成。
 
@@ -176,14 +176,14 @@ py -3 -m pip install "graphifyy[all]"
 
 插件原生 MCP 负责首次准备私有 CRG 运行环境；6 类 Codex hook 负责指导、图谱构建和增量更新。原生 MCP 启动失败时，`SessionStart` 仍会执行后台自愈，为下一个任务恢复运行时。显式禁用时 hook 保持静默。
 
-| Hook | 私有 CRG 运行环境健康后的作用 |
+| Hook | 作用 |
 | --- | --- |
-| `SessionStart` | 迁移旧版插件全局 MCP 覆盖，维护 `$CODEX_HOME/AGENTS.md` 的 CodeMap 托管块，同步维护图谱，并在启动、恢复或压缩后补充图优先规则。 |
+| `SessionStart` | 注入共享的轻量检索指导。仅当当前目录解析到 Git 工作树时，才迁移旧版全局 MCP 覆盖、维护 `$CODEX_HOME/AGENTS.md` 托管块和同步图谱。 |
 | `PostToolUse` | Codex 写文件或执行可能修改源码的 Bash 后启动后台合并刷新；同一源码状态不会重复 build/update，只读 Bash 命令不会触发刷新。 |
 | `PreToolUse:MCP` | 调用 code-review-graph 项目图工具前同步刷新；CLI 不可用或刷新失败时阻止该读取。全局仓库注册表查询不依赖当前项目图。 |
 | `PreToolUse:Bash` | 常见源码搜索前补充一句条件式图优先提醒；同一用户轮内原子去重，不阻断/改写命令，不刷新图谱。tgrep 的命令注入与提醒由 `tgrep-search-codex` 独立管理，CodeMap 不重复注入。明确的文件名、文档、配置和日志检索静默。 |
-| `UserPromptSubmit` | 结构问题只提示图谱能力，不同步构建；实际查询前由 MCP 屏障保证刷新。 |
-| `SubagentStart` | 子代理启动时只注入 CodeMap 使用规则，不重复 build/update；首次图谱读取仍由 `PreToolUse:MCP` 屏障同步兜底。 |
+| `UserPromptSubmit` | 结构问题注入同一份指导；非 Git 会话不写提醒状态，Git 会话的实际图查询仍由 MCP 屏障保证刷新。 |
+| `SubagentStart` | 子代理启动时只注入同一份指导，不探测运行时或重复 build/update；真实 Git 图读取仍由 `PreToolUse:MCP` 屏障同步兜底。 |
 
 完整重建会先清除所有 file-backed 图记录，再重新解析当前源码；这个步骤会按数据库中的原始路径清理旧 Windows 分隔符别名、已删除文件的节点及其引用边，也会清理关联 embeddings，但保留图的 metadata 与 provenance。Python proof 使用 v2 标记并绑定实际 CRG 包身份；JS 快路径使用 v3 marker，绑定源码、选中 runtime 路径和 `graph.db`/非空 WAL 的轻量 stat 签名。升级、runtime 切换或图文件变化后的首次读取都会重新核对；核对失败仍会撤销可信标记，不能把残留图当作最新状态。
 

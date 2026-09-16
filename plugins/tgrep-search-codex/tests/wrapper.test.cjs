@@ -5,7 +5,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
-const { parse, searchArgs, lock, rpc, context, run } = require('../scripts/tgrep.cjs');
+const { spawnSync } = require('node:child_process');
+const { parse, searchArgs, lock, rpc, context, run, selectedRelease, executable } = require('../scripts/tgrep.cjs');
+const { runHook } = require('../scripts/run-hook.cjs');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tgrep-unit-'));
 test.after(() => fs.rmSync(root, { recursive: true, force: true }));
 test('query paths retain caller cwd; wrapper flags cannot become backend flags', () => {
@@ -39,6 +41,122 @@ test('live lock prevents duplicate owner and releases for a successor', () => {
 });
 test('non-Git discovery does not silently admit arbitrary directories', () => {
   assert.equal(context(root), null); assert.equal(context(root, root).git, false);
+});
+test('implicit non-Git search scans parsed paths without creating service or index state', t => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'tgrep-non-git-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'tgrep-non-git-outside-'));
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'tgrep-non-git-data-'));
+  t.after(() => { fs.rmSync(cwd, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true }); fs.rmSync(data, { recursive: true, force: true }); });
+  fs.mkdirSync(path.join(cwd, 'first'));
+  fs.mkdirSync(path.join(cwd, 'second'));
+  fs.writeFileSync(path.join(cwd, 'first', 'one.txt'), 'implicit-scan-marker\n');
+  fs.writeFileSync(path.join(cwd, 'second', 'two.txt'), 'implicit-scan-marker\n');
+  const outsideFile = path.join(outside, 'outside.txt');
+  fs.writeFileSync(outsideFile, 'external-absolute-marker\n');
+  const cli = path.resolve(__dirname, '../scripts/tgrep.cjs');
+  const searchEnv = { ...process.env, TGREP_SEARCH_HOME: data };
+  delete searchEnv.TGREP_DISABLE_UPDATES;
+  const managementEnv = { ...searchEnv, TGREP_DISABLE_UPDATES: '1' };
+  const result = spawnSync(process.execPath, [cli, 'search', '-F', '-n', '--', 'implicit-scan-marker', 'first', 'second'], { cwd, env: searchEnv, encoding: 'utf8', windowsHide: true, shell: false });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /one\.txt/);
+  assert.match(result.stdout, /two\.txt/);
+  assert.equal(fs.existsSync(path.join(data, 'worktrees')), false, 'implicit scan must not create service/index state');
+  const defaultPath = spawnSync(process.execPath, [cli, 'search', '-F', '--', 'implicit-scan-marker'], { cwd, env: searchEnv, encoding: 'utf8', windowsHide: true, shell: false });
+  assert.equal(defaultPath.status, 0, defaultPath.stderr);
+  const externalDir = spawnSync(process.execPath, [cli, 'search', '-F', '--', 'external-absolute-marker', outside], { cwd, env: searchEnv, encoding: 'utf8', windowsHide: true, shell: false });
+  assert.equal(externalDir.status, 0, externalDir.stderr);
+  assert.match(externalDir.stdout, /outside\.txt/);
+  const externalFile = spawnSync(process.execPath, [cli, 'search', '-F', '--', 'external-absolute-marker', outsideFile], { cwd, env: searchEnv, encoding: 'utf8', windowsHide: true, shell: false });
+  assert.equal(externalFile.status, 0, externalFile.stderr);
+  const distinctTargets = spawnSync(process.execPath, [cli, 'search', '-F', '--', 'marker', 'first', outside], { cwd, env: searchEnv, encoding: 'utf8', windowsHide: true, shell: false });
+  assert.equal(distinctTargets.status, 0, distinctTargets.stderr);
+  assert.match(distinctTargets.stdout, /one\.txt/);
+  assert.match(distinctTargets.stdout, /outside\.txt/);
+  const files = spawnSync(process.execPath, [cli, 'search', '--files', '--', outside], { cwd, env: searchEnv, encoding: 'utf8', windowsHide: true, shell: false });
+  assert.equal(files.status, 0, files.stderr);
+  assert.match(files.stdout, /outside\.txt/);
+  const noMatch = spawnSync(process.execPath, [cli, 'search', '-F', '--', 'absent-scan-marker', '.'], { cwd, env: searchEnv, encoding: 'utf8', windowsHide: true, shell: false });
+  assert.equal(noMatch.status, 1, noMatch.stderr);
+  const missing = spawnSync(process.execPath, [cli, 'search', '-F', '--', 'implicit-scan-marker', 'missing'], { cwd, env: searchEnv, encoding: 'utf8', windowsHide: true, shell: false });
+  assert.equal(missing.status, 2);
+  assert.equal(fs.existsSync(path.join(data, 'update-request.json')), false, 'implicit scan must not schedule updates');
+  assert.equal(fs.existsSync(path.join(data, 'worktrees')), false, 'implicit scan must not create service/index state');
+  const explicitRoot = spawnSync(process.execPath, [cli, 'search', '--root', outside, '-F', '--', 'implicit-scan-marker', 'first'], { cwd, env: managementEnv, encoding: 'utf8', windowsHide: true, shell: false });
+  assert.equal(explicitRoot.status, 0, explicitRoot.stderr);
+  assert.match(explicitRoot.stdout, /one\.txt/);
+  for (const command of ['ensure', 'status', 'doctor', 'stop']) {
+    const management = spawnSync(process.execPath, [cli, command], { cwd, env: managementEnv, encoding: 'utf8', windowsHide: true, shell: false });
+    assert.equal(management.status, 2, `${command}: ${management.stderr}`);
+    assert.match(management.stderr, /outside a Git worktree/);
+  }
+});
+test('implicit non-Git search uses an existing tgrep runtime in scan-only mode', t => {
+  const release = selectedRelease();
+  const sourceBinary = executable(release);
+  if (!fs.existsSync(sourceBinary)) return t.skip('no installed tgrep runtime available');
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'tgrep-non-git-runtime-'));
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'tgrep-non-git-runtime-data-'));
+  t.after(() => { fs.rmSync(cwd, { recursive: true, force: true }); fs.rmSync(data, { recursive: true, force: true }); });
+  fs.writeFileSync(path.join(cwd, 'source.txt'), 'existing-runtime-marker\n');
+  fs.writeFileSync(path.join(data, 'active-release.json'), JSON.stringify(release));
+  const destinationDir = path.join(data, 'runtime', release.version, `${process.platform}-${process.arch}`);
+  fs.mkdirSync(destinationDir, { recursive: true });
+  fs.copyFileSync(sourceBinary, path.join(destinationDir, path.basename(sourceBinary)));
+  fs.copyFileSync(path.join(path.dirname(sourceBinary), 'receipt.json'), path.join(destinationDir, 'receipt.json'));
+  fs.writeFileSync(path.join(destinationDir, 'release.json'), JSON.stringify(release));
+  const cli = path.resolve(__dirname, '../scripts/tgrep.cjs');
+  const result = spawnSync(process.execPath, [cli, 'search', '-F', '-n', '--', 'existing-runtime-marker', '.'], {
+    cwd,
+    env: { ...process.env, TGREP_SEARCH_HOME: data, TGREP_DISABLE_UPDATES: '1' },
+    encoding: 'utf8',
+    windowsHide: true,
+    shell: false
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /source\.txt/);
+  assert.doesNotMatch(result.stderr, /falling back to rg/);
+  assert.match(result.stderr, /scanning disk/);
+  assert.equal(fs.existsSync(path.join(data, 'worktrees')), false, 'scan-only mode must not create an index or manager state');
+});
+test('hook entry events share CLI guidance while SubagentStart returns before side effects', async () => {
+  const calls = [];
+  const api = {
+    maybeCheckUpdates() { calls.push('update'); },
+    context() { calls.push('context'); return { git: true }; },
+    async managed() { calls.push('managed'); return null; },
+    start() { calls.push('start'); }
+  };
+  const subagentOutput = [];
+  await runHook('subagent_start', { cwd: root }, api, value => subagentOutput.push(JSON.parse(value)));
+  assert.deepEqual(calls, []);
+  assert.equal(subagentOutput[0].hookSpecificOutput.hookEventName, 'SubagentStart');
+  assert.match(subagentOutput[0].hookSpecificOutput.additionalContext, /不是 MCP/);
+  assert.match(subagentOutput[0].hookSpecificOutput.additionalContext, /workdir/);
+  assert.match(subagentOutput[0].hookSpecificOutput.additionalContext, /--root/);
+  assert.match(subagentOutput[0].hookSpecificOutput.additionalContext, /PATH/);
+
+  const nonGitOutput = [];
+  api.context = () => { calls.push('context'); return null; };
+  await runHook('session_start', { cwd: root }, api, value => nonGitOutput.push(JSON.parse(value)));
+  assert.deepEqual(calls, ['context']);
+  assert.equal(nonGitOutput[0].hookSpecificOutput.hookEventName, 'SessionStart');
+  assert.match(nonGitOutput[0].hookSpecificOutput.additionalContext, /不是 MCP/);
+
+  calls.length = 0;
+  api.context = () => { calls.push('context'); return { git: true }; };
+  api.managed = async () => { calls.push('managed'); return { phase: 'ready' }; };
+  const promptOutput = [];
+  await runHook('user_prompt_submit', { cwd: root }, api, value => promptOutput.push(value));
+  assert.deepEqual(calls, ['context', 'update', 'managed']);
+  assert.deepEqual(promptOutput, []);
+});
+test('hook manifests register SubagentStart with the dedicated event argument', () => {
+  for (const name of ['hooks.json', 'codex-hooks.json']) {
+    const manifest = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../hooks', name), 'utf8'));
+    assert.equal(manifest.hooks.SubagentStart.length, 1);
+    assert.match(manifest.hooks.SubagentStart[0].hooks[0].command, /run-hook\.cjs\" subagent_start$/);
+  }
 });
 test('RPC times out and rejects malformed response', async () => {
   const server = net.createServer(socket => { socket.on('error', () => {}); socket.on('data', () => socket.end('invalid\n')); });
