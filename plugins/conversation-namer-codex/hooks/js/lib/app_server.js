@@ -13,6 +13,7 @@ function isolatedConfig() {
   return {
     ...Object.fromEntries(DISABLED_FEATURES.map((feature) => [`features.${feature}`, false])),
     project_doc_max_bytes: 0,
+    service_tier: 'default',
     web_search: 'disabled',
   };
 }

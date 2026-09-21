@@ -1,6 +1,6 @@
 {
   "name": "agent-dispatch-codex",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "description": "General-purpose Codex task routing across product, design, QA, research, operations, and software development, with configurable execution and independent review.",
   "author": {
     "name": "IBinary6"
@@ -18,7 +18,7 @@
   "interface": {
     "displayName": "Agent Dispatch",
     "shortDescription": "Coordinate research, creation, verification, and review.",
-    "longDescription": "Routes bounded work by its purpose and acceptance criteria across product, design, QA, research, operations, and software development. Uses shared roles for retrieval, planning, creation, verification, and review, with configurable Luna, Terra, Sol, and Astra candidates. Generates custom agents in Git projects; elsewhere uses host-available roles or the primary agent. Selects by ambiguity, constraints, and total completion cost, validates the actual deliverable, and independently reviews substantive work. Preserves user authorization, explicit settings, serial primary-agent Git, quiet tool hooks, and bounded concurrency.",
+    "longDescription": "Routes bounded work by its purpose and acceptance criteria across product, design, QA, research, operations, and software development. Defaults code implementation to Sol medium, with Luna max for exploration, logs, evidence, and established test execution. Generates custom agents in Git projects; elsewhere uses host-available roles or the primary agent. Selects by ambiguity, constraints, and total completion cost, validates the actual deliverable, and independently reviews substantive work. Preserves user authorization, explicit settings, serial primary-agent Git, quiet tool hooks, and bounded concurrency.",
     "developerName": "IBinary6",
     "category": "Productivity",
     "capabilities": [
@@ -28,7 +28,7 @@
     "defaultPrompt": [
       "Show the effective Agent Dispatch policy for this project.",
       "Configure which commands Agent Dispatch treats as lightweight.",
-      "Explain how Agent Dispatch chooses Luna, Terra, Sol, or Astra execution and keeps Astra review independent.",
+      "Explain how Agent Dispatch separates Sol code implementation from Luna evidence work and keeps review independent.",
       "Configure execution candidates, QA verification, and independent review for product, design, research, or development work.",
       "Explain the primary-agent-only serial Git policy."
     ],

@@ -20,7 +20,24 @@ const OUTPUT_SCHEMA = {
   },
 };
 
-/** 从实时目录选择轻量模型；版本不写死，缺失时不会改用大型模型。 */
+const LOW_COST_DESCRIPTION_PATTERNS = [
+  /\b(?:most[\s-]+affordable|lowest[\s-]+cost|cheapest)\b/i,
+  /\b(?:affordable|low[\s-]+cost|cost[\s-]+effective|economical)\b/i,
+];
+const LIGHTWEIGHT_FAMILIES = new Set(['luna', 'mini', 'nano']);
+const LOW_EFFORTS = ['none', 'minimal', 'low'];
+
+/** 返回目录提供的低成本定位层级；数值越小，信号越明确。 */
+function lowCostTier(model) {
+  const description = typeof model.description === 'string' ? model.description : '';
+  const descriptionTier = LOW_COST_DESCRIPTION_PATTERNS.findIndex((pattern) => pattern.test(description));
+  if (descriptionTier >= 0) return descriptionTier;
+  const familyTokens = model.model.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  return familyTokens.some((token) => LIGHTWEIGHT_FAMILIES.has(token))
+    ? LOW_COST_DESCRIPTION_PATTERNS.length : null;
+}
+
+/** 从实时目录定位低成本模型；版本不写死，目录无合规候选时不会改用大型模型。 */
 function selectModel(models, requested = 'auto') {
   const available = models.filter((model) => !model.hidden
     && typeof model.model === 'string'
@@ -28,18 +45,22 @@ function selectModel(models, requested = 'auto') {
   if (requested !== 'auto') {
     return available.find((model) => model.model === requested || model.id === requested) || null;
   }
-  for (const family of ['spark', 'mini', 'luna']) {
-    const candidate = available.find((model) => model.model.toLowerCase().split(/[-_ ]/).includes(family)
-      && lowestEffort(model));
-    if (candidate) return candidate;
-  }
-  return null;
+  const candidates = available.map((model, index) => ({
+    model,
+    index,
+    tier: lowCostTier(model),
+    effort: LOW_EFFORTS.indexOf(lowestEffort(model)),
+  })).filter((candidate) => candidate.tier !== null && candidate.effort >= 0);
+  candidates.sort((left, right) => left.tier - right.tier
+    || left.effort - right.effort
+    || left.index - right.index);
+  return candidates[0]?.model || null;
 }
 
 /** 只采用模型明确支持的低推理档位；目录无低档位时跳过命名。 */
 function lowestEffort(model) {
   const supported = (model.supportedReasoningEfforts || []).map((option) => option.reasoningEffort);
-  return ['none', 'minimal', 'low'].find((effort) => supported.includes(effort)) || null;
+  return LOW_EFFORTS.find((effort) => supported.includes(effort)) || null;
 }
 
 function validTitleText(text, maximum = 80) {
@@ -259,7 +280,12 @@ function createNamingClient(options = {}) {
     async close() {
       closed = true;
       if (rpc) await rpc.close();
-      if (directory) fs.rmSync(directory, { recursive: true, force: true });
+      if (directory) await fs.promises.rm(directory, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      });
     },
   };
 }

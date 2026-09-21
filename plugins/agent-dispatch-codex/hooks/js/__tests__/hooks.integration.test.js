@@ -112,7 +112,8 @@ try {
   assert.match(hardPrompt.hookSpecificOutput.additionalContext, /可写执行角色/);
   assert.match(hardPrompt.hookSpecificOutput.additionalContext, /模型和推理强度/);
   assert.match(hardPrompt.hookSpecificOutput.additionalContext, /主代理.*验收/);
-  assert.doesNotMatch(hardPrompt.hookSpecificOutput.additionalContext, /dispatch_worker|dispatch_hard_worker|gpt-5\.6-(luna|terra)|\/(?:max|ultra)/);
+  assert.match(hardPrompt.hookSpecificOutput.additionalContext, /dispatch_sol_worker.*gpt-5\.6-sol\/medium/);
+  assert.doesNotMatch(hardPrompt.hookSpecificOutput.additionalContext, /dispatch_luna_worker/);
 
   const plannedHardPrompt = parse(run('user_prompt_submit', {
     hook_event_name: 'UserPromptSubmit',
@@ -122,7 +123,8 @@ try {
   assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /可写执行角色/);
   assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /无需重复规划/);
   assert.doesNotMatch(plannedHardPrompt.hookSpecificOutput.additionalContext, /必须串行两阶段|必须启动/);
-  assert.doesNotMatch(plannedHardPrompt.hookSpecificOutput.additionalContext, /dispatch_worker|dispatch_hard_worker|gpt-5\.6-(luna|terra)|\/(?:max|ultra)/);
+  assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /dispatch_sol_worker.*gpt-5\.6-sol\/medium/);
+  assert.doesNotMatch(plannedHardPrompt.hookSpecificOutput.additionalContext, /dispatch_luna_worker/);
 
   const searchPrompt = parse(run('user_prompt_submit', {
     hook_event_name: 'UserPromptSubmit',

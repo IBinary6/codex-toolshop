@@ -1,6 +1,6 @@
 {
   "name": "conversation-namer-codex",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Automatic Codex conversation naming with a lightweight background model.",
   "private": true,
   "engines": {

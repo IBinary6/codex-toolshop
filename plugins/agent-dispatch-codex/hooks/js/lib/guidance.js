@@ -96,13 +96,13 @@ const LOW_COST_TEST_EXECUTION_TERMS = [
   'verify', 'validate', 'check',
 ];
 const CODE_CREATION_ACTION_TERMS = [
-  '实现', '编写', '写', '创建', '新增', '增加', '构建', '开发', '编码',
-  'implement', 'write', 'create', 'add', 'build', 'develop',
+  '实现', '编写', '写', '创建', '新增', '增加', '生成', '更新', '修改', '构建', '开发', '编码',
+  'implement', 'write', 'create', 'add', 'generate', 'update', 'modify', 'build', 'develop',
 ];
 const CODE_CREATION_ARTIFACT_TERMS = [
   '代码', '源码', '解析器', '处理器', '函数', '方法', '模块', '类', '组件', '服务',
-  '脚本', '算法', 'parser', 'processor', 'handler', 'function', 'method', 'module',
-  'class', 'component', 'service', 'script', 'algorithm',
+  '脚本', '算法', '测试代码', 'parser', 'processor', 'handler', 'function', 'method', 'module',
+  'class', 'component', 'service', 'script', 'algorithm', 'test code',
 ];
 const MATERIAL_OPERATION_TERMS = [
   '已有', '现有', '这些', '指定', '给定', '模板', '原格式', '字段', '版本号', '批量',
@@ -357,19 +357,52 @@ function roleFallback(config, names) {
  * @example
  * dynamicWriterGuidance(config);
  */
-function dynamicWriterGuidance(config) {
+function dynamicWriterGuidance(config, options = {}) {
+  const codeWork = options.codeWork === true;
   const profiles = config && config.agent_profiles && config.agent_profiles.profiles;
-  const hasWritableProfile = config
-    && config.agent_profiles
-    && config.agent_profiles.enabled !== false
-    && profiles
-    && Object.values(profiles).some((profile) => profile
-      && profile.enabled !== false
-      && profile.role_kind !== 'verification'
-      && profile.sandbox_mode === 'workspace-write');
-  if (!hasWritableProfile) {
-    return '当前没有启用的可写执行角色，由主代理直接完成。';
+  const settingsEnabled = config && config.agent_profiles
+    && config.agent_profiles.enabled !== false && profiles;
+  const eligible = (name) => {
+    if (!settingsEnabled) return null;
+    const profile = profiles[name];
+    if (!profile || profile.enabled === false
+        || ['labor', 'verification'].includes(profile.role_kind)
+        || profile.sandbox_mode !== 'workspace-write') return null;
+    const model = typeof profile.model === 'string' ? profile.model.trim() : '';
+    const effort = typeof profile.model_reasoning_effort === 'string'
+      ? profile.model_reasoning_effort.trim() : '';
+    if (codeWork && model === 'gpt-5.6-luna') return null;
+    return { name, model, effort };
+  };
+  if (codeWork) {
+    const sol = eligible('dispatch_sol_worker');
+    const defaultCandidate = sol && sol.model === 'gpt-5.6-sol' && sol.effort === 'medium'
+      ? `${sol.name} (gpt-5.6-sol/medium)`
+      : ['dispatch_worker', 'dispatch_hard_worker']
+        .map(eligible)
+        .find((profile) => profile && !profile.model && !profile.effort);
+    const alternatives = ['dispatch_terra_worker', 'dispatch_astra_worker', 'dispatch_hard_worker']
+      .map(eligible)
+      .filter((profile) => profile && profile.name !== (defaultCandidate && defaultCandidate.name || ''))
+      .map((profile) => profile.model && profile.effort
+        ? `${profile.name} (${profile.model}/${profile.effort})`
+        : `${profile.name}（显式选择受支持组合）`);
+    if (!defaultCandidate) {
+      const alternativeGuidance = alternatives.length
+        ? `，或按任务复杂度与用户明确偏好选择已启用替代角色 ${alternatives.join('、')}`
+        : '';
+      return `当前没有符合默认 Sol/medium 组合的代码实现候选，由主代理直接完成${alternativeGuidance}。`;
+    }
+    const defaultLabel = typeof defaultCandidate === 'string'
+      ? defaultCandidate
+      : `${defaultCandidate.name}（显式 gpt-5.6-sol/medium）`;
+    const alternativeGuidance = alternatives.length
+      ? `；任务复杂度或用户明确偏好需要时，也可从已启用候选 ${alternatives.join('、')} 中选择`
+      : '';
+    return `可写执行角色的代码实现默认候选为 ${defaultLabel}${alternativeGuidance}，按实际复杂度和用户明确偏好选择模型和推理强度。固定 profile 的有效配置优先，未固定角色须显式传 model 与 effort；启动前核对宿主实际支持，未加载或不合规时由主代理完成。`;
   }
+  const hasWritableProfile = Object.keys(profiles || {}).some((name) => eligible(name));
+  if (!hasWritableProfile) return '当前没有启用的可写执行角色，由主代理直接完成。';
   return '主代理按实际复杂度从已启用候选选择可写执行角色、模型和推理强度，不按领域词固定模型。未固定模型的 writer 必须显式传入 model 与 effort，避免无意继承昂贵主模型。';
 }
 
@@ -484,7 +517,8 @@ function routePrompt(prompt, config) {
     || /(?:并|然后|再|之后|后|[，,;；])\s*(?:再)?(?:实现|修复|修改|改动|迁移|重构|编码|开发)/.test(text)
     || /^(?:please\s+)?(?:implement|fix|modify|edit|migrate|refactor|develop)\b/.test(text)
     || /\b(?:and|then|after that)\s+(?:implement|fix|modify|edit|migrate|refactor|develop)\b/.test(text);
-  const testImplementation = /(?:写|编写|添加|补|补充|新增|增加|覆盖).{0,8}(?:单元测试|回归测试|测试用例|代码测试|源码测试)/.test(text)
+  const testImplementation = /(?:写|编写|添加|补|补充|新增|增加|更新|修改|覆盖).{0,8}(?:单元测试|回归测试|测试用例|测试代码|代码测试|源码测试)/.test(text)
+    || /(?:写|编写|添加|补充|新增)\s*测试(?:$|[，。,.]|代码|覆盖)/.test(text)
     || /\b(?:write|add|cover|implement)\b.{0,24}\b(?:unit tests?|regression tests?|test cases?|code tests?)\b/i.test(text);
   const codeCreationIntent = !constraints.readOnly
     && includesAny(text, CODE_CREATION_ACTION_TERMS)
@@ -627,11 +661,11 @@ function routeGuidance(route, config) {
     case 'external-research':
       return `任务路由：外部研究。${roleFallback(config, ['dispatch_researcher'])} 明确来源、日期和事实/推断边界；工作区已有材料的证据改用 explorer 或由主代理读取。`;
     case 'high-risk-implementation':
-      return `任务路由：涉及安全、权限或并发等风险的修改。主代理先核对实际工作流程、契约、已有授权和验收标准，涉及代码时核对真实调用路径；明确边界后才委派有界修改，不因关键词扩大权限或重复请求已有授权。${dynamicWriterGuidance(config)} ${reviewFeedbackGuidance()}${lowCostEvidenceGuidance(route, config)}`;
+      return `任务路由：涉及安全、权限或并发等风险的修改。主代理先核对实际工作流程、契约、已有授权和验收标准，涉及代码时核对真实调用路径；明确边界后才委派有界修改，不因关键词扩大权限或重复请求已有授权。${dynamicWriterGuidance(config, { codeWork: true })} ${reviewFeedbackGuidance()}${lowCostEvidenceGuidance(route, config)}`;
     case 'high-risk-review':
       return `任务路由：高风险审查。${roleFallback(config, ['dispatch_deep_reviewer', 'dispatch_reviewer'])} ${reviewLifecycleGuidance()}`;
     case 'hard-task': {
-      const writer = dynamicWriterGuidance(config);
+      const writer = dynamicWriterGuidance(config, { codeWork: true });
       if (!route.requiresPlanner) {
         return `任务路由：困难任务执行。主代理先固定范围和验收标准；${writer} ${reviewFeedbackGuidance()} 不要仅因任务困难启动规划角色。${lowCostEvidenceGuidance(route, config)}`;
       }
@@ -644,7 +678,7 @@ function routeGuidance(route, config) {
     case 'bounded-search':
       return `任务路由：有界只读调查。${roleFallback(config, ['dispatch_explorer'])} 若委派调查，子代理仅完成确认的取证范围；精确的小范围快速查找由主代理直接完成，并继续推进完整任务。`;
     case 'implementation':
-      return `任务路由：常规实现。${dynamicWriterGuidance(config)} ${reviewFeedbackGuidance()}${lowCostEvidenceGuidance(route, config)}`;
+      return `任务路由：常规实现。${dynamicWriterGuidance(config, { codeWork: true })} ${reviewFeedbackGuidance()}${lowCostEvidenceGuidance(route, config)}`;
     case 'execution':
       return `任务路由：内容制作/交付执行。主代理先固定交付物、受众、格式和验收标准；${dynamicWriterGuidance(config)} ${reviewFeedbackGuidance()}${lowCostEvidenceGuidance(route, config)}`;
     case 'review':
@@ -668,10 +702,10 @@ function mainAgentGuidance(config, compact = false) {
       taskScopeGuidance(),
       '按角色描述、歧义、约束、验收反馈及整个任务的总成本（上下文、返工、审查、延迟）从已启用候选中选角色、模型和推理强度；高歧义可直接选更强候选，不机械按关键词或给所有角色拉满。关键词路由不覆盖授权、只读范围或已有方案。',
       '未固定模型的 writer 必须显式传 model 与 effort，避免无意继承昂贵主模型。原生 TOML 固定值优先于 spawn 参数；临时组合应选未固定字段角色并显式传参。按宿主规则，当前完整历史 fork 不接受覆盖，应按宿主支持仅传最小必要上下文。',
-      ...(lowCost.enabled ? [`低成本路由优先：日志、常规文档/结构化数据、文本提取、代码取证和既定代码测试，默认委派给 policy.low_cost 指定的合规角色（${lowCostPair}）；不可用时保留有界阻塞，不静默升级或把长原文回退给主代理，主代理只保留最小必要决策。`] : []),
+      ...(lowCost.enabled ? [`低成本劳动力路线：日志、常规文档/结构化数据、文本提取、代码取证和既定代码测试，默认委派给 policy.low_cost 指定的合规角色（${lowCostPair}）；该角色只产出材料与证据，不实现或修改产品/测试代码。不可用时保留有界阻塞，不静默升级或把长原文回退给主代理。`] : []),
       lowCost.enabled
-        ? `代码任务按阶段取证：默认委派给低成本角色（${lowCostPair}）收集位置和必要摘录，关键接口与方案由主代理决定，实现、受影响测试和必要审查按复杂度选择。`
-        : '代码任务按阶段取证：先收集位置和必要摘录，关键接口与方案由主代理决定，实现、受影响测试和必要审查按复杂度选择；按当前启用候选分派。',
+        ? `代码任务按阶段分工：低成本角色（${lowCostPair}）只收集日志、调用链、源码位置和既定测试证据；代码写作默认按有效配置使用 Sol medium 候选，受影响验证与必要审查单独选择。混合任务只把证据阶段交给低成本角色。`
+        : '代码任务按阶段分工：先收集位置和必要摘录，关键接口与方案由主代理决定；代码实现默认按有效配置使用 Sol medium 候选，受影响验证与必要审查单独选择。',
       'policy.low_cost 之外的常规路由启动前核对模型/推理组合；默认组合不可用时选受支持组合或由主代理处理，不把主任务的 ultra 强加给不支持它的模型，用户明确指定的模型不得擅自替换。',
       '只有明确的代码结构、调用关系或代码审查任务才优先使用代码图；Agent Dispatch 只负责选代理，图刷新和检索规则由 CodeMap Boost 负责，不要把普通设计评审或业务依赖送入代码图。',
       '按交付物选择验证证据，不要求非代码成果运行构建。涉及代码时，默认不审查或格式化/lint 第三方实现，只核对自有代码集成与必要依赖接口。',
@@ -693,10 +727,10 @@ function mainAgentGuidance(config, compact = false) {
     '- Delegate bounded investigation, planning analysis, content or product production, operations, document or data work, code implementation, verification, and review when a separate role has clear value, even when that work is sequential.',
     '- Choose among enabled candidates from role descriptions, ambiguity, constraints, acceptance feedback, explicit user preference, host availability, and total task cost including context, rework, review, and latency. High ambiguity may justify a stronger candidate immediately; do not route domains mechanically by keywords or maximize every role.',
     '- For an unpinned writer, explicitly pass model and effort so it does not accidentally inherit an expensive primary model. Native TOML model/effort values override spawn parameters; for a temporary combination choose a role with unpinned fields and pass both explicitly. Under the host rules, the current full-history fork does not accept overrides, so pass only the minimum needed context using a host-supported combination.',
-    ...(lowCost.enabled ? [`- Delegate bounded log, routine document or structured-data, text-extraction, code-evidence, and established code-test work to the configured low-cost candidate (${lowCostPair}) by default. If it is unavailable, keep the subtask bounded or blocked rather than silently upgrading or sending long raw text to the primary; keep only the minimum necessary decision with the primary.`] : []),
+    ...(lowCost.enabled ? [`- Delegate bounded log, routine document or structured-data, text-extraction, code-evidence, and established code-test labor to the configured low-cost candidate (${lowCostPair}) by default. It may produce evidence artifacts but does not implement or modify product or test code. If unavailable, keep the subtask bounded or blocked rather than silently upgrading.`] : []),
     lowCost.enabled
-      ? `- For code work, by default delegate evidence locations and necessary excerpts to the configured low-cost candidate (${lowCostPair}); keep key interfaces and plans with the primary, and choose implementation, affected tests, and necessary review by complexity.`
-      : '- For code work, gather evidence locations and necessary excerpts first, keep key interfaces and plans with the primary, and choose implementation, affected tests, and necessary review by complexity using current enabled candidates.',
+      ? `- For code work, give only logs, call-chain/source evidence, and established test execution to the low-cost candidate (${lowCostPair}). Use the effective Sol medium candidate for code writing by default, with enabled Terra, Astra, or an unpinned writer available when actual complexity or an explicit preference calls for them. In mixed tasks, split only the evidence stage to low-cost labor.`
+      : '- For code work, gather evidence locations and necessary excerpts first. Use the effective Sol medium candidate for code writing by default, with enabled alternatives or primary-agent execution when configuration or task constraints require them.',
     '- For routing outside policy.low_cost, profile defaults and keyword routes are suggestions, not proof of runtime availability or permission to override user scope. Verify the host-supported model/effort pair before spawning; if an ordinary default combination is unavailable, use supported settings or primary-agent work, never carry ultra blindly into a model that does not support it, and do not silently replace an explicitly requested model.',
     '- Only for explicit code structure, call-relationship, or code-review tasks, prefer available graph tools. Agent Dispatch selects the agent; CodeMap Boost owns graph refresh and retrieval policy. Do not send ordinary design reviews or business dependencies to a code graph.',
     '- Choose validation evidence for the actual deliverable; builds and code tests are not universal requirements. For code work, exclude vendored third-party implementations from review, formatting, and lint unless explicitly requested, and review first-party integration contracts.',

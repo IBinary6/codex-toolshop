@@ -44,6 +44,11 @@ try {
   const mapperContent = fs.readFileSync(mapper, 'utf8');
   assert.match(mapperContent, /CodeMap Boost graph tools/);
   assert.match(mapperContent, /follow its refresh and retrieval rules/);
+  const lunaWorker = path.join(root, '.codex', 'agents', 'dispatch_luna_worker.toml');
+  const lunaWorkerContent = fs.readFileSync(lunaWorker, 'utf8');
+  assert.match(lunaWorkerContent, /source and log evidence/i);
+  assert.match(lunaWorkerContent, /must not implement or modify product or test code/i);
+  assert.doesNotMatch(lunaWorkerContent, /^role_kind = /m);
   const expectedProfiles = {
     dispatch_explorer: ['gpt-5.6-luna', 'medium', 'read-only'],
     dispatch_mapper: ['gpt-5.6-luna', 'medium', 'read-only'],

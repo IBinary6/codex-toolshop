@@ -47,6 +47,7 @@ async function main() {
   assert.ok(invocation.args.includes('features.hooks=false'));
   assert.ok(invocation.args.includes('features.plugins=false'));
   assert.ok(invocation.args.includes('project_doc_max_bytes=0'));
+  assert.ok(invocation.args.includes('service_tier="default"'));
   const results = await Promise.all([rpc.request('first'), rpc.request('second')]);
   assert.deepEqual(results, [{ received: 'first' }, { received: 'second' }]);
   let notification;

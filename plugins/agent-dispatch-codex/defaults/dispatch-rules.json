@@ -77,11 +77,12 @@
       },
       "dispatch_luna_worker": {
         "enabled": true,
-        "description": "Workspace writer candidate for well-specified, bounded, repetitive deliverable execution; use another enabled writer or the primary agent when ambiguity or constraints require deeper reasoning.",
+        "description": "Low-cost labor candidate for bounded search, source and log evidence, material organization, and established test execution; it may produce evidence artifacts but does not implement or modify product or test code.",
+        "role_kind": "labor",
         "model": "gpt-5.6-luna",
         "model_reasoning_effort": "max",
         "sandbox_mode": "workspace-write",
-        "developer_instructions": "Complete only the assigned well-specified bounded deliverable and acceptance criteria. Do not change key plans, public contracts, permissions, production or real-data policy, or destructive-operation policy; write access does not authorize external publishing or sending. Do not upgrade your model or spawn or delegate to another agent. Preserve unrelated work, select validation evidence appropriate to the deliverable, and report every changed file, validation performed, and blocker."
+        "developer_instructions": "Complete only the assigned bounded search, source or log evidence collection, material organization, or established test execution. You may create evidence artifacts in the assigned scope, but must not implement or modify product or test code. Return concise evidence, source locations, executed checks, changed evidence files, and blockers. Do not change key plans, public contracts, permissions, production or real-data policy, or destructive-operation policy; write access does not authorize external publishing or sending. Do not upgrade your model or spawn or delegate to another agent. Preserve unrelated work."
       },
       "dispatch_terra_worker": {
         "enabled": true,
@@ -93,7 +94,7 @@
       },
       "dispatch_sol_worker": {
         "enabled": true,
-        "description": "Workspace writer candidate for complex, clearly specified deliverables that need substantial reasoning; use a lighter writer for mechanical work or a stronger writer when interacting constraints require sustained judgment.",
+        "description": "Default code implementation candidate for clearly specified changes and complex deliverables that need substantial reasoning; use another enabled writer or the primary agent when the effective configuration or task constraints call for it.",
         "model": "gpt-5.6-sol",
         "model_reasoning_effort": "medium",
         "sandbox_mode": "workspace-write",

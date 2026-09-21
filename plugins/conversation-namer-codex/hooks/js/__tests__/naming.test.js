@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('assert').strict;
+const { spawn } = require('child_process');
+const { once } = require('events');
 const fs = require('fs');
 const path = require('path');
 const { createNamingClient, generateName, lowestEffort, parseName, selectModel } = require('../lib/naming');
@@ -9,6 +11,7 @@ const pluginRoot = path.resolve(__dirname, '..', '..', '..');
 const createdAt = Date.parse('2026-09-05T18:30:00Z') / 1000;
 const model = {
   id: 'future-mini', model: 'gpt-future-mini', hidden: false,
+  description: 'A compact model for routine work.',
   supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'none' }],
 };
 
@@ -71,25 +74,62 @@ function fakeServer({ output, items, thread = {}, models = [model], fail, finalO
 }
 
 async function main() {
-  const luna = { ...model, id: 'future-luna', model: 'gpt-future-luna' };
-  const spark = { ...model, id: 'future-spark', model: 'gpt-future-codex-spark' };
+  const luna = {
+    ...model,
+    id: 'gpt-5.6-luna',
+    model: 'gpt-5.6-luna',
+    description: 'Fast and affordable model for everyday work.',
+    supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
+  };
+  const futureLuna = { ...model, id: 'gpt-6-luna', model: 'gpt-6-luna', description: undefined };
+  const dottedLuna = { ...model, id: 'gpt6.luna', model: 'gpt6.luna', description: undefined };
+  const unknownAffordable = {
+    ...model,
+    id: 'orion-small',
+    model: 'orion-small',
+    description: 'An affordable model for everyday tasks.',
+    supportedReasoningEfforts: [{ reasoningEffort: 'minimal' }],
+  };
+  const cheapestLow = {
+    ...model,
+    id: 'budget-low',
+    model: 'budget-low',
+    description: 'Our cheapest general-purpose model.',
+    supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
+  };
+  const cheapestNone = {
+    ...model,
+    id: 'budget-none',
+    model: 'budget-none',
+    description: 'The lowest cost option for short tasks.',
+  };
   const large = { ...model, id: 'large', model: 'gpt-large' };
-  assert.equal(selectModel([model, luna, spark]), spark);
-  assert.equal(selectModel([model, luna]), model);
-  assert.equal(selectModel([spark, luna]), spark);
+  assert.equal(selectModel([futureLuna, unknownAffordable]), unknownAffordable,
+    '目录描述的低成本信号应优先于轻量家族兜底');
+  assert.equal(selectModel([luna, unknownAffordable]), unknownAffordable,
+    '同档描述信号应选择支持的最低推理档位');
+  assert.equal(selectModel([cheapestLow, cheapestNone]), cheapestNone,
+    '同档低成本信号应选择支持的最低推理档位');
+  assert.equal(selectModel([cheapestNone, { ...cheapestNone, id: 'second', model: 'second' }]), cheapestNone,
+    '同档同推理档位保留目录稳定顺序');
   assert.equal(selectModel([luna]), luna);
-  assert.equal(selectModel([spark]), spark);
+  assert.equal(selectModel([futureLuna]), futureLuna);
+  assert.equal(selectModel([dottedLuna]), dottedLuna);
+  assert.equal(selectModel([unknownAffordable]), unknownAffordable);
+  for (const description of ['A low-cost model.', 'A cost-effective model.', 'An economical model.']) {
+    const described = { ...unknownAffordable, description };
+    assert.equal(selectModel([described]), described);
+  }
   const highOnlyMini = { ...model, supportedReasoningEfforts: [{ reasoningEffort: 'high' }] };
-  assert.equal(selectModel([highOnlyMini, luna, spark]), spark);
   assert.equal(selectModel([highOnlyMini, luna]), luna);
-  assert.equal(selectModel([{ ...spark, hidden: true }, model, luna]), model);
-  assert.equal(selectModel([{ ...spark, supportedReasoningEfforts: [] }, model, luna]), model);
-  assert.equal(selectModel([highOnlyMini, spark]), spark);
-  assert.equal(selectModel([highOnlyMini, model]), model);
   assert.equal(selectModel([highOnlyMini]), null);
   assert.equal(selectModel([large]), null);
   assert.equal(selectModel([{ ...model, hidden: true }]), null);
   assert.equal(selectModel([{ ...model, inputModalities: ['audio'] }]), null);
+  assert.equal(selectModel([{ ...unknownAffordable, hidden: true }, large]), null);
+  assert.equal(selectModel([{ ...unknownAffordable, inputModalities: ['audio'] }, large]), null);
+  assert.equal(selectModel([{ ...unknownAffordable,
+    supportedReasoningEfforts: [{ reasoningEffort: 'high' }] }, large]), null);
   assert.equal(selectModel([model], 'missing-model'), null);
   assert.equal(selectModel([model], model.id), model);
   assert.equal(lowestEffort(model), 'none');
@@ -97,6 +137,7 @@ async function main() {
   assert.equal(lowestEffort({ supportedReasoningEfforts: [{ reasoningEffort: 'minimal' }, { reasoningEffort: 'low' }] }), 'minimal');
   assert.equal(lowestEffort({ supportedReasoningEfforts: [{ reasoningEffort: 'high' }] }), null);
   assert.equal(lowestEffort({}), null);
+  assert.equal(lowestEffort(luna), 'low', '不得为 Luna 伪造未声明的 none 档位');
 
   const name = (topic, type = 'EXP') => JSON.stringify({ action: 'name', type, topic });
   assert.deepEqual(parseName(name('插件审查'), createdAt, ''), { title: '0906｜EXP｜插件审查' });
@@ -139,6 +180,7 @@ async function main() {
   assert.equal(Object.keys(start.config).some((key) => key.startsWith('mcp_servers.')), false);
   assert.equal(start.config.project_doc_max_bytes, 0);
   assert.equal(start.config.web_search, 'disabled');
+  assert.equal(start.config.service_tier, 'default');
   for (const feature of ['hooks', 'plugins', 'apps', 'shell_tool', 'memories', 'multi_agent', 'browser_use',
     'computer_use', 'image_generation', 'view_image', 'code_mode_host', 'unified_exec']) {
     assert.equal(start.config[`features.${feature}`], false);
@@ -159,6 +201,65 @@ async function main() {
   assert.equal(fake.closed, true);
   assert.equal(fs.existsSync(fake.configuration.cwd), false);
   await assert.rejects(client.readThreadName('current'), /naming_client_closed/);
+
+  if (process.platform === 'win32') {
+    const occupied = fakeServer();
+    let worker;
+    let occupiedDirectory;
+    const occupiedClient = createNamingClient({ appServerFactory(options) {
+      occupiedDirectory = options.cwd;
+      const rpc = occupied.appServerFactory(options);
+      worker = spawn(process.execPath, ['-e',
+        "process.stdout.write('ready\\n'); setTimeout(() => {}, 300);"], {
+        cwd: occupiedDirectory,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        windowsHide: true,
+      });
+      const ready = once(worker.stdout, 'data');
+      return {
+        ...rpc,
+        async request(method, params) {
+          if (method === 'initialize') await ready;
+          return rpc.request(method, params);
+        },
+      };
+    } });
+    await occupiedClient.readThreadName('current');
+    try {
+      await occupiedClient.close();
+      assert.equal(fs.existsSync(occupiedDirectory), false,
+        'close 返回前必须完成命名临时目录清理');
+    } finally {
+      if (worker.exitCode === null) await once(worker, 'exit');
+      fs.rmSync(occupiedDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  }
+
+  const permanent = fakeServer();
+  const permanentClient = createNamingClient({ appServerFactory: permanent.appServerFactory });
+  await permanentClient.readThreadName('current');
+  const originalRm = fs.promises.rm;
+  let cleanupOptions;
+  fs.promises.rm = async (directory, options) => {
+    cleanupOptions = options;
+    const error = new Error('permanent_cleanup_error');
+    error.code = 'EACCES';
+    throw error;
+  };
+  try {
+    await assert.rejects(permanentClient.close(), /permanent_cleanup_error/);
+  } finally {
+    fs.promises.rm = originalRm;
+    await originalRm(permanent.configuration.cwd, { recursive: true, force: true });
+  }
+  assert.equal(cleanupOptions.maxRetries, 5);
+  assert.equal(cleanupOptions.retryDelay, 100);
+
+  const lowEffort = fakeServer({ models: [luna] });
+  const lowEffortResult = await generateName({ sessionId: 'current', prompt: '审查插件', pluginRoot,
+    appServerFactory: lowEffort.appServerFactory });
+  assert.equal(lowEffortResult.model, luna.model);
+  assert.equal(lowEffort.calls.find((call) => call.method === 'turn/start').params.effort, 'low');
 
   const firstMessage = fakeServer({ thread: { turns: [{ items: [{
     type: 'functionCallOutput', namespace: 'codex_app', name: 'create_thread',
