@@ -12,6 +12,7 @@ const {
 } = require('../hooks/js/lib/serena-runtime');
 const { nodeRuntimeStatus } = require('../hooks/js/lib/runtime');
 const { scheduleRuntimeUpdates } = require('../hooks/js/lib/runtime-updates');
+const { enterMcpDataDir } = require('./mcp-cwd.cjs');
 
 function prepareSerenaServer(options = {}) {
   const node = (options.nodeRuntimeStatus || nodeRuntimeStatus)();
@@ -38,8 +39,14 @@ function prepareSerenaServer(options = {}) {
 }
 
 async function runSerenaServer(options = {}) {
-  const prepared = prepareSerenaServer(options);
   const stderr = options.stderr || process.stderr;
+  let prepared;
+  try {
+    prepared = prepareSerenaServer(enterMcpDataDir(options));
+  } catch (error) {
+    stderr.write(`[codemap-boost-codex] Serena MCP 数据目录不可用：${error.message}\n`);
+    return 1;
+  }
   if (!prepared.ok) {
     stderr.write(`[codemap-boost-codex] ${prepared.diagnostic}\n`);
     return 1;
@@ -60,7 +67,7 @@ async function runSerenaServer(options = {}) {
     };
     try {
       child = launch(prepared.command, prepared.args, {
-        cwd: options.cwd || process.cwd(),
+        cwd: process.cwd(),
         env: prepared.env,
         stdio: 'inherit',
         windowsHide: process.platform === 'win32',

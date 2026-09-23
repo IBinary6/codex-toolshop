@@ -5,6 +5,7 @@ const { crgRuntimePaths, ensureCrg } = require('../hooks/js/lib/bootstrap');
 const { enableCodeMap, readBootstrapFailure } = require('../hooks/js/lib/codemap');
 const { nodeRuntimeStatus } = require('../hooks/js/lib/runtime');
 const { scheduleRuntimeUpdates } = require('../hooks/js/lib/runtime-updates');
+const { enterMcpDataDir } = require('./mcp-cwd.cjs');
 
 /**
  * 确保插件私有 CRG 可用，并返回要启动的 MCP 命令。
@@ -43,8 +44,14 @@ function prepareMcpServer(options = {}) {
  * @example await runMcpServer()
  */
 async function runMcpServer(options = {}) {
-  const prepared = prepareMcpServer(options);
   const stderr = options.stderr || process.stderr;
+  let prepared;
+  try {
+    prepared = prepareMcpServer(enterMcpDataDir(options));
+  } catch (error) {
+    stderr.write(`[codemap-boost-codex] MCP 数据目录不可用：${error.message}\n`);
+    return 1;
+  }
   if (!prepared.ok) {
     stderr.write(`[codemap-boost-codex] ${prepared.diagnostic}\n`);
     return 1;
@@ -67,6 +74,7 @@ async function runMcpServer(options = {}) {
 
     try {
       child = launch(prepared.command, prepared.args, {
+        cwd: process.cwd(),
         stdio: 'inherit',
         windowsHide: process.platform === 'win32',
       });

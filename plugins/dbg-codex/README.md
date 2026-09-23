@@ -63,6 +63,8 @@ Ghidra 构建同时支持已安装但不在 PATH 的 Homebrew OpenJDK，以及 m
 - Linux：`${XDG_DATA_HOME:-~/.local/share}/dbg`
 - 所有平台均可通过 `DBG_HOME` 指定数据目录。
 
+常驻 MCP 启动器及其子进程在上述数据目录运行，避免 Windows 将插件缓存作为工作目录锁住，导致更新时无法备份缓存。启动脚本仍从插件目录按绝对路径加载。升级前已启动的旧进程需在当前任务完成后正常退出 Codex 才会释放旧目录；插件不会强制结束调试会话。
+
 Node.js 18+ 由插件宿主环境提供。脚本优先使用 Python 3.11+；缺失时通过独立 uv 准备 Python 3.12，不改系统 Python。依赖保存在独立 venv。下载按 HTTPS 获取，发布资产有上游 SHA-256 时验证；缓存始终保留本地摘要，损坏时重新下载。
 
 GitHub API 默认匿名访问；环境中已有 `GH_TOKEN` 或 `GITHUB_TOKEN` 时会自动使用，仅发往 `https://api.github.com`，重定向不转发，也不写入状态文件。CI 使用任务自带的只读令牌，避免共享出口的匿名限流。

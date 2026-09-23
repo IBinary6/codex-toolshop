@@ -74,9 +74,34 @@ function doctor(python, args) {
   });
 }
 
+function runMcp(backend, options = {}) {
+  const allowed = ['x64dbg', 'x32dbg', 'ghidra', 'windbg', 'ida-mcp'];
+  if (!allowed.includes(backend)) throw new Error('未知 MCP 后端');
+  // 先固定相对配置，再离开可被宿主重命名的插件缓存目录。
+  if (process.env.DBG_HOME) process.env.DBG_HOME = path.resolve(process.env.DBG_HOME);
+  if (process.env.DBG_PYTHON && /[\\/]/.test(process.env.DBG_PYTHON)) {
+    process.env.DBG_PYTHON = path.resolve(process.env.DBG_PYTHON);
+  }
+  const home = path.resolve(options.dataDir || dataDir());
+  fs.mkdirSync(home, { recursive: true });
+  process.chdir(home);
+  const python = (options.ensurePython || ensurePython)();
+  // MCP 可能先于 SessionStart hook 启动，两者通过 doctor 的同一把锁协调。
+  const setup = (options.doctor || doctor)(python, ['--auto']);
+  if (setup.error) process.stderr.write('Dbg 自动部署未完成，将报告后端当前状态。\n');
+  const launch = options.spawn || spawn;
+  const child = launch(python[0], [...python.slice(1), path.join(__dirname, 'managed_server.py'), backend], {
+    cwd: home, stdio: 'inherit', windowsHide: true,
+    env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
+  });
+  child.on('error', () => { process.stderr.write('Dbg 无法启动 MCP 后端。\n'); process.exitCode = 1; });
+  child.on('exit', (code) => { process.exitCode = Number.isInteger(code) ? code : 1; });
+}
+
 function main(argv = process.argv.slice(2)) {
   const mode = argv[0] || 'doctor';
   if (!['doctor', 'mcp', 'hook'].includes(mode)) throw new Error('用法：dbg doctor [--tool 工具] [--json]');
+  if (mode === 'mcp') return runMcp(argv[1]);
   const python = ensurePython();
   if (mode === 'doctor' || mode === 'hook') {
     const result = doctor(python, mode === 'hook' ? ['--auto', '--json'] : argv.slice(1));
@@ -92,20 +117,9 @@ function main(argv = process.argv.slice(2)) {
     process.exitCode = Number.isInteger(result.status) ? result.status : 1;
     return;
   }
-  const allowed = ['x64dbg', 'x32dbg', 'ghidra', 'windbg', 'ida-mcp'];
-  if (!allowed.includes(argv[1])) throw new Error('未知 MCP 后端');
-  // MCP 可能先于 SessionStart hook 启动，两者通过 doctor 的同一把锁协调。
-  const setup = doctor(python, ['--auto']);
-  if (setup.error) process.stderr.write('Dbg 自动部署未完成，将报告后端当前状态。\n');
-  const child = spawn(python[0], [...python.slice(1), path.join(__dirname, 'managed_server.py'), argv[1]], {
-    stdio: 'inherit', windowsHide: true,
-    env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
-  });
-  child.on('error', () => { process.stderr.write('Dbg 无法启动 MCP 后端。\n'); process.exitCode = 1; });
-  child.on('exit', (code) => { process.exitCode = Number.isInteger(code) ? code : 1; });
 }
 
 if (require.main === module) {
   try { main(); } catch (error) { process.stderr.write(`${error.message}\n`); process.exitCode = 1; }
 }
-module.exports = { dataDir, findPython, ensurePython, main };
+module.exports = { dataDir, findPython, ensurePython, runMcp, main };
