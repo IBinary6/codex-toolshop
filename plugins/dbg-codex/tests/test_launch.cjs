@@ -36,7 +36,7 @@ test('every bundled MCP uses the same script launcher with an independent backen
 
 test('running MCP launcher and backend release plugin cache for parent-directory rename', async () => {
   assert.equal(typeof runMcp, 'function');
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dbg-mcp-cwd-'));
+  const temp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dbg-mcp-cwd-')));
   const plugin = path.join(temp, 'cache', 'dbg-codex');
   const version = path.join(plugin, '1.0', 'scripts');
   const data = path.join(temp, 'data');

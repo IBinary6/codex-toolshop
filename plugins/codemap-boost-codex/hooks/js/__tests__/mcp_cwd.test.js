@@ -19,7 +19,7 @@ async function waitForFile(file, child) {
 }
 
 async function verifyLauncher(name, expression) {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), `codemap-${name}-cwd-`));
+  const temp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `codemap-${name}-cwd-`)));
   const plugin = path.join(temp, 'cache', 'codemap-boost-codex');
   const version = path.join(plugin, '1.0', 'scripts');
   const backup = `${plugin}.backup`;
