@@ -34,7 +34,7 @@
     },
     {
       "name": "agent-dispatch-codex",
-      "version": "0.1.23",
+      "version": "0.1.24",
       "description": "General-purpose task routing for product, design, QA, research, operations, and development, with code-first staging, configurable low-cost evidence work, and independent review.",
       "source": {
         "source": "local",
@@ -76,7 +76,7 @@
     },
     {
       "name": "conversation-namer-codex",
-      "version": "0.1.6",
+      "version": "0.1.7",
       "description": "Automatically names new Codex conversations from the first user message with a lightweight model.",
       "source": {
         "source": "local",

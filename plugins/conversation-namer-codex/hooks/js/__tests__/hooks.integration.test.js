@@ -113,6 +113,8 @@ async function main() {
     assert.equal(claimSession(sessionId, env), false);
     assert.doesNotMatch(fs.readFileSync(stateFile(sessionId, env), 'utf8'), /secret|prompt/);
   }
+  assert.deepEqual(loadConfig(env), { model: 'gpt-6-luna', timeoutMs: 60000 });
+  fs.writeFileSync(path.join(temporary, 'config.json'), JSON.stringify({ model: 'auto' }));
   assert.deepEqual(loadConfig(env), { model: 'auto', timeoutMs: 60000 });
   fs.writeFileSync(path.join(temporary, 'config.json'), JSON.stringify({ model: 'test-luna', timeoutSeconds: 15 }));
   assert.deepEqual(loadConfig(env), { model: 'test-luna', timeoutMs: 15000 });

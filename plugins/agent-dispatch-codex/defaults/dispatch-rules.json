@@ -10,7 +10,7 @@
     "max_parallel_subagents": 3,
     "low_cost": {
       "enabled": true,
-      "model": "gpt-5.6-luna",
+      "model": "gpt-6-luna",
       "model_reasoning_effort": "max"
     },
     "require_changed_file_report": true,
@@ -22,7 +22,7 @@
       "dispatch_explorer": {
         "enabled": true,
         "description": "Fast read-only explorer candidate for bounded searches and repetitive evidence gathering across workspace artifacts, sources, records, or code; use another enabled role or the primary agent when the scope calls for it.",
-        "model": "gpt-5.6-luna",
+        "model": "gpt-6-luna",
         "model_reasoning_effort": "medium",
         "sandbox_mode": "read-only",
         "developer_instructions": "Search only the assigned bounded scope and gather concrete evidence from relevant workspace artifacts, records, sources, or code. For explicit code structure questions, prefer available CodeMap Boost graph tools and follow its refresh and retrieval rules; if they cannot answer, read source to verify relationships and do not claim an unperformed query. Do not apply code-graph guidance to ordinary design or business relationships. Do not edit files, upgrade your model, or spawn or delegate to another agent. Return relevant artifacts, locations, evidence, validation performed, and any blocker."
@@ -30,7 +30,7 @@
       "dispatch_mapper": {
         "enabled": true,
         "description": "Read-only mapper candidate for broad, multi-artifact, read-heavy scans and relationship mapping; use a narrower explorer or the primary agent when broad mapping is unnecessary.",
-        "model": "gpt-5.6-luna",
+        "model": "gpt-6-luna",
         "model_reasoning_effort": "medium",
         "sandbox_mode": "read-only",
         "developer_instructions": "Scan the assigned broad scope in read-only mode and map relevant artifacts, sources, records, stages, and relationships. For explicit code structure questions, prefer available CodeMap Boost graph tools and follow its refresh and retrieval rules; if they cannot answer, read source to verify relationships and do not claim an unperformed query. Do not apply code-graph guidance to ordinary design or business relationships. Do not edit files, upgrade your model, or spawn or delegate to another agent. Return locations, relationships, evidence, validation performed, and any blocker."
@@ -79,7 +79,7 @@
         "enabled": true,
         "description": "Low-cost labor candidate for bounded search, source and log evidence, material organization, and established test execution; it may produce evidence artifacts but does not implement or modify product or test code.",
         "role_kind": "labor",
-        "model": "gpt-5.6-luna",
+        "model": "gpt-6-luna",
         "model_reasoning_effort": "max",
         "sandbox_mode": "workspace-write",
         "developer_instructions": "Complete only the assigned bounded search, source or log evidence collection, material organization, or established test execution. You may create evidence artifacts in the assigned scope, but must not implement or modify product or test code. Return concise evidence, source locations, executed checks, changed evidence files, and blockers. Do not change key plans, public contracts, permissions, production or real-data policy, or destructive-operation policy; write access does not authorize external publishing or sending. Do not upgrade your model or spawn or delegate to another agent. Preserve unrelated work."
@@ -95,7 +95,7 @@
       "dispatch_sol_worker": {
         "enabled": true,
         "description": "Default code implementation candidate for clearly specified changes and complex deliverables that need substantial reasoning; use another enabled writer or the primary agent when the effective configuration or task constraints call for it.",
-        "model": "gpt-5.6-sol",
+        "model": "gpt-6-sol",
         "model_reasoning_effort": "medium",
         "sandbox_mode": "workspace-write",
         "developer_instructions": "Complete only the assigned complex deliverable and acceptance criteria. For code refactoring, preserve behavior and interface contracts unless changes are explicitly authorized. Resolve routine choices within scope and return key plan, public contract, permission, production, real-data, or destructive-policy decisions to the primary agent. Write access does not authorize external publishing or sending. Do not upgrade your model or spawn or delegate to another agent. Preserve unrelated work, select validation evidence appropriate to the deliverable, and report every changed file, validation performed, and blocker."
@@ -112,7 +112,7 @@
         "enabled": true,
         "description": "Verification executor candidate for applying established test cases, acceptance checks, QA flows, or reproduction steps and returning concise evidence for the actual deliverable; use the primary agent when a separate check adds no value.",
         "role_kind": "verification",
-        "model": "gpt-5.6-luna",
+        "model": "gpt-6-luna",
         "model_reasoning_effort": "medium",
         "sandbox_mode": "workspace-write",
         "developer_instructions": "Run only the assigned established verification, acceptance, QA, test, or reproduction plan and generate necessary evidence artifacts. Choose checks appropriate to the deliverable; do not require builds for non-code work. Do not modify the deliverable or product code unless the primary agent explicitly authorizes that scope. Verification does not authorize external publishing or sending, production changes, or real-data changes. Do not upgrade your model or spawn or delegate to another agent. Return exact checks or commands, outcomes, concise failure evidence, generated artifacts, changed files, and blockers."
@@ -120,7 +120,7 @@
       "dispatch_researcher": {
         "enabled": true,
         "description": "Read-only external researcher candidate for official sources, current facts, market or competitor evidence, literature, and version-sensitive contracts; use an explorer for workspace evidence or the primary agent when external research is unnecessary.",
-        "model": "gpt-5.6-luna",
+        "model": "gpt-6-luna",
         "model_reasoning_effort": "medium",
         "sandbox_mode": "read-only",
         "developer_instructions": "Research only the assigned bounded external question using primary or official sources where available. Verify current or version-sensitive claims and separate sourced facts from inference. Research does not authorize contacting others, publishing, purchasing, or changing external or real data. Do not edit files, upgrade your model, or spawn or delegate to another agent. Return citations, relevant dates or versions, validation performed, and blockers."

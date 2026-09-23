@@ -132,6 +132,9 @@ async function main() {
     supportedReasoningEfforts: [{ reasoningEffort: 'high' }] }, large]), null);
   assert.equal(selectModel([model], 'missing-model'), null);
   assert.equal(selectModel([model], model.id), model);
+  assert.equal(selectModel([luna, futureLuna], 'gpt-6-luna'), futureLuna);
+  assert.equal(selectModel([luna], 'gpt-6-luna'), null,
+    '指定 GPT-6 Luna 不可用时不得自动换回旧型号');
   assert.equal(lowestEffort(model), 'none');
   assert.equal(lowestEffort({ supportedReasoningEfforts: [{ reasoningEffort: 'low' }] }), 'low');
   assert.equal(lowestEffort({ supportedReasoningEfforts: [{ reasoningEffort: 'minimal' }, { reasoningEffort: 'low' }] }), 'minimal');
@@ -260,6 +263,13 @@ async function main() {
     appServerFactory: lowEffort.appServerFactory });
   assert.equal(lowEffortResult.model, luna.model);
   assert.equal(lowEffort.calls.find((call) => call.method === 'turn/start').params.effort, 'low');
+
+  const gpt6 = fakeServer({ models: [luna, futureLuna] });
+  const gpt6Result = await generateName({ sessionId: 'current', prompt: '审查插件', pluginRoot,
+    model: 'gpt-6-luna', appServerFactory: gpt6.appServerFactory });
+  assert.equal(gpt6Result.model, 'gpt-6-luna');
+  assert.equal(gpt6.calls.find((call) => call.method === 'turn/start').params.model, 'gpt-6-luna');
+  assert.equal(gpt6.calls.some((call) => call.method === 'thread/name/set'), false);
 
   const firstMessage = fakeServer({ thread: { turns: [{ items: [{
     type: 'functionCallOutput', namespace: 'codex_app', name: 'create_thread',

@@ -50,19 +50,19 @@ try {
   assert.match(lunaWorkerContent, /must not implement or modify product or test code/i);
   assert.doesNotMatch(lunaWorkerContent, /^role_kind = /m);
   const expectedProfiles = {
-    dispatch_explorer: ['gpt-5.6-luna', 'medium', 'read-only'],
-    dispatch_mapper: ['gpt-5.6-luna', 'medium', 'read-only'],
+    dispatch_explorer: ['gpt-6-luna', 'medium', 'read-only'],
+    dispatch_mapper: ['gpt-6-luna', 'medium', 'read-only'],
     dispatch_planner: ['gpt-6-astra', 'xhigh', 'read-only'],
     dispatch_worker: ['', '', 'workspace-write'],
     dispatch_hard_worker: ['', '', 'workspace-write'],
     dispatch_reviewer: ['gpt-6-astra', 'xhigh', 'read-only'],
     dispatch_deep_reviewer: ['gpt-6-astra', 'ultra', 'read-only'],
-    dispatch_luna_worker: ['gpt-5.6-luna', 'max', 'workspace-write'],
+    dispatch_luna_worker: ['gpt-6-luna', 'max', 'workspace-write'],
     dispatch_terra_worker: ['gpt-5.6-terra', 'high', 'workspace-write'],
-    dispatch_sol_worker: ['gpt-5.6-sol', 'medium', 'workspace-write'],
+    dispatch_sol_worker: ['gpt-6-sol', 'medium', 'workspace-write'],
     dispatch_astra_worker: ['gpt-6-astra', 'medium', 'workspace-write'],
-    dispatch_tester: ['gpt-5.6-luna', 'medium', 'workspace-write'],
-    dispatch_researcher: ['gpt-5.6-luna', 'medium', 'read-only'],
+    dispatch_tester: ['gpt-6-luna', 'medium', 'workspace-write'],
+    dispatch_researcher: ['gpt-6-luna', 'medium', 'read-only'],
   };
   for (const [name, [model, effort, sandbox]] of Object.entries(expectedProfiles)) {
     const profile = fs.readFileSync(path.join(root, '.codex', 'agents', `${name}.toml`), 'utf8');

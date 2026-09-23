@@ -1,6 +1,8 @@
 'use strict';
 
 const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 
 const DISABLED_FEATURES = [
   'hooks', 'plugins', 'apps', 'shell_tool', 'memories', 'multi_agent',
@@ -18,20 +20,97 @@ function isolatedConfig() {
   };
 }
 
+function executableFile(file, platform) {
+  try {
+    if (!fs.statSync(file).isFile()) return false;
+    if (platform !== 'win32') fs.accessSync(file, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 按已识别的宿主选择程序；宿主未知时优先 PATH 中的独立 CLI。 */
+function resolveCodexCommand({ env = process.env, platform = process.platform, systemApplicationsRoot = '/Applications' } = {}) {
+  const windows = platform === 'win32';
+  const names = windows ? ['codex.exe'] : ['codex'];
+  const pathValue = Object.entries(env).find(([key]) => key.toUpperCase() === 'PATH')?.[1] || '';
+  const originator = String(env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE || '').trim().toLowerCase();
+  const desktopHost = originator === 'codex desktop' || (!originator && Boolean(env.CODEX_APP_TOOLS_PIPE_PATH));
+  const cliHost = originator === 'codex_cli_rs' || originator === 'codex_cli';
+  const cliOnPath = [];
+  const desktopOnPath = [];
+  for (const entry of pathValue.split(windows ? ';' : ':')) {
+    const directory = entry.trim().replace(/^"(.*)"$/, '$1');
+    if (!directory) continue;
+    for (const name of names) {
+      const file = path.join(directory, name);
+      if (!executableFile(file, platform)) continue;
+      const normalized = file.replace(/\\/g, '/');
+      if ((windows && /\/OpenAI\/Codex\/bin\/[^/]+\/codex\.exe$/i.test(normalized)) ||
+          (platform === 'darwin' && /(?:^|\/)Codex\.app\/Contents\/Resources\/(?:[^/]+\/)*codex$/i.test(normalized))) desktopOnPath.push(file);
+      else cliOnPath.push(file);
+    }
+  }
+  if (desktopHost && (windows || platform === 'darwin')) {
+    return desktopOnPath[0] || findInstalledDesktopCommand(env, platform, systemApplicationsRoot);
+  }
+  if (cliHost) return cliOnPath[0] || null;
+  if (cliOnPath.length) return cliOnPath[0];
+  if (desktopOnPath.length) return desktopOnPath[0];
+  return findInstalledDesktopCommand(env, platform, systemApplicationsRoot);
+}
+
+function findInstalledDesktopCommand(env, platform, systemApplicationsRoot) {
+  const windows = platform === 'win32';
+  if (platform === 'darwin') {
+    const locations = [
+      path.join(systemApplicationsRoot, 'Codex.app', 'Contents', 'Resources', 'codex'),
+      ...(env.HOME ? [path.join(env.HOME, 'Applications', 'Codex.app', 'Contents', 'Resources', 'codex')] : []),
+    ];
+    return locations.find((file) => executableFile(file, platform)) || null;
+  }
+  if (!windows || !env.LOCALAPPDATA) return null;
+
+  // 只检查桌面版安装目录的直接子目录，不依赖版本哈希或递归扫描用户目录。
+  const bin = path.join(env.LOCALAPPDATA, 'OpenAI', 'Codex', 'bin');
+  let versions;
+  try {
+    versions = fs.readdirSync(bin, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  const candidates = [];
+  for (const version of versions) {
+    if (!version.isDirectory()) continue;
+    const file = path.join(bin, version.name, 'codex.exe');
+    if (!executableFile(file, platform)) continue;
+    try {
+      candidates.push({ file, mtime: fs.statSync(file).mtimeMs });
+    } catch {
+      // 安装目录可能在扫描期间更新；跳过已经消失的候选文件。
+    }
+  }
+  candidates.sort((a, b) => b.mtime - a.mtime || a.file.localeCompare(b.file));
+  return candidates[0]?.file || null;
+}
+
 /**
  * 启动受总超时约束的 stdio JSON-RPC 客户端。
  * 服务端请求一律拒绝；错误只暴露本地错误码，避免转发服务端敏感文本。
  * 调用者必须 await close() 回收子进程；spawnImpl 仅供测试替换进程。
  */
-function createAppServer({ cwd, timeoutMs = 60000, command = 'codex', spawnImpl = spawn } = {}) {
+function createAppServer({ cwd, timeoutMs = 60000, command, spawnImpl = spawn, env = process.env, platform = process.platform } = {}) {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error('invalid_timeout');
+  const executable = command === undefined ? resolveCodexCommand({ env, platform }) : command;
+  if (executable === null) throw new Error('app_server_unavailable');
   const args = ['app-server'];
   for (const [key, value] of Object.entries(isolatedConfig())) {
     args.push('-c', `${key}=${JSON.stringify(value)}`);
   }
-  const child = spawnImpl(command, args, {
+  const child = spawnImpl(executable, args, {
     cwd,
-    env: { ...process.env, CONVERSATION_NAMER_WORKER: '1' },
+    env: { ...env, CONVERSATION_NAMER_WORKER: '1' },
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
@@ -160,4 +239,4 @@ function createAppServer({ cwd, timeoutMs = 60000, command = 'codex', spawnImpl 
   };
 }
 
-module.exports = { createAppServer, isolatedConfig };
+module.exports = { createAppServer, isolatedConfig, resolveCodexCommand };

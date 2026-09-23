@@ -13,13 +13,13 @@ const OVERRIDE_KEYS = [
   'prompt_keywords',
 ];
 
-// 2026-09-05 宿主暴露的能力快照，仅用于校验，不代表账号已开放这些模型。
+// 2026-09-23 核对 GPT-6 Sol/Luna，其余保留 2026-09-05 快照；仅用于校验，不代表账号可用性。
 const STANDARD_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
 const KNOWN_MODEL_EFFORTS = new Map([
   ['gpt-6-astra', [...STANDARD_EFFORTS, 'max', 'ultra']],
-  ['gpt-5.6-sol', [...STANDARD_EFFORTS, 'max', 'ultra']],
+  ['gpt-6-sol', [...STANDARD_EFFORTS, 'max', 'ultra']],
   ['gpt-5.6-terra', [...STANDARD_EFFORTS, 'max', 'ultra']],
-  ['gpt-5.6-luna', [...STANDARD_EFFORTS, 'max']],
+  ['gpt-6-luna', [...STANDARD_EFFORTS, 'max']],
   ['gpt-5.5', STANDARD_EFFORTS],
   ['gpt-5.4-mini', STANDARD_EFFORTS],
   ['gpt-5.3-codex-spark', STANDARD_EFFORTS],

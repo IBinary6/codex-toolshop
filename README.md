@@ -72,7 +72,7 @@ Dbg 自动填写发现到的宿主、Python、JDK、扩展目录及 MCP 路径�
 
 ## 会话命名怎么用
 
-安装 `conversation-namer-codex` 后，首条用户消息触发一次后台命名。插件从实时模型目录选择低成本定位的可用文本模型，使用其支持的最低推理档位和普通服务档，生成 `MMDD｜TYPE｜Topic`，无需绑定具体模型版本；目录不提供价格时，低成本定位不等于实时报价排序。主模型继续处理用户请求，不等待命名。日期取会话 `createdAt` 并转换为 `Asia/Shanghai`，类型默认为 `FEA`、`DES`、`FIX`、`OPT`、`REL`、`EXP`、`DOC` 或 `RES`。命名仅处理当前主任务；用户禁止改名、标题已变化、主题不清楚或调用失败时保留原标题。模型选择、状态及宿主界面刷新限制见[插件说明](plugins/conversation-namer-codex/README.md)。
+安装 `conversation-namer-codex` 后，首条用户消息触发一次后台命名。插件默认使用 `gpt-6-luna`，按实时目录采用其支持的最低推理档位和普通服务档，生成 `MMDD｜TYPE｜Topic`；也可显式配置 `model: "auto"` 恢复按低成本定位自动选择。主模型继续处理用户请求，不等待命名。日期取会话 `createdAt` 并转换为 `Asia/Shanghai`，类型默认为 `FEA`、`DES`、`FIX`、`OPT`、`REL`、`EXP`、`DOC` 或 `RES`。命名仅处理当前主任务；用户禁止改名、标题已变化、主题不清楚或调用失败时保留原标题。模型选择、状态及宿主界面刷新限制见[插件说明](plugins/conversation-namer-codex/README.md)。
 
 批量整理当前项目时，可以直接说：
 

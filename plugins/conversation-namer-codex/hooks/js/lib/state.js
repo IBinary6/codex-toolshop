@@ -64,7 +64,7 @@ function loadConfig(env = process.env) {
   let config = {};
   try { config = JSON.parse(fs.readFileSync(path.join(dataDirectory(env), 'config.json'), 'utf8')); }
   catch (error) { if (error.code !== 'ENOENT') throw error; }
-  const model = config.model === undefined ? 'auto' : config.model;
+  const model = config.model === undefined ? 'gpt-6-luna' : config.model;
   const timeoutSeconds = config.timeoutSeconds === undefined ? 60 : config.timeoutSeconds;
   if (typeof model !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(model)
       || !Number.isInteger(timeoutSeconds) || timeoutSeconds < 5 || timeoutSeconds > 120) {

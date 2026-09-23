@@ -105,35 +105,35 @@ Codex 支持项目级 `.codex/agents/*.toml` 自定义 Agent，并允许每个 A
 
 | Agent | 默认模型 | 推理强度 | 用途 |
 | --- | --- | --- | --- |
-| `dispatch_explorer` | `gpt-5.6-luna` | `medium` | 有边界的只读搜索与证据收集；明确代码结构问题才使用代码图。 |
-| `dispatch_mapper` | `gpt-5.6-luna` | `medium` | 大范围、多材料的只读扫描和关系整理。 |
-| `dispatch_researcher` | `gpt-5.6-luna` | `medium` | 官方来源、当前事实、市场/竞品及版本契约等外部研究。 |
-| `dispatch_luna_worker` | `gpt-5.6-luna` | `max` | 低成本劳动力：搜索、源码/日志取证、材料整理和既定测试执行；可写证据产物，不实现或修改产品/测试代码。 |
+| `dispatch_explorer` | `gpt-6-luna` | `medium` | 有边界的只读搜索与证据收集；明确代码结构问题才使用代码图。 |
+| `dispatch_mapper` | `gpt-6-luna` | `medium` | 大范围、多材料的只读扫描和关系整理。 |
+| `dispatch_researcher` | `gpt-6-luna` | `medium` | 官方来源、当前事实、市场/竞品及版本契约等外部研究。 |
+| `dispatch_luna_worker` | `gpt-6-luna` | `max` | 低成本劳动力：搜索、源码/日志取证、材料整理和既定测试执行；可写证据产物，不实现或修改产品/测试代码。 |
 | `dispatch_terra_worker` | `gpt-5.6-terra` | `high` | 有一定推理与工具需求的日常交付候选。 |
-| `dispatch_sol_worker` | `gpt-5.6-sol` | `medium` | 默认代码实现候选，以及需求明确、需要较多推理的复杂交付。 |
+| `dispatch_sol_worker` | `gpt-6-sol` | `medium` | 默认代码实现候选，以及需求明确、需要较多推理的复杂交付。 |
 | `dispatch_astra_worker` | `gpt-6-astra` | `medium` | 主代理确定计划后，处理多部分、多重约束或需要持续判断的困难交付。 |
 | `dispatch_worker` | 调度时明确选择 | 调度时明确选择 | 不固定模型的通用交付执行角色。 |
 | `dispatch_hard_worker` | 调度时明确选择 | 调度时明确选择 | 困难交付和复杂问题处理的动态执行角色。 |
-| `dispatch_tester` | `gpt-5.6-luna` | `medium` | 按既定用例、验收标准或复现步骤执行验证，不自行修改被验收交付物。 |
+| `dispatch_tester` | `gpt-6-luna` | `medium` | 按既定用例、验收标准或复现步骤执行验证，不自行修改被验收交付物。 |
 | `dispatch_planner` | `gpt-6-astra` | `xhigh` | 非琐碎计划与约束分析，最终决策仍由主代理负责。 |
 | `dispatch_reviewer` | `gpt-6-astra` | `xhigh` | 独立检查需求符合度、正确性、质量、回归和证据缺口。 |
 | `dispatch_deep_reviewer` | `gpt-6-astra` | `ultra` | 安全、权限、合规、财务、生产或真实数据等高影响审查。 |
 
 表格是本插件的可覆盖预设。主代理根据当前任务、上下文和宿主支持选择模型与推理档位；搜索、规划和审查角色也遵循用户显式偏好。切换到 Astra 或其他模型不需要重写整个工作流，也不要求所有角色使用同一个模型或推理档位。
 
-低成本路线由 `policy.low_cost` 控制，默认是 `gpt-5.6-luna/max`。它只承接日志、常规材料、机械数据、源码/调用取证和既定测试执行；混合“日志 + 修复”任务只把证据阶段交给 Luna。默认代码写作使用有效的 `dispatch_sol_worker (gpt-5.6-sol/medium)`。若 Sol profile 被禁用或固定组合被覆盖，则使用已启用且未固定的非 Luna worker 显式传 Sol/medium，或由主代理实现；不会把固定 Luna 的 generic worker 当作代码 writer。Terra、Astra 和 hard worker 仍可按实际复杂度或用户明确偏好选择。
+低成本路线由 `policy.low_cost` 控制，默认是 `gpt-6-luna/max`。它只承接日志、常规材料、机械数据、源码/调用取证和既定测试执行；混合“日志 + 修复”任务只把证据阶段交给 Luna。默认代码写作使用有效的 `dispatch_sol_worker (gpt-6-sol/medium)`。若 Sol profile 被禁用或固定组合被覆盖，则使用已启用且未固定的非 Luna worker 显式传 Sol/medium，或由主代理实现；不会把固定 Luna 的 generic worker 当作代码 writer。Terra、Astra 和 hard worker 仍可按实际复杂度或用户明确偏好选择。
 
-当前插件用于启动前校验的模型/推理能力快照如下（代码中的快照日期为 2026-09-05；它只用于发现明显不兼容组合，不是账户可用性探测）：
+当前插件用于启动前校验的模型/推理能力快照如下（GPT-6 Sol/Luna 已于 2026-09-23 核对，其余保留 2026-09-05 快照；它只用于发现明显不兼容组合，不是账户可用性探测）：
 
 | 模型 | 已记录的可用推理档位 |
 | --- | --- |
 | `gpt-6-astra` | `low`、`medium`、`high`、`xhigh`、`max`、`ultra` |
-| `gpt-5.6-sol` | `low`、`medium`、`high`、`xhigh`、`max`、`ultra` |
+| `gpt-6-sol` | `low`、`medium`、`high`、`xhigh`、`max`、`ultra` |
 | `gpt-5.6-terra` | `low`、`medium`、`high`、`xhigh`、`max`、`ultra` |
-| `gpt-5.6-luna` | `low`、`medium`、`high`、`xhigh`、`max`；不含 `ultra` |
+| `gpt-6-luna` | `low`、`medium`、`high`、`xhigh`、`max`；不含 `ultra` |
 | `gpt-5.5`、`gpt-5.4-mini`、`gpt-5.3-codex-spark` | `low`、`medium`、`high`、`xhigh` |
 
-因此，当前 `dispatch_luna_worker = gpt-5.6-luna/max` 是有效组合，`gpt-6-astra/ultra` 也是有效组合；不能把 Luna 改成 `ultra`。如果临时需要 GPT-6 的 `ultra`，应使用未固定模型和 effort 的 `dispatch_worker` 或 `dispatch_hard_worker`，显式传入 `model = gpt-6-astra` 与 `effort/thinking = ultra`，并先确认当前宿主实际支持及任务确实需要该强度。模型预设不会决定本地提交准备的模型；该流程由 skill 或用户按实际任务选择，并且不改变普通 Git 串行、最终 commit、远程操作和历史改写仍由主代理负责的边界。
+因此，当前 `dispatch_luna_worker = gpt-6-luna/max` 是有效组合，`gpt-6-astra/ultra` 也是有效组合；不能把 Luna 改成 `ultra`。如果临时需要 GPT-6 的 `ultra`，应使用未固定模型和 effort 的 `dispatch_worker` 或 `dispatch_hard_worker`，显式传入 `model = gpt-6-astra` 与 `effort/thinking = ultra`，并先确认当前宿主实际支持及任务确实需要该强度。模型预设不会决定本地提交准备的模型；该流程由 skill 或用户按实际任务选择，并且不改变普通 Git 串行、最终 commit、远程操作和历史改写仍由主代理负责的边界。
 
 主对话模型不受插件修改，仍由 Codex 桌面版模型选择器或顶层配置决定。生成文件会逐项加入 `.git/info/exclude`；同名手写文件、空文件、已被 Git 跟踪的文件以及符号链接入口均保留。未跟踪且带插件托管头的旧 profile 才能更新或清理。首次生成或修改模型配置后，新建 Codex 任务即可加载新的 Agent 配置。
 
@@ -182,7 +182,7 @@ Codex 支持项目级 `.codex/agents/*.toml` 自定义 Agent，并允许每个 A
     "max_parallel_subagents": 2,
     "low_cost": {
       "enabled": true,
-      "model": "gpt-5.6-luna",
+      "model": "gpt-6-luna",
       "model_reasoning_effort": "max"
     }
   },
@@ -211,7 +211,7 @@ Codex 支持项目级 `.codex/agents/*.toml` 自定义 Agent，并允许每个 A
 - 同层显式 `model` 和 `model_reasoning_effort` 原样保留，包括空字符串。空字符串省略对应 TOML 字段，交由宿主继承；只清空 `model` 且未指定 effort 时，两者一并继承。
 - 只覆盖为不同模型、未同时指定 effort 时，已知模型使用本插件的保守 `medium` 预设，避免沿用旧模型或主任务的 `ultra`。未知型号不猜能力，省略 effort 并提示核对宿主支持。
 - 只改描述或重复指定同一模型，不清除上一层的 effort；更近层级显式 effort 仍优先。
-- `config.js` 中的已知能力来自 2026-09-05 宿主列表，覆盖 Astra、Sol、Terra、Luna、5.5、5.4-mini 和 Spark。它用于发现不兼容组合，不是账号可用性探测；显式不兼容组合保留配置并在 SessionStart 提示，启动前必须按宿主实际能力处理。
+- `config.js` 中的 GPT-6 Sol/Luna 能力已于 2026-09-23 核对，其余保留原有快照。它用于发现不兼容组合，不是账号可用性探测；显式不兼容组合保留配置并在 SessionStart 提示，启动前必须按宿主实际能力处理。
 - `policy.low_cost` 按三层配置合并；其最终模型与推理档位必须由实际可用的 profile 或未固定的 `dispatch_worker` 明确承接，不得静默继承主代理的昂贵组合。
 
 将某个 profile 的 `enabled` 或整个 `agent_profiles.enabled` 设为 `false`，会在下次 SessionStart 清理对应的未跟踪托管文件；配置中已不存在的旧托管角色也会清理。手写、已跟踪文件和符号链接保留，需要由其所有者管理。现有任务中的已加载角色不会因此被远程卸载，请新建任务核对最终角色。

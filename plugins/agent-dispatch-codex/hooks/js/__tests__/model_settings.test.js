@@ -11,11 +11,11 @@ assert.deepEqual(modelEffortWarnings(baseline), []);
 const invalidLowCost = mergeConfig(loadDefaults(), {
   policy: { low_cost: { model_reasoning_effort: 'ultra' } },
 });
-assert.match(modelEffortWarnings(invalidLowCost).join('\n'), /policy\.low_cost.*gpt-5\.6-luna\/ultra/);
+assert.match(modelEffortWarnings(invalidLowCost).join('\n'), /policy\.low_cost.*gpt-6-luna\/ultra/);
 for (const profile of Object.values(baseline.agent_profiles.profiles)) {
   assert.notEqual(
     `${profile.model}/${profile.model_reasoning_effort}`,
-    'gpt-5.6-luna/ultra',
+    'gpt-6-luna/ultra',
     'Luna defaults must not request unsupported ultra effort'
   );
 }
@@ -24,7 +24,7 @@ baseline.agent_profiles.profiles.dispatch_worker.model_reasoning_effort = 'ultra
 function override(profile, base = baseline) {
   return mergeConfig(base, { agent_profiles: { profiles: { dispatch_worker: profile } } });
 }
-for (const model of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4-mini', 'gpt-5.3-codex-spark']) {
+for (const model of ['gpt-6-sol', 'gpt-5.6-terra', 'gpt-6-luna', 'gpt-5.5', 'gpt-5.4-mini', 'gpt-5.3-codex-spark']) {
   const effective = override({ model });
   const profile = effective.agent_profiles.profiles.dispatch_worker;
   assert.equal(profile.model, model);

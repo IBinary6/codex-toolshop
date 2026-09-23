@@ -112,7 +112,7 @@ try {
   assert.match(hardPrompt.hookSpecificOutput.additionalContext, /可写执行角色/);
   assert.match(hardPrompt.hookSpecificOutput.additionalContext, /模型和推理强度/);
   assert.match(hardPrompt.hookSpecificOutput.additionalContext, /主代理.*验收/);
-  assert.match(hardPrompt.hookSpecificOutput.additionalContext, /dispatch_sol_worker.*gpt-5\.6-sol\/medium/);
+  assert.match(hardPrompt.hookSpecificOutput.additionalContext, /dispatch_sol_worker.*gpt-6-sol\/medium/);
   assert.doesNotMatch(hardPrompt.hookSpecificOutput.additionalContext, /dispatch_luna_worker/);
 
   const plannedHardPrompt = parse(run('user_prompt_submit', {
@@ -123,7 +123,7 @@ try {
   assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /可写执行角色/);
   assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /无需重复规划/);
   assert.doesNotMatch(plannedHardPrompt.hookSpecificOutput.additionalContext, /必须串行两阶段|必须启动/);
-  assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /dispatch_sol_worker.*gpt-5\.6-sol\/medium/);
+  assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /dispatch_sol_worker.*gpt-6-sol\/medium/);
   assert.doesNotMatch(plannedHardPrompt.hookSpecificOutput.additionalContext, /dispatch_luna_worker/);
 
   const searchPrompt = parse(run('user_prompt_submit', {
@@ -131,7 +131,7 @@ try {
     prompt: '请搜索多个文件中的调用链和影响面',
   }));
   assert.match(searchPrompt.hookSpecificOutput.additionalContext, /dispatch_luna_worker/);
-  assert.match(searchPrompt.hookSpecificOutput.additionalContext, /gpt-5\.6-luna\/max/);
+  assert.match(searchPrompt.hookSpecificOutput.additionalContext, /gpt-6-luna\/max/);
   assert.match(searchPrompt.hookSpecificOutput.additionalContext, /图刷新由 CodeMap Boost 负责/);
   assert.match(searchPrompt.hookSpecificOutput.additionalContext, /不要重复 build\/update/);
 
@@ -145,7 +145,7 @@ try {
       prompt,
     }));
     assert.match(lowCostPrompt.hookSpecificOutput.additionalContext, /低成本/);
-    assert.match(lowCostPrompt.hookSpecificOutput.additionalContext, /gpt-5\.6-luna\/max/);
+    assert.match(lowCostPrompt.hookSpecificOutput.additionalContext, /gpt-6-luna\/max/);
     assert.match(lowCostPrompt.hookSpecificOutput.additionalContext, /dispatch_luna_worker/);
   }
 

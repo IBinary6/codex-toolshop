@@ -53,7 +53,7 @@ try {
   assert.equal(effective.policy.max_parallel_subagents, 2);
   assert.deepEqual(effective.policy.low_cost, {
     enabled: true,
-    model: 'gpt-5.6-luna',
+    model: 'gpt-6-luna',
     model_reasoning_effort: 'max',
   });
   assert.equal(effective.agent_profiles.profiles.dispatch_worker.model, 'gpt-5.6');
@@ -70,7 +70,7 @@ try {
   });
   assert.deepEqual(lowCostOverride.policy.low_cost, {
     enabled: false,
-    model: 'gpt-5.6-luna',
+    model: 'gpt-6-luna',
     model_reasoning_effort: 'max',
   });
 } finally {

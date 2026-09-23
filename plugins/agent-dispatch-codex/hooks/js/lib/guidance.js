@@ -220,7 +220,7 @@ function profileLabel(config, name) {
 function lowCostPolicy(config) {
   const defaults = {
     enabled: true,
-    model: 'gpt-5.6-luna',
+    model: 'gpt-6-luna',
     effort: 'max',
   };
   const configured = config && config.policy && config.policy.low_cost;
@@ -371,13 +371,13 @@ function dynamicWriterGuidance(config, options = {}) {
     const model = typeof profile.model === 'string' ? profile.model.trim() : '';
     const effort = typeof profile.model_reasoning_effort === 'string'
       ? profile.model_reasoning_effort.trim() : '';
-    if (codeWork && model === 'gpt-5.6-luna') return null;
+    if (codeWork && /(?:^|[._-])luna(?:$|[._-])/i.test(model)) return null;
     return { name, model, effort };
   };
   if (codeWork) {
     const sol = eligible('dispatch_sol_worker');
-    const defaultCandidate = sol && sol.model === 'gpt-5.6-sol' && sol.effort === 'medium'
-      ? `${sol.name} (gpt-5.6-sol/medium)`
+    const defaultCandidate = sol && sol.model === 'gpt-6-sol' && sol.effort === 'medium'
+      ? `${sol.name} (gpt-6-sol/medium)`
       : ['dispatch_worker', 'dispatch_hard_worker']
         .map(eligible)
         .find((profile) => profile && !profile.model && !profile.effort);
@@ -395,7 +395,7 @@ function dynamicWriterGuidance(config, options = {}) {
     }
     const defaultLabel = typeof defaultCandidate === 'string'
       ? defaultCandidate
-      : `${defaultCandidate.name}（显式 gpt-5.6-sol/medium）`;
+      : `${defaultCandidate.name}（显式 gpt-6-sol/medium）`;
     const alternativeGuidance = alternatives.length
       ? `；任务复杂度或用户明确偏好需要时，也可从已启用候选 ${alternatives.join('、')} 中选择`
       : '';
