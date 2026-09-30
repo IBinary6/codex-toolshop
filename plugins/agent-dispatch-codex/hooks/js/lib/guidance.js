@@ -2,7 +2,7 @@
 
 const { analyzeShellCommand } = require('./shell');
 const { GIT_HANDOFF, profileSummary } = require('./agent_profiles');
-const { modelEffortWarnings } = require('./config');
+const { loadDefaults, modelEffortWarnings } = require('./config');
 
 const REVIEW_TERMS = [
   '审查', '审核', '评审', 'review', 'audit', 'code review', 'reviewing',
@@ -149,6 +149,25 @@ function taskScopeGuidance(language = 'zh') {
     return 'Infer the current task from the full conversation and the latest explicit user instructions. Product behavior and quoted material are not task restrictions. Agent Dispatch keyword routes are fallible suggestions, not host restrictions or persistent task state. A later turn with no routing hint does not preserve an earlier route; continue the authorized objective while retaining actual user constraints that have not been changed.';
   }
   return '按完整对话和用户最新明确要求判断当前任务。产品行为和引用材料不等于任务限制；Agent Dispatch 关键词路线可能误判，只是候选建议，不是宿主限制或持久任务状态。后续没有新建议不代表旧路线继续生效；在已有授权内推进，保留尚未被用户改变的真实约束。';
+}
+
+function modelSelectionGuidance(language = 'zh') {
+  if (language === 'en') {
+    return 'Use Luna for bounded extraction, lookups, logs, and established test evidence. Use Sol high for code, substantive document interpretation, planning, and ordinary independent review when supported. Choose model and effort together: effort levels are not equivalent across model families. Reserve Astra for critical review decisions or exceptionally complex reasoning when the primary agent judges the benefit worth the total cost; keywords alone do not require escalation. Complex computer interaction may justify Sol max after checking host support. Do not escalate to max or ultra merely because a task mentions review or risk. Model catalogs are compatibility hints, not proof of account access; verify the actual loaded role and pair before spawning. Preserve explicit settings and use the configured compatible fallback when a preferred default is unavailable.';
+  }
+  return 'Luna 承接有界摘录、检索、日志和既定测试证据；代码、文档实质理解、规划和常规独立审查优先受支持的 Sol high。模型与档位共同选择，不同模型的档位不等价。Astra 仅在关键审查或极复杂推理中，由主代理判断收益值得总成本时使用，关键词不自动触发升级。复杂电脑操作可核对宿主支持后选 Sol max；不因审查角色或风险词自动拉满 max/ultra。模型目录只是兼容提示，不证明账号可用；启动前核对实际加载角色与组合。保留显式设置，首选默认组合不可用时使用配置的兼容回退。';
+}
+
+function codeImplementationPair(config) {
+  const configured = config?.agent_profiles?.profiles?.dispatch_sol_worker;
+  if (configured && typeof configured.model === 'string' && configured.model.trim()
+      && !/(?:^|[._-])luna(?:$|[._-])/i.test(configured.model)
+      && typeof configured.model_reasoning_effort === 'string'
+      && configured.model_reasoning_effort.trim()) {
+    return `${configured.model.trim()}/${configured.model_reasoning_effort.trim()}`;
+  }
+  const fallback = loadDefaults().agent_profiles.profiles.dispatch_sol_worker;
+  return `${fallback.model}/${fallback.model_reasoning_effort}`;
 }
 
 function reviewLifecycleGuidance(language = 'zh', subagent = false) {
@@ -376,8 +395,9 @@ function dynamicWriterGuidance(config, options = {}) {
   };
   if (codeWork) {
     const sol = eligible('dispatch_sol_worker');
-    const defaultCandidate = sol && sol.model === 'gpt-6-sol' && sol.effort === 'medium'
-      ? `${sol.name} (gpt-6-sol/medium)`
+    const pair = codeImplementationPair(config);
+    const defaultCandidate = sol && sol.model && sol.effort
+      ? sol
       : ['dispatch_worker', 'dispatch_hard_worker']
         .map(eligible)
         .find((profile) => profile && !profile.model && !profile.effort);
@@ -391,15 +411,15 @@ function dynamicWriterGuidance(config, options = {}) {
       const alternativeGuidance = alternatives.length
         ? `，或按任务复杂度与用户明确偏好选择已启用替代角色 ${alternatives.join('、')}`
         : '';
-      return `当前没有符合默认 Sol/medium 组合的代码实现候选，由主代理直接完成${alternativeGuidance}。`;
+      return `当前没有符合有效 ${pair} 组合的代码实现候选，由主代理直接完成${alternativeGuidance}。`;
     }
-    const defaultLabel = typeof defaultCandidate === 'string'
-      ? defaultCandidate
-      : `${defaultCandidate.name}（显式 gpt-6-sol/medium）`;
+    const defaultLabel = defaultCandidate.model
+      ? `${defaultCandidate.name} (${defaultCandidate.model}/${defaultCandidate.effort})`
+      : `${defaultCandidate.name}（显式 ${pair}）`;
     const alternativeGuidance = alternatives.length
       ? `；任务复杂度或用户明确偏好需要时，也可从已启用候选 ${alternatives.join('、')} 中选择`
       : '';
-    return `可写执行角色的代码实现默认候选为 ${defaultLabel}${alternativeGuidance}，按实际复杂度和用户明确偏好选择模型和推理强度。固定 profile 的有效配置优先，未固定角色须显式传 model 与 effort；启动前核对宿主实际支持，未加载或不合规时由主代理完成。`;
+    return `可写执行角色的代码实现默认候选为 ${defaultLabel}${alternativeGuidance}，按实际任务选择模型和推理强度；Astra 仅在主代理判断关键复杂度值得其成本时选择。固定 profile 的有效配置优先，未固定角色须显式传 model 与 effort；启动前核对宿主实际支持，未加载时可用未固定角色显式传受支持组合，或由主代理完成。`;
   }
   const hasWritableProfile = Object.keys(profiles || {}).some((name) => eligible(name));
   if (!hasWritableProfile) return '当前没有启用的可写执行角色，由主代理直接完成。';
@@ -663,7 +683,7 @@ function routeGuidance(route, config) {
     case 'high-risk-implementation':
       return `任务路由：涉及安全、权限或并发等风险的修改。主代理先核对实际工作流程、契约、已有授权和验收标准，涉及代码时核对真实调用路径；明确边界后才委派有界修改，不因关键词扩大权限或重复请求已有授权。${dynamicWriterGuidance(config, { codeWork: true })} ${reviewFeedbackGuidance()}${lowCostEvidenceGuidance(route, config)}`;
     case 'high-risk-review':
-      return `任务路由：高风险审查。${roleFallback(config, ['dispatch_deep_reviewer', 'dispatch_reviewer'])} ${reviewLifecycleGuidance()}`;
+      return `任务路由：高风险审查。${roleFallback(config, ['dispatch_reviewer', 'dispatch_deep_reviewer'])} ${profileEnabled(config, 'dispatch_deep_reviewer') ? `关键验收或极复杂约束确需更强判断时，主代理可选择 ${profileLabel(config, 'dispatch_deep_reviewer')}；风险关键词本身不要求升级。` : ''} ${reviewLifecycleGuidance()}`;
     case 'hard-task': {
       const writer = dynamicWriterGuidance(config, { codeWork: true });
       if (!route.requiresPlanner) {
@@ -695,17 +715,19 @@ function mainAgentGuidance(config, compact = false) {
   const modelWarnings = modelEffortWarnings(config);
   const lowCost = lowCostPolicy(config);
   const lowCostPair = `${lowCost.model}/${lowCost.effort}`;
+  const codePair = codeImplementationPair(config);
   if (compact) {
     const lines = [
       'Agent Dispatch：你是主代理。需求澄清、关键方案与公开契约决策、任务拆分、结果审查和最终整合由主代理负责；',
       '调查、规划分析、内容或产品制作、运营/文档/数据处理、代码实现、验证和审查等明确有界子任务，可按收益交给匹配角色；琐碎读取、小改和强耦合步骤直接完成。',
       taskScopeGuidance(),
+      modelSelectionGuidance(),
       '按角色描述、歧义、约束、验收反馈及整个任务的总成本（上下文、返工、审查、延迟）从已启用候选中选角色、模型和推理强度；高歧义可直接选更强候选，不机械按关键词或给所有角色拉满。关键词路由不覆盖授权、只读范围或已有方案。',
       '未固定模型的 writer 必须显式传 model 与 effort，避免无意继承昂贵主模型。原生 TOML 固定值优先于 spawn 参数；临时组合应选未固定字段角色并显式传参。按宿主规则，当前完整历史 fork 不接受覆盖，应按宿主支持仅传最小必要上下文。',
       ...(lowCost.enabled ? [`低成本劳动力路线：日志、常规文档/结构化数据、文本提取、代码取证和既定代码测试，默认委派给 policy.low_cost 指定的合规角色（${lowCostPair}）；该角色只产出材料与证据，不实现或修改产品/测试代码。不可用时保留有界阻塞，不静默升级或把长原文回退给主代理。`] : []),
       lowCost.enabled
-        ? `代码任务按阶段分工：低成本角色（${lowCostPair}）只收集日志、调用链、源码位置和既定测试证据；代码写作默认按有效配置使用 Sol medium 候选，受影响验证与必要审查单独选择。混合任务只把证据阶段交给低成本角色。`
-        : '代码任务按阶段分工：先收集位置和必要摘录，关键接口与方案由主代理决定；代码实现默认按有效配置使用 Sol medium 候选，受影响验证与必要审查单独选择。',
+        ? `代码任务按阶段分工：低成本角色（${lowCostPair}）只收集日志、调用链、源码位置和既定测试证据；代码写作默认按有效配置使用 ${codePair} 候选，受影响验证与必要审查单独选择。混合任务只把证据阶段交给低成本角色。`
+        : `代码任务按阶段分工：先收集位置和必要摘录，关键接口与方案由主代理决定；代码实现默认按有效配置使用 ${codePair} 候选，受影响验证与必要审查单独选择。`,
       'policy.low_cost 之外的常规路由启动前核对模型/推理组合；默认组合不可用时选受支持组合或由主代理处理，不把主任务的 ultra 强加给不支持它的模型，用户明确指定的模型不得擅自替换。',
       '只有明确的代码结构、调用关系或代码审查任务才优先使用代码图；Agent Dispatch 只负责选代理，图刷新和检索规则由 CodeMap Boost 负责，不要把普通设计评审或业务依赖送入代码图。',
       '按交付物选择验证证据，不要求非代码成果运行构建。涉及代码时，默认不审查或格式化/lint 第三方实现，只核对自有代码集成与必要依赖接口。',
@@ -723,14 +745,15 @@ function mainAgentGuidance(config, compact = false) {
   const lines = [
     'Agent Dispatch policy for the primary Codex agent:',
     `- ${taskScopeGuidance('en')}`,
+    `- ${modelSelectionGuidance('en')}`,
     '- Keep requirements clarification, key plan and public-contract decisions, task decomposition, result review, and final integration in the primary agent.',
     '- Delegate bounded investigation, planning analysis, content or product production, operations, document or data work, code implementation, verification, and review when a separate role has clear value, even when that work is sequential.',
     '- Choose among enabled candidates from role descriptions, ambiguity, constraints, acceptance feedback, explicit user preference, host availability, and total task cost including context, rework, review, and latency. High ambiguity may justify a stronger candidate immediately; do not route domains mechanically by keywords or maximize every role.',
     '- For an unpinned writer, explicitly pass model and effort so it does not accidentally inherit an expensive primary model. Native TOML model/effort values override spawn parameters; for a temporary combination choose a role with unpinned fields and pass both explicitly. Under the host rules, the current full-history fork does not accept overrides, so pass only the minimum needed context using a host-supported combination.',
     ...(lowCost.enabled ? [`- Delegate bounded log, routine document or structured-data, text-extraction, code-evidence, and established code-test labor to the configured low-cost candidate (${lowCostPair}) by default. It may produce evidence artifacts but does not implement or modify product or test code. If unavailable, keep the subtask bounded or blocked rather than silently upgrading.`] : []),
     lowCost.enabled
-      ? `- For code work, give only logs, call-chain/source evidence, and established test execution to the low-cost candidate (${lowCostPair}). Use the effective Sol medium candidate for code writing by default, with enabled Terra, Astra, or an unpinned writer available when actual complexity or an explicit preference calls for them. In mixed tasks, split only the evidence stage to low-cost labor.`
-      : '- For code work, gather evidence locations and necessary excerpts first. Use the effective Sol medium candidate for code writing by default, with enabled alternatives or primary-agent execution when configuration or task constraints require them.',
+      ? `- For code work, give only logs, call-chain/source evidence, and established test execution to the low-cost candidate (${lowCostPair}). Use the effective ${codePair} candidate for code writing by default; select enabled alternatives only when justified by actual complexity or explicit preference. In mixed tasks, split only the evidence stage to low-cost labor.`
+      : `- For code work, gather evidence locations and necessary excerpts first. Use the effective ${codePair} candidate for code writing by default, with enabled alternatives or primary-agent execution when configuration or task constraints require them.`,
     '- For routing outside policy.low_cost, profile defaults and keyword routes are suggestions, not proof of runtime availability or permission to override user scope. Verify the host-supported model/effort pair before spawning; if an ordinary default combination is unavailable, use supported settings or primary-agent work, never carry ultra blindly into a model that does not support it, and do not silently replace an explicitly requested model.',
     '- Only for explicit code structure, call-relationship, or code-review tasks, prefer available graph tools. Agent Dispatch selects the agent; CodeMap Boost owns graph refresh and retrieval policy. Do not send ordinary design reviews or business dependencies to a code graph.',
     '- Choose validation evidence for the actual deliverable; builds and code tests are not universal requirements. For code work, exclude vendored third-party implementations from review, formatting, and lint unless explicitly requested, and review first-party integration contracts.',

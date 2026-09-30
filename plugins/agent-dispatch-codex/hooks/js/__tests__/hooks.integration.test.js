@@ -17,7 +17,7 @@ execFileSync('git', ['init', '-q'], { cwd: repo });
 function run(hook, input) {
   const result = spawnSync(process.execPath, [runner, hook], {
     cwd: repo,
-    env: { ...process.env, PLUGIN_ROOT: pluginRoot, PLUGIN_DATA: data },
+    env: { ...process.env, PLUGIN_ROOT: pluginRoot, PLUGIN_DATA: data, CODEX_HOME: path.join(temp, 'codex-home') },
     input: JSON.stringify({ cwd: repo, session_id: 's-1', turn_id: 't-1', ...input }),
     encoding: 'utf8',
     windowsHide: process.platform === 'win32',
@@ -66,6 +66,39 @@ try {
     assert.match(fullSession.hookSpecificOutput.additionalContext, /Agent Dispatch policy for the primary Codex agent/);
     assert.doesNotMatch(fullSession.hookSpecificOutput.additionalContext, /独立且并行有收益时委派/);
   }
+
+  // 通过真实 Hook 入口核对：目录选择、生成的 TOML 与提示必须使用同一组合。
+  const codexHome = path.join(temp, 'codex-home');
+  fs.mkdirSync(codexHome);
+  const catalogPath = path.join(codexHome, 'models_cache.json');
+  const solProfile = path.join(repo, '.codex', 'agents', 'dispatch_sol_worker.toml');
+  for (const [models, model, effort] of [
+    [[['gpt-6.1-sol', ['high']], ['gpt-6-sol', ['medium', 'high']]], 'gpt-6.1-sol', 'high'],
+    [[['gpt-6-sol', ['medium', 'high']]], 'gpt-6-sol', 'medium'],
+    [[['gpt-5.6-sol', ['medium', 'high']]], 'gpt-5.6-sol', 'medium'],
+    [[['gpt-6.1-sol', ['medium']], ['gpt-6-sol', ['medium', 'high']]], 'gpt-6-sol', 'medium'],
+  ]) {
+    fs.writeFileSync(catalogPath, JSON.stringify({
+      fetched_at: new Date().toISOString(),
+      models: models.map(([slug, efforts]) => ({
+        slug, supported_reasoning_levels: efforts.map((effort) => ({ effort })),
+      })),
+    }));
+    const context = parse(run('session_start', { source: 'startup' })).hookSpecificOutput.additionalContext;
+    assert.ok(context.includes(`${model}/${effort} candidate for code writing`));
+    const toml = fs.readFileSync(solProfile, 'utf8');
+    assert.ok(toml.includes(`model = "${model}"`));
+    assert.ok(toml.includes(`model_reasoning_effort = "${effort}"`));
+    assert.doesNotMatch(toml, /^model_candidates/m, 'plugin metadata is not a native TOML field');
+    const prompt = parse(run('user_prompt_submit', { prompt: '请实现这个常规功能' }));
+    assert.ok(prompt.hookSpecificOutput.additionalContext.includes(`dispatch_sol_worker (${model}/${effort})`));
+    const compact = parse(run('session_start', { source: 'compact' }));
+    assert.ok(compact.hookSpecificOutput.additionalContext.includes(`代码写作默认按有效配置使用 ${model}/${effort}`));
+  }
+  fs.writeFileSync(catalogPath, '{invalid');
+  run('session_start', { source: 'startup' });
+  assert.match(fs.readFileSync(solProfile, 'utf8'), /model = "gpt-6-sol"/);
+  fs.unlinkSync(catalogPath);
 
   assert.equal(run('user_prompt_submit', {
     hook_event_name: 'UserPromptSubmit',

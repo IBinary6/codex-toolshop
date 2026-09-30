@@ -5,6 +5,7 @@ const { spawnSync } = require('child_process');
 
 const tests = [
   'model_settings.test.js',
+  'model_candidates.test.js',
   'config.test.js',
   'agent_profiles.test.js',
   'shell.test.js',

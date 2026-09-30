@@ -30,7 +30,9 @@ assert.match(mainAgentGuidance(config), /explicitly pass model and effort/);
 assert.match(mainAgentGuidance(config), /configured low-cost candidate \(gpt-6-luna\/max\)/);
 assert.match(mainAgentGuidance(config), /Delegate bounded .*configured low-cost candidate \(gpt-6-luna\/max\) by default/);
 assert.match(mainAgentGuidance(config), /does not implement or modify product or test code/);
-assert.match(mainAgentGuidance(config), /effective Sol medium candidate for code writing by default/);
+assert.match(mainAgentGuidance(config), /effective gpt-6-sol\/medium candidate for code writing by default/);
+assert.match(mainAgentGuidance(config), /Reserve Astra for critical review decisions/);
+assert.match(mainAgentGuidance(config), /Do not escalate to max or ultra merely because a task mentions review or risk/);
 assert.match(mainAgentGuidance(config), /split only the evidence stage to low-cost labor/);
 assert.match(mainAgentGuidance(config), /code-evidence/);
 assert.doesNotMatch(mainAgentGuidance(config), /cost-efficient execution agent/);
@@ -82,7 +84,8 @@ assert.match(mainAgentGuidance(config, true), /未固定模型的 writer 必须�
 assert.match(mainAgentGuidance(config, true), /低成本劳动力路线/);
 assert.match(mainAgentGuidance(config, true), /代码任务按阶段分工/);
 assert.match(mainAgentGuidance(config, true), /不实现或修改产品\/测试代码/);
-assert.match(mainAgentGuidance(config, true), /代码写作默认按有效配置使用 Sol medium/);
+assert.match(mainAgentGuidance(config, true), /代码写作默认按有效配置使用 gpt-6-sol\/medium/);
+assert.match(mainAgentGuidance(config, true), /Astra 仅在关键审查或极复杂推理/);
 assert.match(mainAgentGuidance(config, true), /原生 TOML 固定值优先于 spawn 参数/);
 assert.match(mainAgentGuidance(config, true), /当前完整历史 fork 不接受覆盖/);
 assert.match(mainAgentGuidance(config, true), /复用原 writer 有界修复/);
@@ -284,7 +287,7 @@ assert.match(plannedHard, /dispatch_sol_worker.*gpt-6-sol\/medium/);
 assert.doesNotMatch(plannedHard, /dispatch_luna_worker/);
 
 assert.match(promptGuidance('请设计新的架构和接口方案', config), /dispatch_planner/);
-assert.match(promptGuidance('请设计新的架构和接口方案', config), /gpt-6-astra\/xhigh/);
+assert.match(promptGuidance('请设计新的架构和接口方案', config), /gpt-6-sol\/high/);
 assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', config), /dispatch_luna_worker/);
 assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', config), /gpt-6-luna\/max/);
 assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', config), /图刷新由 CodeMap Boost 负责/);
@@ -306,7 +309,9 @@ assert.match(implementation, /每次新建或复用审查代理/);
 assert.match(implementation, /纯证据收集或既定测试结果不等于独立审查通过/);
 assert.match(promptGuidance('请审查这段代码的正确性', config), /dispatch_reviewer/);
 assert.match(promptGuidance('review this code for correctness', config), /dispatch_reviewer/);
-assert.match(promptGuidance('请审查这段代码的正确性', config), /gpt-6-astra\/xhigh/);
+assert.match(promptGuidance('请审查这段代码的正确性', config), /gpt-6-sol\/high/);
+assert.doesNotMatch(promptGuidance('请审查这段代码的正确性', config), /dispatch_deep_reviewer/);
+assert.match(promptGuidance('请审查安全权限风险', config), /风险关键词本身不要求升级/);
 
 for (const name of ['dispatch_reviewer', 'dispatch_deep_reviewer']) {
   const instructions = config.agent_profiles.profiles[name].developer_instructions;
@@ -571,7 +576,7 @@ assert.doesNotMatch(promptGuidance('请审查安全权限风险', disabled), /di
 assert.match(promptGuidance('请审查安全权限风险', disabled), /主代理/);
 assert.doesNotMatch(promptGuidance('请扫描整个仓库的跨模块调用链', disabled), /dispatch_mapper|dispatch_explorer/);
 assert.match(promptGuidance('请扫描整个仓库的跨模块调用链', disabled), /没有.*低成本|Luna max/);
-assert.match(promptGuidance('请实现这个常规功能', disabled), /当前没有符合默认 Sol\/medium 组合的代码实现候选，由主代理直接完成/);
+assert.match(promptGuidance('请实现这个常规功能', disabled), /当前没有符合有效 gpt-6-sol\/medium 组合的代码实现候选，由主代理直接完成/);
 assert.match(promptGuidance('按已有用例验证流程，不修改产品', disabled), /由主代理直接完成/);
 assert.doesNotMatch(promptGuidance('按已有用例验证流程，不修改产品', disabled), /dispatch_tester/);
 assert.match(promptGuidance('research competitor pricing from official sources', disabled), /由主代理直接完成/);
@@ -599,9 +604,9 @@ solOverridden.agent_profiles.profiles.dispatch_sol_worker.model = 'gpt-6-astra';
 solOverridden.agent_profiles.profiles.dispatch_sol_worker.model_reasoning_effort = 'high';
 assert.match(
   promptGuidance('请实现这个常规功能', solOverridden),
-  /dispatch_worker.*显式 gpt-6-sol\/medium/
+  /dispatch_sol_worker.*gpt-6-astra\/high/
 );
-assert.doesNotMatch(promptGuidance('请实现这个常规功能', solOverridden), /dispatch_sol_worker/);
+assert.doesNotMatch(promptGuidance('请实现这个常规功能', solOverridden), /显式 gpt-6-sol\/medium/);
 const fixedLunaGeneric = JSON.parse(JSON.stringify(config));
 fixedLunaGeneric.agent_profiles.profiles.dispatch_sol_worker.enabled = false;
 fixedLunaGeneric.agent_profiles.profiles.dispatch_worker.model = 'gpt-6-luna';
@@ -641,7 +646,7 @@ for (const name of [
 assert.equal(testerOnly.agent_profiles.profiles.dispatch_tester.role_kind, 'verification');
 assert.match(
   promptGuidance('请实现这个常规功能', testerOnly),
-  /当前没有符合默认 Sol\/medium 组合的代码实现候选，由主代理直接完成/,
+  /当前没有符合有效 gpt-6-sol\/medium 组合的代码实现候选，由主代理直接完成/,
   'a verification specialist must not be offered as a product-code writer'
 );
 const laborAndTesterOnly = JSON.parse(JSON.stringify(config));
@@ -657,7 +662,7 @@ for (const name of [
 assert.equal(laborAndTesterOnly.agent_profiles.profiles.dispatch_luna_worker.role_kind, 'labor');
 assert.match(
   promptGuidance('请实现这个常规功能', laborAndTesterOnly),
-  /当前没有符合默认 Sol\/medium 组合的代码实现候选，由主代理直接完成/,
+  /当前没有符合有效 gpt-6-sol\/medium 组合的代码实现候选，由主代理直接完成/,
   'labor and verification profiles must not be offered as code writers'
 );
 

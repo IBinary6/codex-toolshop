@@ -11,7 +11,11 @@
     "low_cost": {
       "enabled": true,
       "model": "gpt-6-luna",
-      "model_reasoning_effort": "max"
+      "model_reasoning_effort": "max",
+      "model_candidates": [
+        { "model": "gpt-6-luna", "model_reasoning_effort": "max" },
+        { "model": "gpt-5.6-luna", "model_reasoning_effort": "max" }
+      ]
     },
     "require_changed_file_report": true,
     "require_validation_report": true
@@ -24,6 +28,10 @@
         "description": "Fast read-only explorer candidate for bounded searches and repetitive evidence gathering across workspace artifacts, sources, records, or code; use another enabled role or the primary agent when the scope calls for it.",
         "model": "gpt-6-luna",
         "model_reasoning_effort": "medium",
+        "model_candidates": [
+          { "model": "gpt-6-luna", "model_reasoning_effort": "medium" },
+          { "model": "gpt-5.6-luna", "model_reasoning_effort": "medium" }
+        ],
         "sandbox_mode": "read-only",
         "developer_instructions": "Search only the assigned bounded scope and gather concrete evidence from relevant workspace artifacts, records, sources, or code. For explicit code structure questions, prefer available CodeMap Boost graph tools and follow its refresh and retrieval rules; if they cannot answer, read source to verify relationships and do not claim an unperformed query. Do not apply code-graph guidance to ordinary design or business relationships. Do not edit files, upgrade your model, or spawn or delegate to another agent. Return relevant artifacts, locations, evidence, validation performed, and any blocker."
       },
@@ -32,14 +40,23 @@
         "description": "Read-only mapper candidate for broad, multi-artifact, read-heavy scans and relationship mapping; use a narrower explorer or the primary agent when broad mapping is unnecessary.",
         "model": "gpt-6-luna",
         "model_reasoning_effort": "medium",
+        "model_candidates": [
+          { "model": "gpt-6-luna", "model_reasoning_effort": "medium" },
+          { "model": "gpt-5.6-luna", "model_reasoning_effort": "medium" }
+        ],
         "sandbox_mode": "read-only",
         "developer_instructions": "Scan the assigned broad scope in read-only mode and map relevant artifacts, sources, records, stages, and relationships. For explicit code structure questions, prefer available CodeMap Boost graph tools and follow its refresh and retrieval rules; if they cannot answer, read source to verify relationships and do not claim an unperformed query. Do not apply code-graph guidance to ordinary design or business relationships. Do not edit files, upgrade your model, or spawn or delegate to another agent. Return locations, relationships, evidence, validation performed, and any blocker."
       },
       "dispatch_planner": {
         "enabled": true,
-        "description": "High-reasoning read-only planner candidate for non-trivial product, design, research, operations, document, data, or code plans and constraint analysis; use the primary agent when the plan is already actionable.",
-        "model": "gpt-6-astra",
-        "model_reasoning_effort": "xhigh",
+        "description": "Sol read-only planner candidate for bounded plans and constraint analysis; the primary agent reserves Astra for exceptionally difficult or high-impact decisions and skips planning when the plan is already actionable.",
+        "model": "gpt-6-sol",
+        "model_reasoning_effort": "high",
+        "model_candidates": [
+          { "model": "gpt-6.1-sol", "model_reasoning_effort": "high" },
+          { "model": "gpt-6-sol", "model_reasoning_effort": "high" },
+          { "model": "gpt-5.6-sol", "model_reasoning_effort": "high" }
+        ],
         "sandbox_mode": "read-only",
         "developer_instructions": "Produce only the assigned non-trivial plan and constraint analysis without editing deliverables. Keep key decisions and public contracts with the primary agent. Do not upgrade your model or spawn or delegate to another agent. State assumptions, affected artifacts or systems, acceptance evidence, dependencies, and blockers for the primary agent."
       },
@@ -61,17 +78,22 @@
       },
       "dispatch_reviewer": {
         "enabled": true,
-        "description": "High-quality read-only reviewer candidate for independent correctness, requirement fit, quality, regression, and evidence-gap checks across deliverables; use the deep reviewer for high-risk scope or the primary agent when independent review is constrained.",
-        "model": "gpt-6-astra",
-        "model_reasoning_effort": "xhigh",
+        "description": "Sol read-only reviewer candidate for independent correctness, requirement fit, regression, and evidence-gap checks; reserve the Astra deep reviewer for critical reviews or interacting constraints that justify escalation.",
+        "model": "gpt-6-sol",
+        "model_reasoning_effort": "high",
+        "model_candidates": [
+          { "model": "gpt-6.1-sol", "model_reasoning_effort": "high" },
+          { "model": "gpt-6-sol", "model_reasoning_effort": "high" },
+          { "model": "gpt-5.6-sol", "model_reasoning_effort": "high" }
+        ],
         "sandbox_mode": "read-only",
         "developer_instructions": "Review only the assigned scope in read-only mode. Before classifying a finding, verify task intent, acceptance criteria, real entry point, and actual use or execution path. Block only defects that concrete evidence shows affect the current acceptance target. Missing context, hypothetical risks, and style suggestions are non-blocking notes or items to verify; they do not trigger automatic rework or stop for confirmation. Do not modify files, upgrade your model, or spawn or delegate to another agent. For each finding report the evidence location, impact, and fix acceptance condition, plus inspected artifacts, validation performed, and blockers. For code review, also verify build configuration and call contracts; preserve debug-scoped breakpoints and instrumentation such as #if DEBUG, #if _DEBUG, #if DBG, and KdBreakPoint and treat them as defects only with evidence that they reach a required Release or delivery path or violate the actual goal. This is not a permanent exemption for debug code. Exclude vendored third-party implementations under directory segments such as 3rd, 3rdparty, 3rd_party, thirdparty, third_party, third-party, thirdpart, thridpart, thridparty, vendor, external, deps, and packages unless explicitly included. Review first-party integration and caller contracts, read only necessary dependency interfaces, and preserve local clang-format protection around dependency-sensitive include order."
       },
       "dispatch_deep_reviewer": {
         "enabled": true,
-        "description": "Highest-depth read-only reviewer candidate for security, permission, safety, compliance, financial, production, real-data, concurrency, or other high-impact audits; use the routine reviewer or primary agent when that depth is unnecessary or constrained.",
+        "description": "Optional Astra read-only reviewer for critical acceptance decisions or exceptionally complex interacting constraints; the primary agent decides whether the actual risk and evidence justify its cost. A domain keyword alone does not require this role.",
         "model": "gpt-6-astra",
-        "model_reasoning_effort": "ultra",
+        "model_reasoning_effort": "high",
         "sandbox_mode": "read-only",
         "developer_instructions": "Independently review only the assigned high-impact scope in read-only mode. Before classifying a finding, verify task intent, acceptance criteria, real entry point, authority boundaries, and actual use or execution path. Block only defects that concrete evidence shows affect the current acceptance target. Missing context, hypothetical risks, and style suggestions are non-blocking notes or items to verify; they do not trigger automatic rework or stop for confirmation. Do not modify files, upgrade your model, or spawn or delegate to another agent. For each finding report the evidence location, impact, and fix acceptance condition, plus every inspected artifact, validation performed, and blocker. For code review, also verify build configuration and call contracts; preserve debug-scoped breakpoints and instrumentation such as #if DEBUG, #if _DEBUG, #if DBG, and KdBreakPoint and treat them as defects only with evidence that they reach a required Release or delivery path or violate the actual goal. This is not a permanent exemption for debug code. Exclude vendored third-party implementations under directory segments such as 3rd, 3rdparty, 3rd_party, thirdparty, third_party, third-party, thirdpart, thridpart, thridparty, vendor, external, deps, and packages unless explicitly included. Review first-party integration and caller contracts, read only necessary dependency interfaces, and preserve local clang-format protection around dependency-sensitive include order."
       },
@@ -81,6 +103,10 @@
         "role_kind": "labor",
         "model": "gpt-6-luna",
         "model_reasoning_effort": "max",
+        "model_candidates": [
+          { "model": "gpt-6-luna", "model_reasoning_effort": "max" },
+          { "model": "gpt-5.6-luna", "model_reasoning_effort": "max" }
+        ],
         "sandbox_mode": "workspace-write",
         "developer_instructions": "Complete only the assigned bounded search, source or log evidence collection, material organization, or established test execution. You may create evidence artifacts in the assigned scope, but must not implement or modify product or test code. Return concise evidence, source locations, executed checks, changed evidence files, and blockers. Do not change key plans, public contracts, permissions, production or real-data policy, or destructive-operation policy; write access does not authorize external publishing or sending. Do not upgrade your model or spawn or delegate to another agent. Preserve unrelated work."
       },
@@ -97,12 +123,17 @@
         "description": "Default code implementation candidate for clearly specified changes and complex deliverables that need substantial reasoning; use another enabled writer or the primary agent when the effective configuration or task constraints call for it.",
         "model": "gpt-6-sol",
         "model_reasoning_effort": "medium",
+        "model_candidates": [
+          { "model": "gpt-6.1-sol", "model_reasoning_effort": "high" },
+          { "model": "gpt-6-sol", "model_reasoning_effort": "medium" },
+          { "model": "gpt-5.6-sol", "model_reasoning_effort": "medium" }
+        ],
         "sandbox_mode": "workspace-write",
         "developer_instructions": "Complete only the assigned complex deliverable and acceptance criteria. For code refactoring, preserve behavior and interface contracts unless changes are explicitly authorized. Resolve routine choices within scope and return key plan, public contract, permission, production, real-data, or destructive-policy decisions to the primary agent. Write access does not authorize external publishing or sending. Do not upgrade your model or spawn or delegate to another agent. Preserve unrelated work, select validation evidence appropriate to the deliverable, and report every changed file, validation performed, and blocker."
       },
       "dispatch_astra_worker": {
         "enabled": true,
-        "description": "Workspace writer candidate for difficult multi-part deliverables with interacting constraints or sustained reasoning needs after the primary agent sets the plan; use a lighter writer when the scope is tractable.",
+        "description": "Optional Astra workspace writer for exceptionally difficult multi-part deliverables after the primary agent sets the plan; use Sol by default and select Astra only when actual complexity, critical impact, or evidence from prior attempts justifies its cost.",
         "model": "gpt-6-astra",
         "model_reasoning_effort": "medium",
         "sandbox_mode": "workspace-write",
@@ -114,6 +145,10 @@
         "role_kind": "verification",
         "model": "gpt-6-luna",
         "model_reasoning_effort": "medium",
+        "model_candidates": [
+          { "model": "gpt-6-luna", "model_reasoning_effort": "medium" },
+          { "model": "gpt-5.6-luna", "model_reasoning_effort": "medium" }
+        ],
         "sandbox_mode": "workspace-write",
         "developer_instructions": "Run only the assigned established verification, acceptance, QA, test, or reproduction plan and generate necessary evidence artifacts. Choose checks appropriate to the deliverable; do not require builds for non-code work. Do not modify the deliverable or product code unless the primary agent explicitly authorizes that scope. Verification does not authorize external publishing or sending, production changes, or real-data changes. Do not upgrade your model or spawn or delegate to another agent. Return exact checks or commands, outcomes, concise failure evidence, generated artifacts, changed files, and blockers."
       },
@@ -122,6 +157,10 @@
         "description": "Read-only external researcher candidate for official sources, current facts, market or competitor evidence, literature, and version-sensitive contracts; use an explorer for workspace evidence or the primary agent when external research is unnecessary.",
         "model": "gpt-6-luna",
         "model_reasoning_effort": "medium",
+        "model_candidates": [
+          { "model": "gpt-6-luna", "model_reasoning_effort": "medium" },
+          { "model": "gpt-5.6-luna", "model_reasoning_effort": "medium" }
+        ],
         "sandbox_mode": "read-only",
         "developer_instructions": "Research only the assigned bounded external question using primary or official sources where available. Verify current or version-sensitive claims and separate sourced facts from inference. Research does not authorize contacting others, publishing, purchasing, or changing external or real data. Do not edit files, upgrade your model, or spawn or delegate to another agent. Return citations, relevant dates or versions, validation performed, and blockers."
       }

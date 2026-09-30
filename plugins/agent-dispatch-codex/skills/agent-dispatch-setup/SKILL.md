@@ -44,6 +44,7 @@ Supported policy values:
 - `policy.low_cost.enabled`
 - `policy.low_cost.model`
 - `policy.low_cost.model_reasoning_effort`
+- `policy.low_cost.model_candidates`
 
 Supported custom-agent values:
 
@@ -51,6 +52,7 @@ Supported custom-agent values:
 - `agent_profiles.profiles.<name>.enabled`
 - `agent_profiles.profiles.<name>.model`
 - `agent_profiles.profiles.<name>.model_reasoning_effort`
+- `agent_profiles.profiles.<name>.model_candidates`
 - `agent_profiles.profiles.<name>.sandbox_mode`
 - `agent_profiles.profiles.<name>.role_kind`
 - `agent_profiles.profiles.<name>.description`
@@ -68,7 +70,9 @@ Treat every automatic route as a fallible suggestion from the current message, n
 
 Read the effective profiles and their descriptions before choosing a role. Select among evidence labor, planning, implementation, verification, research, and review by the bounded responsibility and expected evidence. Choose implementation candidates by ambiguity, context, acceptance difficulty, and total completion cost including rework.
 
-With the defaults, code writing uses `dispatch_sol_worker` at Sol medium. If that profile is disabled or its fixed pair is overridden, use an enabled unpinned non-Luna writer with explicit Sol medium, or keep implementation in the primary agent. Terra, Astra, and the hard worker remain available when actual complexity or an explicit preference calls for them.
+Code writing prefers `dispatch_sol_worker` at `gpt-6.1-sol/high`, with compatible `gpt-6-sol/medium` and `gpt-5.6-sol/medium` fallbacks. Planning and ordinary independent review prefer Sol high with the same model order. Honor explicit profile overrides. If the code profile is disabled or unpinned, use an enabled unpinned non-Luna writer with an explicit supported pair, or keep implementation in the primary agent. Reserve Astra for critical reviews or exceptionally complex reasoning when the primary agent judges the benefit worth the total cost; risk keywords alone do not require it. The deep reviewer preset is Astra high, not ultra. Complex computer interaction may justify Sol max; choose model and effort together, since effort labels are not comparable across families.
+
+Optional `model_candidates` arrays contain ordered `{ model, model_reasoning_effort }` pairs. After merging the layers, the plugin reads `${CODEX_HOME}/models_cache.json` (or `~/.codex/models_cache.json`) and selects the first pair listed in a catalog fetched within 24 hours. Missing, malformed, stale, or unmatched catalogs preserve the configured baseline pair. The catalog is a compatibility hint, not proof of account access or current role loading; verify the host at spawn time. Hooks do not call a network service or another model. Candidate metadata is not written to native TOML. Explicit model or effort fields in an override, including equal or empty values, clear inherited candidates unless the same layer supplies them; `[]` disables automatic selection. Preserve these pins when upgrading.
 
 `policy.low_cost` defaults to `{"enabled": true, "model": "gpt-6-luna", "model_reasoning_effort": "max"}`. Use the matching labor profile for logs, routine materials, mechanical data, source/call evidence, and established test execution. It may create evidence artifacts but does not implement or modify product or test code. In mixed tasks, split only the evidence stage to labor. If no matching fixed profile exists, an enabled unpinned `dispatch_worker` may receive the supported low-cost pair explicitly; otherwise report the limitation rather than silently changing models.
 

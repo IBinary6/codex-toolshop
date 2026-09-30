@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { readModelCatalog, resolveModelCandidates } = require('./model_candidates');
 
 const PROJECT_DIR = '.agent-dispatch-codex';
 const CONFIG_FILE = 'config.json';
@@ -13,13 +14,16 @@ const OVERRIDE_KEYS = [
   'prompt_keywords',
 ];
 
-// 2026-09-23 核对 GPT-6 Sol/Luna，其余保留 2026-09-05 快照；仅用于校验，不代表账号可用性。
+// 已知推理档位仅用于静态校验，不代表当前账号或宿主实际可用性。
 const STANDARD_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
 const KNOWN_MODEL_EFFORTS = new Map([
+  ['gpt-6.1-sol', [...STANDARD_EFFORTS, 'max']],
   ['gpt-6-astra', [...STANDARD_EFFORTS, 'max', 'ultra']],
   ['gpt-6-sol', [...STANDARD_EFFORTS, 'max', 'ultra']],
+  ['gpt-5.6-sol', [...STANDARD_EFFORTS, 'max', 'ultra']],
   ['gpt-5.6-terra', [...STANDARD_EFFORTS, 'max', 'ultra']],
   ['gpt-6-luna', [...STANDARD_EFFORTS, 'max']],
+  ['gpt-5.6-luna', [...STANDARD_EFFORTS, 'max']],
   ['gpt-5.5', STANDARD_EFFORTS],
   ['gpt-5.4-mini', STANDARD_EFFORTS],
   ['gpt-5.3-codex-spark', STANDARD_EFFORTS],
@@ -121,6 +125,8 @@ function mergeConfig(base, layer) {
     if (lowCost && typeof lowCost === 'object' && !Array.isArray(lowCost)) {
       result.policy.low_cost = {
         ...(result.policy.low_cost || {}),
+        ...((Object.hasOwn(lowCost, 'model') || Object.hasOwn(lowCost, 'model_reasoning_effort'))
+          && !Object.hasOwn(lowCost, 'model_candidates') ? { model_candidates: [] } : {}),
         ...lowCost,
       };
     }
@@ -141,6 +147,8 @@ function mergeConfig(base, layer) {
           && profile.model.trim() !== String(previous.model || '').trim();
         result.agent_profiles.profiles[name] = {
           ...previous,
+          ...((Object.hasOwn(profile, 'model') || Object.hasOwn(profile, 'model_reasoning_effort'))
+            && !Object.hasOwn(profile, 'model_candidates') ? { model_candidates: [] } : {}),
           // 已知模型单独切换时使用本插件的 medium 预设，避免继承旧模型或主任务的 ultra。
           // 未知模型不猜能力；同层显式 effort（包括空字符串）仍优先。
           ...(changesModel ? {
@@ -245,7 +253,7 @@ function loadConfig(cwd) {
   result = mergeConfig(result, readJson(globalConfigPath()));
   const projectFile = projectConfigPath(cwd);
   if (projectFile) result = mergeConfig(result, readJson(projectFile));
-  return result;
+  return resolveModelCandidates(result, readModelCatalog());
 }
 
 module.exports = {
@@ -262,4 +270,6 @@ module.exports = {
   modelEffortWarnings,
   pluginDataDir,
   projectConfigPath,
+  readModelCatalog,
+  resolveModelCandidates,
 };

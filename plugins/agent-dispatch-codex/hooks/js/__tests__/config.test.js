@@ -14,6 +14,7 @@ execFileSync('git', ['init', '-q'], { cwd: repo });
 
 process.env.PLUGIN_ROOT = path.resolve(__dirname, '..', '..', '..');
 process.env.PLUGIN_DATA = data;
+process.env.CODEX_HOME = path.join(root, 'codex-home');
 
 const {
   PROJECT_DIR,
@@ -51,11 +52,7 @@ try {
   const effective = loadConfig(repo);
   assert.equal(effective.modules.prompt_guidance, false);
   assert.equal(effective.policy.max_parallel_subagents, 2);
-  assert.deepEqual(effective.policy.low_cost, {
-    enabled: true,
-    model: 'gpt-6-luna',
-    model_reasoning_effort: 'max',
-  });
+  assert.deepEqual(effective.policy.low_cost, loadDefaults().policy.low_cost);
   assert.equal(effective.agent_profiles.profiles.dispatch_worker.model, 'gpt-5.6');
   assert.equal(effective.agent_profiles.profiles.dispatch_worker.sandbox_mode, 'workspace-write');
   assert.ok(effective.whitelist.shell_heads.includes('my-tool'));
@@ -69,9 +66,8 @@ try {
     policy: { low_cost: { enabled: false } },
   });
   assert.deepEqual(lowCostOverride.policy.low_cost, {
+    ...loadDefaults().policy.low_cost,
     enabled: false,
-    model: 'gpt-6-luna',
-    model_reasoning_effort: 'max',
   });
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
