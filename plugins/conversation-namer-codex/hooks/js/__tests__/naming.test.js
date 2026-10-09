@@ -76,12 +76,12 @@ function fakeServer({ output, items, thread = {}, models = [model], fail, finalO
 async function main() {
   const luna = {
     ...model,
-    id: 'gpt-5.6-luna',
-    model: 'gpt-5.6-luna',
+    id: 'gpt-6-luna',
+    model: 'gpt-6-luna',
     description: 'Fast and affordable model for everyday work.',
     supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
   };
-  const futureLuna = { ...model, id: 'gpt-6-luna', model: 'gpt-6-luna', description: undefined };
+  const futureLuna = { ...model, id: 'gpt-future-luna', model: 'gpt-future-luna', description: undefined };
   const dottedLuna = { ...model, id: 'gpt6.luna', model: 'gpt6.luna', description: undefined };
   const unknownAffordable = {
     ...model,
@@ -132,9 +132,9 @@ async function main() {
     supportedReasoningEfforts: [{ reasoningEffort: 'high' }] }, large]), null);
   assert.equal(selectModel([model], 'missing-model'), null);
   assert.equal(selectModel([model], model.id), model);
-  assert.equal(selectModel([luna, futureLuna], 'gpt-6-luna'), futureLuna);
-  assert.equal(selectModel([luna], 'gpt-6-luna'), null,
-    '指定 GPT-6 Luna 不可用时不得自动换回旧型号');
+  assert.equal(selectModel([futureLuna, luna], 'gpt-6-luna'), luna);
+  assert.equal(selectModel([futureLuna], 'gpt-6-luna'), null,
+    '指定 GPT-6 Luna 不可用时不得自动换成其他型号');
   assert.equal(lowestEffort(model), 'none');
   assert.equal(lowestEffort({ supportedReasoningEfforts: [{ reasoningEffort: 'low' }] }), 'low');
   assert.equal(lowestEffort({ supportedReasoningEfforts: [{ reasoningEffort: 'minimal' }, { reasoningEffort: 'low' }] }), 'minimal');

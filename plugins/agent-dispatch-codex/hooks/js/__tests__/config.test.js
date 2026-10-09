@@ -44,7 +44,7 @@ try {
   assert.equal(Object.hasOwn(project.overrides, 'git_safe_write_add'), false);
   project.modules.prompt_guidance = false;
   project.policy.max_parallel_subagents = 2;
-  project.agent_profiles.profiles.dispatch_worker = { model: 'gpt-5.6' };
+  project.agent_profiles.profiles.dispatch_worker = { model: 'gpt-6.1-sol' };
   project.overrides.shell_heads_add = ['my-tool'];
   project.overrides.shell_heads_remove = ['rm'];
   fs.writeFileSync(projectFile, `${JSON.stringify(project, null, 2)}\n`, 'utf8');
@@ -53,7 +53,7 @@ try {
   assert.equal(effective.modules.prompt_guidance, false);
   assert.equal(effective.policy.max_parallel_subagents, 2);
   assert.deepEqual(effective.policy.low_cost, loadDefaults().policy.low_cost);
-  assert.equal(effective.agent_profiles.profiles.dispatch_worker.model, 'gpt-5.6');
+  assert.equal(effective.agent_profiles.profiles.dispatch_worker.model, 'gpt-6.1-sol');
   assert.equal(effective.agent_profiles.profiles.dispatch_worker.sandbox_mode, 'workspace-write');
   assert.ok(effective.whitelist.shell_heads.includes('my-tool'));
   assert.equal(Object.hasOwn(effective.whitelist, 'git_readonly'), false);

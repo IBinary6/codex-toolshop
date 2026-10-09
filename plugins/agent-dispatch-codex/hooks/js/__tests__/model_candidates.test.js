@@ -4,7 +4,7 @@ const assert = require('assert').strict;
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { mergeConfig } = require('../lib/config');
+const { loadDefaults, mergeConfig } = require('../lib/config');
 const {
   CACHE_MAX_AGE_MS,
   parseModelCatalog,
@@ -17,7 +17,6 @@ const now = Date.parse('2026-09-29T12:00:00Z');
 const candidates = [
   { model: 'gpt-6.1-sol', model_reasoning_effort: 'high' },
   { model: 'gpt-6-sol', model_reasoning_effort: 'medium' },
-  { model: 'gpt-5.6-sol', model_reasoning_effort: 'medium' },
 ];
 const cache = (models, fetchedAt = new Date(now).toISOString()) => ({
   fetched_at: fetchedAt,
@@ -27,6 +26,19 @@ const cache = (models, fetchedAt = new Date(now).toISOString()) => ({
     visibility,
   })),
 });
+const defaults = loadDefaults();
+const supportedModels = new Set(['gpt-6-luna', 'gpt-6-sol', 'gpt-6.1-sol', 'gpt-6-astra']);
+const defaultModels = new Set();
+for (const settings of [defaults.policy.low_cost, ...Object.values(defaults.agent_profiles.profiles)]) {
+  for (const pair of [settings, ...(settings.model_candidates || [])]) {
+    if (!pair.model) continue;
+    assert.ok(supportedModels.has(pair.model), `unexpected built-in model: ${pair.model}`);
+    defaultModels.add(pair.model);
+  }
+}
+assert.deepEqual(defaultModels, supportedModels, 'defaults use only the four current models');
+assert.deepEqual(defaults.agent_profiles.profiles.dispatch_sol_worker.model_candidates, candidates);
+assert.equal(Object.hasOwn(defaults.agent_profiles.profiles, 'dispatch_terra_worker'), false);
 const base = {
   policy: {
     low_cost: {
@@ -34,7 +46,6 @@ const base = {
       model_reasoning_effort: 'max',
       model_candidates: [
         { model: 'gpt-6-luna', model_reasoning_effort: 'max' },
-        { model: 'gpt-5.6-luna', model_reasoning_effort: 'max' },
       ],
     },
   },
@@ -64,8 +75,8 @@ assert.equal(resolved([
   ['gpt-6.1-sol', ['medium']], ['gpt-6-sol', ['medium']],
 ]).agent_profiles.profiles.dispatch_sol_worker.model, 'gpt-6-sol', 'missing high skips 6.1');
 assert.equal(resolved([
-  ['gpt-5.6-sol', ['medium']],
-]).agent_profiles.profiles.dispatch_sol_worker.model, 'gpt-5.6-sol', 'older model remains usable');
+  ['gpt-6-sol', ['medium']],
+]).agent_profiles.profiles.dispatch_sol_worker.model, 'gpt-6-sol', 'GPT-6 Sol remains the compatible fallback');
 assert.equal(resolved([
   ['gpt-6.1-sol', ['high'], 'hide'], ['gpt-6-sol', ['medium']],
 ]).agent_profiles.profiles.dispatch_sol_worker.model, 'gpt-6-sol', 'hidden model is excluded');
@@ -73,8 +84,8 @@ assert.equal(resolved([
   ['private-model', ['high']],
 ]).agent_profiles.profiles.dispatch_sol_worker.model, 'gpt-6-sol', 'unlisted candidates retain baseline');
 assert.equal(resolved([
-  ['gpt-5.6-luna', ['max']],
-]).policy.low_cost.model, 'gpt-5.6-luna');
+  ['gpt-6-luna', ['max']],
+]).policy.low_cost.model, 'gpt-6-luna');
 assert.equal(base.agent_profiles.profiles.dispatch_sol_worker.model, 'gpt-6-sol', 'input stays unchanged');
 assert.deepEqual(base.agent_profiles.profiles.dispatch_sol_worker.model_candidates, candidates);
 
@@ -113,9 +124,10 @@ const emptyLowCostEffort = mergeConfig(base, {
 assert.deepEqual(emptyLowCostEffort.policy.low_cost.model_candidates, []);
 assert.equal(emptyLowCostEffort.policy.low_cost.model_reasoning_effort, '');
 const layeredPin = mergeConfig(mergeConfig(base, {
-  agent_profiles: { profiles: { dispatch_sol_worker: { model: 'gpt-5.6-sol' } } },
+  agent_profiles: { profiles: { dispatch_sol_worker: { model: 'gpt-6-astra' } } },
 }), { policy: { low_cost: { enabled: false } } });
 assert.deepEqual(layeredPin.agent_profiles.profiles.dispatch_sol_worker.model_candidates, []);
+assert.equal(layeredPin.agent_profiles.profiles.dispatch_sol_worker.model, 'gpt-6-astra');
 const disabled = mergeConfig(base, {
   agent_profiles: { profiles: { dispatch_sol_worker: { model_candidates: [] } } },
   policy: { low_cost: { model_candidates: [] } },

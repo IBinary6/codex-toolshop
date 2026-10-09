@@ -109,19 +109,18 @@ Codex 支持项目级 `.codex/agents/*.toml` 自定义 Agent，并允许每个 A
 | `dispatch_mapper` | `gpt-6-luna` | `medium` | 大范围、多材料的只读扫描和关系整理。 |
 | `dispatch_researcher` | `gpt-6-luna` | `medium` | 官方来源、当前事实、市场/竞品及版本契约等外部研究。 |
 | `dispatch_luna_worker` | `gpt-6-luna` | `max` | 低成本劳动力：搜索、源码/日志取证、材料整理和既定测试执行；可写证据产物，不实现或修改产品/测试代码。 |
-| `dispatch_terra_worker` | `gpt-5.6-terra` | `high` | 有一定推理与工具需求的日常交付候选。 |
-| `dispatch_sol_worker` | 优先 `gpt-6.1-sol` | `high` | 默认代码实现及测试编写；兼容回退为 `gpt-6-sol/medium`、`gpt-5.6-sol/medium`。 |
+| `dispatch_sol_worker` | 优先 `gpt-6.1-sol` | `high` | 默认代码实现及测试编写；兼容回退为 `gpt-6-sol/medium`。 |
 | `dispatch_astra_worker` | `gpt-6-astra` | `medium` | 可选的极复杂交付候选，由主代理判断额外成本是否值得。 |
 | `dispatch_worker` | 调度时明确选择 | 调度时明确选择 | 不固定模型的通用交付执行角色。 |
 | `dispatch_hard_worker` | 调度时明确选择 | 调度时明确选择 | 困难交付和复杂问题处理的动态执行角色。 |
 | `dispatch_tester` | `gpt-6-luna` | `medium` | 按既定用例、验收标准或复现步骤执行验证，不自行修改被验收交付物。 |
-| `dispatch_planner` | 优先 `gpt-6.1-sol` | `high` | 计划与约束分析；回退 `gpt-6-sol/high`、`gpt-5.6-sol/high`。 |
-| `dispatch_reviewer` | 优先 `gpt-6.1-sol` | `high` | 常规独立审查；回退 `gpt-6-sol/high`、`gpt-5.6-sol/high`。 |
+| `dispatch_planner` | 优先 `gpt-6.1-sol` | `high` | 计划与约束分析；回退 `gpt-6-sol/high`。 |
+| `dispatch_reviewer` | 优先 `gpt-6.1-sol` | `high` | 常规独立审查；回退 `gpt-6-sol/high`。 |
 | `dispatch_deep_reviewer` | `gpt-6-astra` | `high` | 关键验收或极复杂约束确需更强判断时才选，不由风险关键词自动触发。 |
 
-表格是本插件的可覆盖预设。主代理根据当前任务、上下文和宿主支持选择模型与推理档位；搜索、规划和审查角色也遵循用户显式偏好。切换到 Astra 或其他模型不需要重写整个工作流，也不要求所有角色使用同一个模型或推理档位。
+内置预设只使用 `gpt-6-luna`、`gpt-6-sol`、`gpt-6.1-sol` 和 `gpt-6-astra` 四个模型。表格是本插件的可覆盖预设。主代理根据当前任务、上下文和宿主支持选择模型与推理档位；搜索、规划和审查角色也遵循用户显式偏好。切换到 Astra 或其他模型不需要重写整个工作流，也不要求所有角色使用同一个模型或推理档位。
 
-低成本路线由 `policy.low_cost` 控制，保留 `gpt-6-luna/max`，可按目录回退到 `gpt-5.6-luna/max`；其它 Luna 证据角色保留 `medium` 及同档位 5.6 回退。它们承接日志、摘录、机械材料、源码/调用取证和既定测试执行；文档契约理解、方案权衡与正确性判断由 Sol 承接。混合“日志 + 修复”任务只把证据阶段交给 Luna。代码写作使用有效的 `dispatch_sol_worker`；用户覆盖的非 Luna writer 组合仍优先。该角色禁用或未固定时，可用已启用的未固定非 Luna worker 显式传组合，或由主代理实现。
+低成本路线由 `policy.low_cost` 控制，保留 `gpt-6-luna/max`；其它 Luna 证据角色保留 `medium`。它们承接日志、摘录、机械材料、源码/调用取证和既定测试执行；文档契约理解、方案权衡与正确性判断由 Sol 承接。混合“日志 + 修复”任务只把证据阶段交给 Luna。代码写作使用有效的 `dispatch_sol_worker`；用户覆盖的非 Luna writer 组合仍优先。该角色禁用或未固定时，可用已启用的未固定非 Luna worker 显式传组合，或由主代理实现。
 
 `model_candidates` 是按优先顺序排列的 `{ model, model_reasoning_effort }` 数组，可用于每个 profile 和 `policy.low_cost`。配置合并后只读 `${CODEX_HOME}/models_cache.json`（未设时为 `~/.codex/models_cache.json`），从 24 小时内的目录选择同时列出型号和档位的首个候选。缺失、损坏、过期、没有匹配项时保留配置中的 `model` / `model_reasoning_effort` 基线，因此没有新版目录时仍使用原 Sol 代码组合。目录只是兼容提示，不证明账号访问权限或当前任务已加载新角色；每次启动仍核对宿主实际支持。Hooks 不发起网络请求或额外模型调用。
 
@@ -129,16 +128,14 @@ Codex 支持项目级 `.codex/agents/*.toml` 自定义 Agent，并允许每个 A
 
 模型与档位共同选择，不把不同模型的同名档位当作能力等价。复杂电脑操作可考虑受支持的 Sol max，Astra 只用于主代理判断值得其成本的关键审查或极复杂推理。普通审查不默认使用 Astra，也不因风险关键词自动提升到 `max/ultra`。固定预设、用户明确要求与实际宿主能力仍优先。
 
-当前插件用于启动前校验的模型/推理能力快照如下（6.1 Sol 于 2026-09-29 按[官方模型页](https://developers.openai.com/api/docs/models/gpt-6.1-sol)补充；旧型号保留 Codex 宿主能力快照。它只用于发现明显不兼容组合，不是账户可用性探测）：
+当前插件用于启动前校验的模型/推理能力快照如下（2026-10-08 根据当前 Codex 宿主目录核对。它只用于发现明显不兼容组合，不是账户可用性探测）：
 
 | 模型 | 已记录的可用推理档位 |
 | --- | --- |
-| `gpt-6.1-sol` | `low`、`medium`、`high`、`xhigh`、`max`；不含 `ultra` |
+| `gpt-6.1-sol` | `low`、`medium`、`high`、`xhigh`、`max`、`ultra` |
 | `gpt-6-astra` | `low`、`medium`、`high`、`xhigh`、`max`、`ultra` |
 | `gpt-6-sol` | `low`、`medium`、`high`、`xhigh`、`max`、`ultra` |
-| `gpt-5.6-sol`、`gpt-5.6-terra` | `low`、`medium`、`high`、`xhigh`、`max`、`ultra` |
-| `gpt-6-luna`、`gpt-5.6-luna` | `low`、`medium`、`high`、`xhigh`、`max`；不含 `ultra` |
-| `gpt-5.5`、`gpt-5.4-mini`、`gpt-5.3-codex-spark` | `low`、`medium`、`high`、`xhigh` |
+| `gpt-6-luna` | `low`、`medium`、`high`、`xhigh`、`max`；不含 `ultra` |
 
 因此，当前 `dispatch_luna_worker = gpt-6-luna/max` 是有效组合，`gpt-6-astra/ultra` 也是有效组合；不能把 Luna 改成 `ultra`。如果临时需要 GPT-6 的 `ultra`，应使用未固定模型和 effort 的 `dispatch_worker` 或 `dispatch_hard_worker`，显式传入 `model = gpt-6-astra` 与 `effort/thinking = ultra`，并先确认当前宿主实际支持及任务确实需要该强度。模型预设不会决定本地提交准备的模型；该流程由 skill 或用户按实际任务选择，并且不改变普通 Git 串行、最终 commit、远程操作和历史改写仍由主代理负责的边界。
 

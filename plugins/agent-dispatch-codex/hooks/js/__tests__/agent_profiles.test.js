@@ -20,7 +20,7 @@ const { loadDefaults } = require('../lib/config');
 try {
   const config = loadDefaults();
   const first = ensureAgentProfiles(root, config);
-  assert.equal(first.written.length, 13);
+  assert.equal(first.written.length, 12);
 
   const worker = path.join(root, '.codex', 'agents', 'dispatch_worker.toml');
   const content = fs.readFileSync(worker, 'utf8');
@@ -58,7 +58,6 @@ try {
     dispatch_reviewer: ['gpt-6-sol', 'high', 'read-only'],
     dispatch_deep_reviewer: ['gpt-6-astra', 'high', 'read-only'],
     dispatch_luna_worker: ['gpt-6-luna', 'max', 'workspace-write'],
-    dispatch_terra_worker: ['gpt-5.6-terra', 'high', 'workspace-write'],
     dispatch_sol_worker: ['gpt-6-sol', 'medium', 'workspace-write'],
     dispatch_astra_worker: ['gpt-6-astra', 'medium', 'workspace-write'],
     dispatch_tester: ['gpt-6-luna', 'medium', 'workspace-write'],
@@ -146,10 +145,10 @@ try {
   ensureAgentProfiles(root, config);
   assert.equal(fs.readFileSync(empty, 'utf8'), '', 'an empty user file is not a missing generated file');
 
-  const stale = path.join(root, '.codex', 'agents', 'retired_dispatch_role.toml');
-  fs.writeFileSync(stale, renderAgentProfile('retired_dispatch_role', {}));
+  const stale = path.join(root, '.codex', 'agents', 'dispatch_terra_worker.toml');
+  fs.writeFileSync(stale, renderAgentProfile('dispatch_terra_worker', {}));
   const staleResult = ensureAgentProfiles(root, config);
-  assert.ok(staleResult.removed.includes('.codex/agents/retired_dispatch_role.toml'));
+  assert.ok(staleResult.removed.includes('.codex/agents/dispatch_terra_worker.toml'));
   assert.equal(fs.existsSync(stale), false, 'retired managed roles must not remain loadable');
 
   config.agent_profiles.enabled = false;

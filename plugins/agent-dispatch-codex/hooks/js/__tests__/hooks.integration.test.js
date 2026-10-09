@@ -75,7 +75,7 @@ try {
   for (const [models, model, effort] of [
     [[['gpt-6.1-sol', ['high']], ['gpt-6-sol', ['medium', 'high']]], 'gpt-6.1-sol', 'high'],
     [[['gpt-6-sol', ['medium', 'high']]], 'gpt-6-sol', 'medium'],
-    [[['gpt-5.6-sol', ['medium', 'high']]], 'gpt-5.6-sol', 'medium'],
+    [[['unrelated-model', ['medium', 'high']]], 'gpt-6-sol', 'medium'],
     [[['gpt-6.1-sol', ['medium']], ['gpt-6-sol', ['medium', 'high']]], 'gpt-6-sol', 'medium'],
   ]) {
     fs.writeFileSync(catalogPath, JSON.stringify({

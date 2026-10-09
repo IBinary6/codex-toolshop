@@ -37,7 +37,7 @@ assert.match(mainAgentGuidance(config), /split only the evidence stage to low-co
 assert.match(mainAgentGuidance(config), /code-evidence/);
 assert.doesNotMatch(mainAgentGuidance(config), /cost-efficient execution agent/);
 assert.doesNotMatch(mainAgentGuidance(config), /clear development.*Luna/);
-assert.doesNotMatch(mainAgentGuidance(config), /difficult execution.*Terra ultra/);
+assert.doesNotMatch(mainAgentGuidance(config), /dispatch_terra_worker/);
 assert.match(mainAgentGuidance(config), /independently review non-trivial deliverables/);
 assert.match(mainAgentGuidance(config), /For every new or reused review agent/);
 assert.match(mainAgentGuidance(config), /autonomously choose a supported model\/effort/);
@@ -103,13 +103,13 @@ for (const compact of [false, true]) {
   assert.match(guidance, /For code work|代码任务按阶段分工/);
 }
 const customLowCostSession = JSON.parse(JSON.stringify(config));
-customLowCostSession.policy.low_cost.model = 'gpt-5.5';
+customLowCostSession.policy.low_cost.model = 'private-low-cost-model';
 customLowCostSession.policy.low_cost.model_reasoning_effort = 'high';
 assert.match(
   mainAgentGuidance(customLowCostSession),
-  /configured low-cost candidate \(gpt-5\.5\/high\)/
+  /configured low-cost candidate \(private-low-cost-model\/high\)/
 );
-assert.match(mainAgentGuidance(customLowCostSession, true), /低成本劳动力路线：.*gpt-5\.5\/high/);
+assert.match(mainAgentGuidance(customLowCostSession, true), /低成本劳动力路线：.*private-low-cost-model\/high/);
 assert.doesNotMatch(mainAgentGuidance(customLowCostSession), /configured low-cost candidate \(gpt-6-luna\/max\)/);
 assert.doesNotMatch(mainAgentGuidance(customLowCostSession, true), /指定的合规角色（gpt-6-luna\/max）/);
 assert.match(subagentGuidance(config), /do not spawn or delegate/i);
@@ -207,7 +207,7 @@ for (const [prompt, kind] of [
   assert.match(guidance, /默认委派给/, prompt);
   assert.match(guidance, /gpt-6-luna\/max/, prompt);
   assert.match(guidance, /dispatch_luna_worker/, prompt);
-  assert.doesNotMatch(guidance, /dispatch_(?:terra|sol|astra)_worker/, prompt);
+  assert.doesNotMatch(guidance, /dispatch_(?:sol|astra)_worker/, prompt);
 }
 for (const [prompt, category] of [
   ['新增单元测试用例覆盖接口', 'implementation'],
@@ -331,7 +331,6 @@ for (const name of ['dispatch_reviewer', 'dispatch_deep_reviewer']) {
 for (const name of [
   'dispatch_worker',
   'dispatch_hard_worker',
-  'dispatch_terra_worker',
   'dispatch_sol_worker',
   'dispatch_astra_worker',
 ]) {
@@ -551,7 +550,7 @@ assert.match(promptGuidance('review this code for correctness', overridden), /gp
 for (const compact of [false, true]) {
   const guidance = mainAgentGuidance(overridden, compact);
   assert.match(guidance, /dispatch_reviewer \(gpt-6-astra, low\)/);
-  assert.doesNotMatch(guidance, /Terra high|Sol xhigh/, 'fixed role recommendations must not override profile settings');
+  assert.doesNotMatch(guidance, /Sol xhigh/, 'fixed role recommendations must not override profile settings');
 }
 for (const prompt of ['请设计新的架构和接口方案', '请审查这段代码的正确性', '请搜索多个文件中的调用链']) {
   const guidance = promptGuidance(prompt, config);
@@ -567,7 +566,6 @@ disabled.agent_profiles.profiles.dispatch_mapper.enabled = false;
 disabled.agent_profiles.profiles.dispatch_worker.enabled = false;
 disabled.agent_profiles.profiles.dispatch_hard_worker.enabled = false;
 disabled.agent_profiles.profiles.dispatch_luna_worker.enabled = false;
-disabled.agent_profiles.profiles.dispatch_terra_worker.enabled = false;
 disabled.agent_profiles.profiles.dispatch_sol_worker.enabled = false;
 disabled.agent_profiles.profiles.dispatch_astra_worker.enabled = false;
 disabled.agent_profiles.profiles.dispatch_tester.enabled = false;
@@ -621,11 +619,11 @@ noLowCost.agent_profiles.profiles.dispatch_luna_worker.enabled = false;
 noLowCost.agent_profiles.profiles.dispatch_worker.model = 'gpt-6-sol';
 noLowCost.agent_profiles.profiles.dispatch_worker.model_reasoning_effort = 'medium';
 assert.match(promptGuidance('检索最近构建日志并摘录失败原因', noLowCost), /没有.*低成本/);
-assert.doesNotMatch(promptGuidance('检索最近构建日志并摘录失败原因', noLowCost), /dispatch_(?:sol|terra|astra)_worker/);
-noLowCost.policy.low_cost.model = 'gpt-5.5';
+assert.doesNotMatch(promptGuidance('检索最近构建日志并摘录失败原因', noLowCost), /dispatch_(?:sol|astra)_worker/);
+noLowCost.policy.low_cost.model = 'private-low-cost-model';
 noLowCost.policy.low_cost.model_reasoning_effort = 'high';
 const mixedNoLowCostGuidance = promptGuidance('根据构建日志修复复杂崩溃，并补回归测试', noLowCost);
-assert.match(mixedNoLowCostGuidance, /没有匹配 gpt-5\.5\/high 的低成本角色/);
+assert.match(mixedNoLowCostGuidance, /没有匹配 private-low-cost-model\/high 的低成本角色/);
 assert.doesNotMatch(mixedNoLowCostGuidance, /没有匹配的 Luna max/);
 const lowCostDisabled = JSON.parse(JSON.stringify(config));
 lowCostDisabled.policy.low_cost.enabled = false;
@@ -637,7 +635,6 @@ for (const name of [
   'dispatch_worker',
   'dispatch_hard_worker',
   'dispatch_luna_worker',
-  'dispatch_terra_worker',
   'dispatch_sol_worker',
   'dispatch_astra_worker',
 ]) {
@@ -653,7 +650,6 @@ const laborAndTesterOnly = JSON.parse(JSON.stringify(config));
 for (const name of [
   'dispatch_worker',
   'dispatch_hard_worker',
-  'dispatch_terra_worker',
   'dispatch_sol_worker',
   'dispatch_astra_worker',
 ]) {

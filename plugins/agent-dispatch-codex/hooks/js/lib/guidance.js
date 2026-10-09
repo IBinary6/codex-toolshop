@@ -401,7 +401,7 @@ function dynamicWriterGuidance(config, options = {}) {
       : ['dispatch_worker', 'dispatch_hard_worker']
         .map(eligible)
         .find((profile) => profile && !profile.model && !profile.effort);
-    const alternatives = ['dispatch_terra_worker', 'dispatch_astra_worker', 'dispatch_hard_worker']
+    const alternatives = ['dispatch_astra_worker', 'dispatch_hard_worker']
       .map(eligible)
       .filter((profile) => profile && profile.name !== (defaultCandidate && defaultCandidate.name || ''))
       .map((profile) => profile.model && profile.effort

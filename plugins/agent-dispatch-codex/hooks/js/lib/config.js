@@ -14,19 +14,13 @@ const OVERRIDE_KEYS = [
   'prompt_keywords',
 ];
 
-// 已知推理档位仅用于静态校验，不代表当前账号或宿主实际可用性。
+// 2026-10-08 Codex 宿主能力快照，仅用于静态校验，不代表当前账号或宿主实际可用性。
 const STANDARD_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
 const KNOWN_MODEL_EFFORTS = new Map([
-  ['gpt-6.1-sol', [...STANDARD_EFFORTS, 'max']],
+  ['gpt-6.1-sol', [...STANDARD_EFFORTS, 'max', 'ultra']],
   ['gpt-6-astra', [...STANDARD_EFFORTS, 'max', 'ultra']],
   ['gpt-6-sol', [...STANDARD_EFFORTS, 'max', 'ultra']],
-  ['gpt-5.6-sol', [...STANDARD_EFFORTS, 'max', 'ultra']],
-  ['gpt-5.6-terra', [...STANDARD_EFFORTS, 'max', 'ultra']],
   ['gpt-6-luna', [...STANDARD_EFFORTS, 'max']],
-  ['gpt-5.6-luna', [...STANDARD_EFFORTS, 'max']],
-  ['gpt-5.5', STANDARD_EFFORTS],
-  ['gpt-5.4-mini', STANDARD_EFFORTS],
-  ['gpt-5.3-codex-spark', STANDARD_EFFORTS],
 ]);
 
 function modelEffortWarnings(config) {
