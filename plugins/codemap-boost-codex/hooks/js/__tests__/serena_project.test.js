@@ -9,7 +9,8 @@ const { spawn } = require('node:child_process');
 const { prepareSerenaProject, serenaProjectPaths, commandsFromEvaluation } = require('../../../scripts/serena-project.cjs');
 
 async function main() {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'serena-project-'));
+  // 临时目录可能是Windows短路径或macOS /var链接；期望值按生产代码的真实路径契约构造。
+  const temp = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'serena-project-')));
   const root = path.join(temp, 'project');
   const data = path.join(temp, 'private');
   fs.mkdirSync(root);
@@ -25,6 +26,16 @@ async function main() {
     assert.equal(result.source, 'root');
     assert.equal(result.nativeRootDatabase, true);
     assert.deepEqual(fs.readFileSync(path.join(root, 'compile_commands.json')), original);
+    const alias = path.join(temp, 'project-alias');
+    fs.symlinkSync(root, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    try {
+      const aliased = await prepareSerenaProject(alias, options);
+      assert.equal(aliased.status, 'ready');
+      assert.equal(aliased.databaseDir, root, 'alias input resolves to the canonical root database');
+      assert.equal(serenaProjectPaths(alias, options).projectHome, serenaProjectPaths(root, options).projectHome,
+        'different paths to the same project share its private preparation identity');
+      assert.deepEqual(fs.readFileSync(path.join(alias, 'compile_commands.json')), original);
+    } finally { fs.unlinkSync(alias); }
     fs.writeFileSync(path.join(root, 'compile_commands.json'), JSON.stringify([{ directory: '.', file: 'main.cpp', arguments: ['clang++', '-c', 'main.cpp'] }]));
     result = await prepareSerenaProject(root, options);
     assert.equal(result.status, 'ready');
