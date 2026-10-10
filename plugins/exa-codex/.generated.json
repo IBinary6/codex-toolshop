@@ -1,0 +1,18 @@
+{
+  "generator": "research-tools-codex",
+  "engineVersion": "0.1.4",
+  "mode": "command",
+  "files": {
+    "scripts/config.cjs": "b0cfe4644cc3a9a1dd4feb8048512cb5372e73d8f96c1b756f2f867e598434cd",
+    "scripts/setup.cjs": "1fa533a7e0855f5f85ba2439f7f6b8a7c0ba096cbd4c6b4c894785bacefb98bb",
+    "scripts/child-transport.cjs": "f0bc2edd2b6ed771b961679dec7f79791e03941ab8df2a3e9d84ecc14fbf5660",
+    "scripts/command.cjs": "eefcbfdfa2a6d0e75832a1a316480ef1ca09924eb70814820ec9094ec59bb438",
+    "scripts/command-client.cjs": "1ca667f217a1e7cb95d729a3c56762f53d10a103882a99e6b263d3e26b424acc",
+    "config.example.json": "e03e5918d7897e3326ad41266d28da69b0683df554293a9f3d5661d906c38d3f",
+    "scripts/catalog.json": "ad2b9db255a8057c38e19f73b4ac5d01381717ac5d0fdab5e86f472d72cdea26",
+    "package.json": "da1afc6fbcb52c4491463d6262257f6eb25d40e504c2daa6eb7c4ed64ce9d8c9",
+    ".codex-plugin/plugin.json": "3b02331bab16b6d0969eb4b981704af5620b6e9818421bbd58789233514c01f7",
+    "skills/exa-codex/SKILL.md": "6f8db09d5429955d67fdc04a2af3b69e685a8264c86fdbfcdc9edf3d2ec108b4",
+    "README.md": "ae2542c649ba6df0780b60dfbbec55ddb5fcf89f2db6a8020566ac010d1f05d5"
+  }
+}

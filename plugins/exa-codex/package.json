@@ -1,0 +1,16 @@
+{
+  "name": "exa-codex",
+  "version": "0.1.2",
+  "private": true,
+  "description": "按需使用 Exa 搜索来源和读取网页。",
+  "researchToolsProvider": "exa",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.cjs",
+    "doctor": "node scripts/setup.cjs --doctor",
+    "list": "node scripts/command.cjs --list",
+    "call": "node scripts/command.cjs"
+  }
+}

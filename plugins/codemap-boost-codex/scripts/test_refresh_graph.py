@@ -1,7 +1,11 @@
 """使用真实 CRG、临时 Git 仓库与 SQLite 验证刷新闭环。"""
 
 import importlib.util
+import hashlib
+import json
+import os
 from pathlib import Path
+import struct
 import subprocess
 import sys
 import tempfile
@@ -49,33 +53,211 @@ class RefreshTest(unittest.TestCase):
         finally:
             store.close()
 
+    def refresh_through_js_barrier(self):
+        """真实 JS/source marker/temp-index/adapter 路径，不加载 embedding provider。"""
+        library = Path(__file__).resolve().parents[1] / "hooks/js/lib/codemap.js"
+        command = Path(sys.executable).with_name(
+            "code-review-graph.exe" if os.name == "nt" else "code-review-graph"
+        )
+        script = """
+const codemap = require(process.env.CODEMAP_TEST_LIBRARY);
+const diagnostics = [];
+const ok = codemap.refreshCrgSync(process.env.CODEMAP_TEST_ROOT, {
+  canUseCrg: () => true, crgCommand: process.env.CODEMAP_TEST_COMMAND, diagnostics,
+});
+console.log(JSON.stringify({ok, diagnostics}));
+process.exit(ok ? 0 : 1);
+"""
+        env = {**os.environ, "CODEMAP_TEST_LIBRARY": str(library),
+               "CODEMAP_TEST_ROOT": str(self.root), "CODEMAP_TEST_COMMAND": str(command)}
+        env.pop("CODEMAP_BOOST_DISABLE_GRAPH", None)
+        result = subprocess.run(["node", "-e", script], cwd=self.root, env=env,
+                                capture_output=True, text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
+    def seed_embeddings(self):
+        from code_review_graph.embeddings import _node_to_text
+
+        store, _ = _get_store(str(self.root))
+        try:
+            store._conn.execute(
+                "CREATE TABLE IF NOT EXISTS embeddings (qualified_name TEXT PRIMARY KEY, "
+                "vector BLOB NOT NULL, text_hash TEXT NOT NULL, provider TEXT NOT NULL)"
+            )
+            for node in store.get_all_nodes(exclude_files=True):
+                text_hash = hashlib.sha256(_node_to_text(node).encode()).hexdigest()
+                store._conn.execute("INSERT OR REPLACE INTO embeddings VALUES (?, ?, ?, ?)",
+                                    (node.qualified_name, struct.pack("2f", 1.0, 0.0),
+                                     text_hash, "local:test-fixture"))
+            store.commit()
+            return [tuple(row) for row in store._conn.execute(
+                "SELECT * FROM embeddings ORDER BY qualified_name"
+            )]
+        finally:
+            store.close()
+
+    def test_embedding_write_then_real_barrier_preserves_vectors_with_untracked_source(self):
+        (self.root / "untracked.js").write_text("function untracked() { return 4; }\n", encoding="utf-8")
+        real_index = self.git("ls-files", "--stage")
+        self.refresh_through_js_barrier()
+        parsed_at = self.metadata("last_updated")
+        before = self.seed_embeddings()
+        self.assertTrue(before)
+        self.refresh_through_js_barrier()
+        store, _ = _get_store(str(self.root))
+        try:
+            after = [tuple(row) for row in store._conn.execute(
+                "SELECT * FROM embeddings ORDER BY qualified_name"
+            )]
+            self.assertEqual(after, before, "graph-only database writes must not erase explicitly generated vectors")
+        finally:
+            store.close()
+        self.assertEqual(self.git("ls-files", "--stage"), real_index)
+        self.assertIn("?? untracked.js", self.git("status", "--porcelain"))
+        self.assertEqual(self.metadata("last_updated"), parsed_at)
+
+    def test_verify_only_and_fts_read_do_not_reparse_or_load_provider(self):
+        before = self.seed_embeddings()
+        store, _ = _get_store(str(self.root))
+        try:
+            store._conn.execute("SELECT * FROM nodes_fts WHERE nodes_fts MATCH 'original'").fetchall()
+        finally:
+            store.close()
+        with patch("code_review_graph.tools.build.build_or_update_graph", wraps=build_or_update_graph) as build:
+            result = ADAPTER.refresh(self.root, verify=True)
+        build.assert_not_called()
+        self.assertEqual(result["build_type"], "verified")
+        store, _ = _get_store(str(self.root))
+        try:
+            self.assertEqual([tuple(row) for row in store._conn.execute(
+                "SELECT * FROM embeddings ORDER BY qualified_name")], before)
+        finally:
+            store.close()
+
+    def test_verify_detects_added_business_table_and_changed_fts(self):
+        for change in ("new-table", "fts"):
+            with self.subTest(change=change):
+                store, _ = _get_store(str(self.root))
+                try:
+                    if change == "new-table":
+                        store._conn.execute("CREATE TABLE external_graph_state(value TEXT)")
+                        store._conn.execute("INSERT INTO external_graph_state VALUES ('added')")
+                    else:
+                        store._conn.execute("DELETE FROM nodes_fts")
+                    store.commit()
+                finally:
+                    store.close()
+
+                with patch("code_review_graph.tools.build.build_or_update_graph", wraps=build_or_update_graph) as build:
+                    result = ADAPTER.refresh(self.root, verify=True)
+                self.assertEqual([call.kwargs["full_rebuild"] for call in build.call_args_list], [True])
+                self.assertEqual(result["build_type"], "full")
+                store, _ = _get_store(str(self.root))
+                try:
+                    self.assertTrue(store._conn.execute(
+                        "SELECT * FROM nodes_fts WHERE nodes_fts MATCH 'original'").fetchall())
+                finally:
+                    store.close()
+
+    def test_verify_failure_invalidates_graph_proof(self):
+        self.seed_embeddings()
+        with patch.object(ADAPTER, "graph_matches", side_effect=RuntimeError("injected verify failure")):
+            with self.assertRaisesRegex(RuntimeError, "injected verify failure"):
+                ADAPTER.refresh(self.root, verify=True)
+        self.assertIsNone(self.metadata(ADAPTER.VERIFIED_KEY))
+        self.assertEqual(self.metadata("git_head_sha"), "")
+
+    def test_untracked_edit_after_embedding_still_refreshes_source(self):
+        untracked = self.root / "untracked.js"
+        untracked.write_text("function beforeEdit() { return 4; }\n", encoding="utf-8")
+        self.refresh_through_js_barrier()
+        self.seed_embeddings()
+        untracked.write_text("function afterEdit() { return 5; }\n", encoding="utf-8")
+        self.refresh_through_js_barrier()
+        store, _ = _get_store(str(self.root))
+        try:
+            nodes = store.get_nodes_by_file(str(untracked))
+            names = {node.name for node in nodes}
+            self.assertIn("afterEdit", names)
+            self.assertNotIn("beforeEdit", names)
+            # 真实 Git index 仍不包含 untracked；按图节点身份核对内容 hash，
+            # 不用排除了未跟踪文件的普通 snapshot 来否定临时 index 的正确图。
+            for node in nodes:
+                stored = store._conn.execute("SELECT file_hash FROM nodes WHERE qualified_name = ?",
+                                             (node.qualified_name,)).fetchone()[0]
+                self.assertEqual(stored, ADAPTER.sha256_file(untracked))
+        finally:
+            store.close()
+
+    def test_graph_row_tamper_after_embedding_is_repaired_by_real_barrier(self):
+        (self.root / "untracked.js").write_text("function untracked() { return 4; }\n", encoding="utf-8")
+        self.refresh_through_js_barrier()
+        self.seed_embeddings()
+        store, _ = _get_store(str(self.root))
+        try:
+            store._conn.execute("UPDATE nodes SET name = 'tampered' WHERE name = 'original'")
+            store.commit()
+        finally:
+            store.close()
+        self.refresh_through_js_barrier()
+        store, _ = _get_store(str(self.root))
+        try:
+            names = {node.name for node in store.get_nodes_by_file(str(self.source))}
+            self.assertIn("original", names)
+            self.assertNotIn("tampered", names)
+        finally:
+            store.close()
+
     def test_commit_after_indexing_advances_without_reparse(self):
         self.source.write_text("function changed() { return 2; }\n", encoding="utf-8")
         ADAPTER.refresh(self.root)
         parsed_at = self.metadata("last_updated")
         self.git("add", "sample.js")
         self.git("commit", "--quiet", "-m", "source already indexed")
-        # 固定上游 no-op 合约：不同 CRG 版本可能重解析已提交文件，
-        # 此处明确验证零更新响应下适配器仍会推进元数据且不改解析时间。
+        # 源码已经索引后才提交，只推进 provenance，不能调用上游重解析或改时间。
         upstream = {"status": "ok", "files_updated": 0}
         self.assertNotEqual(self.metadata("git_head_sha"), self.git("rev-parse", "HEAD"))
         with patch("code_review_graph.tools.build.build_or_update_graph", return_value=upstream) as build:
             result = ADAPTER.refresh(self.root)
-        self.assertEqual(build.call_count, 1)
-        self.assertFalse(build.call_args.kwargs["full_rebuild"])
+        build.assert_not_called()
         self.assertEqual(result["files_updated"], 0)
         self.assertTrue(result["codemap_metadata_advanced"])
         self.assertEqual(self.metadata("git_head_sha"), self.git("rev-parse", "HEAD"))
         self.assertEqual(self.metadata("last_updated"), parsed_at)
 
     def test_empty_commit_and_repeat_do_not_rebuild(self):
+        # 固定过去的解析时间，并同步其可信 proof。若上游 no-op 被调用，
+        # 模拟它推进到明显不同的时间，避免同秒运行产生假阳性。
+        parsed_at = "2000-01-01T00:00:00"
+        store, _ = _get_store(str(self.root))
+        try:
+            with store._conn:
+                store._conn.execute("BEGIN IMMEDIATE")
+                store._conn.execute("INSERT OR REPLACE INTO metadata VALUES (?, ?)",
+                                    ("last_updated", parsed_at))
+                proof = ADAPTER.proof_for(store, ADAPTER.source_snapshot(self.root)[0],
+                                          ADAPTER.runtime_identity())
+                store._conn.execute("INSERT OR REPLACE INTO metadata VALUES (?, ?)",
+                                    (ADAPTER.VERIFIED_KEY, json.dumps(proof)))
+        finally:
+            store.close()
+
+        def advancing_noop(**kwargs):
+            store, _ = _get_store(str(self.root))
+            try:
+                store.set_metadata("last_updated", "2099-01-01T00:00:00")
+            finally:
+                store.close()
+            return {"status": "ok", "files_updated": 0}
+
         self.git("commit", "--allow-empty", "--quiet", "-m", "metadata only")
-        with patch("code_review_graph.tools.build.build_or_update_graph", wraps=build_or_update_graph) as build:
+        with patch("code_review_graph.tools.build.build_or_update_graph", side_effect=advancing_noop) as build:
             first = ADAPTER.refresh(self.root)
             second = ADAPTER.refresh(self.root)
-        self.assertEqual(build.call_count, 2)
-        self.assertTrue(all(not call.kwargs["full_rebuild"] for call in build.call_args_list))
-        self.assertTrue(first["codemap_metadata_advanced"])
+        build.assert_not_called()
+        self.assertEqual(first["status"], "ok")
+        self.assertEqual(self.metadata("git_head_sha"), self.git("rev-parse", "HEAD"))
+        self.assertEqual(self.metadata("last_updated"), parsed_at)
         self.assertFalse(second["codemap_metadata_advanced"])
 
     def test_reverted_worktree_content_is_repaired(self):
@@ -85,17 +267,19 @@ class RefreshTest(unittest.TestCase):
         self.source.write_bytes(original)
         with patch("code_review_graph.tools.build.build_or_update_graph", wraps=build_or_update_graph) as build:
             ADAPTER.refresh(self.root)
-        self.assertEqual([call.kwargs["full_rebuild"] for call in build.call_args_list], [False, True])
+        self.assertEqual(build.call_args_list[0].kwargs["full_rebuild"], False)
         store, _ = _get_store(str(self.root))
         try:
             names = {node.name for node in store.get_nodes_by_file(str(self.source))}
             self.assertIn("original", names)
             self.assertNotIn("temporary", names)
+            self.assertTrue(ADAPTER.graph_matches(self.root, store, ADAPTER.source_snapshot(self.root)[0]))
         finally:
             store.close()
 
     def test_failed_parse_never_advances_metadata(self):
         self.git("commit", "--allow-empty", "--quiet", "-m", "must remain unverified")
+        self.source.write_text("function parseMustFail() { return 2; }\n", encoding="utf-8")
         failure = {"status": "ok", "files_updated": 0, "errors": [{"file": "sample.js", "error": "parser failed"}]}
         with patch("code_review_graph.tools.build.build_or_update_graph", return_value=failure):
             with self.assertRaisesRegex(RuntimeError, "未完整通过"):
@@ -105,6 +289,7 @@ class RefreshTest(unittest.TestCase):
 
     def test_concurrent_edit_is_not_marked_verified(self):
         self.git("commit", "--allow-empty", "--quiet", "-m", "concurrent edit")
+        self.source.write_text("function beforeConcurrentEdit() { return 2; }\n", encoding="utf-8")
 
         def change_during_build(**kwargs):
             result = build_or_update_graph(**kwargs)
@@ -143,7 +328,7 @@ class RefreshTest(unittest.TestCase):
         with patch("code_review_graph.tools.build.build_or_update_graph", wraps=build_or_update_graph) as build:
             ADAPTER.refresh(self.root)
             ADAPTER.refresh(self.root)
-        self.assertEqual([call.kwargs["full_rebuild"] for call in build.call_args_list], [True, False])
+        self.assertEqual([call.kwargs["full_rebuild"] for call in build.call_args_list], [True])
 
     def test_runtime_identity_change_rebuilds_a_verified_graph(self):
         """运行时包身份变化不能复用旧 runtime 写入的可信 proof。"""
@@ -158,6 +343,18 @@ class RefreshTest(unittest.TestCase):
                 ADAPTER.refresh(self.root)
         self.assertEqual([call.kwargs["full_rebuild"] for call in build.call_args_list], [True])
 
+    def test_explicit_full_build_is_not_skipped(self):
+        with patch("code_review_graph.tools.build.build_or_update_graph", wraps=build_or_update_graph) as build:
+            result = ADAPTER.refresh(self.root, full=True)
+        self.assertEqual([call.kwargs["full_rebuild"] for call in build.call_args_list], [True])
+        self.assertEqual(result["build_type"], "full")
+        store, _ = _get_store(str(self.root))
+        try:
+            self.assertTrue(ADAPTER.has_verified_graph(store))
+            self.assertTrue(ADAPTER.graph_matches(self.root, store, ADAPTER.source_snapshot(self.root)[0]))
+        finally:
+            store.close()
+
     def test_same_sha_branch_and_document_commit(self):
         self.git("switch", "-c", "same-sha")
         result = ADAPTER.refresh(self.root)
@@ -168,8 +365,7 @@ class RefreshTest(unittest.TestCase):
         self.git("commit", "--quiet", "-m", "documentation")
         with patch("code_review_graph.tools.build.build_or_update_graph", wraps=build_or_update_graph) as build:
             result = ADAPTER.refresh(self.root)
-        self.assertEqual(build.call_count, 1)
-        self.assertFalse(build.call_args.kwargs["full_rebuild"])
+        build.assert_not_called()
         self.assertFalse(result.get("errors"))
         self.assertEqual(self.metadata("git_head_sha"), self.git("rev-parse", "HEAD"))
 
@@ -244,10 +440,12 @@ class RefreshTest(unittest.TestCase):
                     [edge_values[name] for name in names],
                 )
             store._conn.execute(
-                "CREATE TABLE IF NOT EXISTS embeddings (qualified_name TEXT PRIMARY KEY)"
+                "CREATE TABLE IF NOT EXISTS embeddings (qualified_name TEXT PRIMARY KEY, "
+                "vector BLOB NOT NULL, text_hash TEXT NOT NULL, provider TEXT NOT NULL)"
             )
             store._conn.execute(
-                "INSERT INTO embeddings(qualified_name) VALUES (?)", (legacy_node,)
+                "INSERT INTO embeddings VALUES (?, ?, ?, ?)",
+                (legacy_node, struct.pack("2f", 1.0, 0.0), "legacy-hash", "local:test-fixture"),
             )
             store.commit()
             self.assertIn(legacy_path, store.get_all_files())

@@ -1,0 +1,14 @@
+{
+  "name": "microsoft-learn-codex",
+  "version": "0.1.2",
+  "private": true,
+  "description": "按需查询 Microsoft Learn 官方文档与代码示例。",
+  "researchToolsProvider": "microsoft",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.cjs",
+    "doctor": "node scripts/setup.cjs --doctor"
+  }
+}

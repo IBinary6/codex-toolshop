@@ -51,6 +51,7 @@ assert.ok(crgServer, 'plugin bundles the code-review-graph MCP server');
 assert.strictEqual(crgServer.command, 'node');
 assert.deepStrictEqual(crgServer.args, ['scripts/mcp-server.cjs']);
 assert.strictEqual(crgServer.cwd, '.', 'relative launcher path is resolved from the installed plugin root');
+assert.strictEqual(crgServer.tool_timeout_sec, MCP_STARTUP_TIMEOUT_SEC, 'first tool call has a cold-start budget');
 assert.strictEqual(MCP_STARTUP_TIMEOUT_SEC, 600, 'the shared MCP startup budget covers first-run runtime installation');
 assert.strictEqual(
   crgServer.startup_timeout_sec,
@@ -62,7 +63,7 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'package.js
 assert.match(plugin.version, /^\d+\.\d+\.\d+$/, 'plugin manifest declares a release version');
 assert.strictEqual(packageJson.version, plugin.version, 'package metadata matches the plugin release');
 assert.deepStrictEqual(mcp.mcpServers.serena, {
-  type: 'stdio', command: 'node', args: ['scripts/serena-server.cjs'], cwd: '.', startup_timeout_sec: MCP_STARTUP_TIMEOUT_SEC,
+  type: 'stdio', command: 'node', args: ['scripts/serena-server.cjs'], cwd: '.', startup_timeout_sec: MCP_STARTUP_TIMEOUT_SEC, tool_timeout_sec: MCP_STARTUP_TIMEOUT_SEC,
 }, 'Serena is available through the installed plugin without a user-specific MCP registration');
 assert.strictEqual(MINIMUM_NODE_MAJOR, 18, 'Node 18 is the minimum supported launcher runtime');
 assert.strictEqual(packageJson.engines && packageJson.engines.node, '>=18.0.0', 'package declares its Node runtime prerequisite');

@@ -1,0 +1,14 @@
+{
+  "name": "sequential-thinking-codex",
+  "version": "0.1.2",
+  "private": true,
+  "description": "使用官方核心进行支持修订和分支的分步分析。",
+  "researchToolsProvider": "sequentialthinking",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.cjs",
+    "doctor": "node scripts/setup.cjs --doctor"
+  }
+}

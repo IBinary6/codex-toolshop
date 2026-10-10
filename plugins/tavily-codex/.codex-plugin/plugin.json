@@ -1,0 +1,27 @@
+{
+  "name": "tavily-codex",
+  "version": "0.1.2",
+  "description": "按需使用 Tavily 搜索、提取、抓取及综合研究。",
+  "author": {
+    "name": "IBinary6"
+  },
+  "keywords": [
+    "tavily",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Tavily",
+    "shortDescription": "按需使用 Tavily 搜索、提取、抓取及综合研究。",
+    "longDescription": "技能与按次命令入口，无常驻 MCP；在插件页面独立启停。",
+    "developerName": "IBinary6",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "使用 Tavily。"
+    ],
+    "brandColor": "#2563EB"
+  }
+}

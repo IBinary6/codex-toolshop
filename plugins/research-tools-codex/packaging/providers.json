@@ -1,0 +1,32 @@
+[
+  {
+    "provider": "context7", "name": "context7-codex", "displayName": "Context7", "description": "按需查询 Context7 库文档与代码示例。",
+    "usage": "先用 resolve-library-id 定位库，再用 query-docs 查询；用户已给精确库 ID 时直接查询。",
+    "config": "本插件私有 JSON 的 apiKey 可以留空匿名访问，也可填写密钥。"
+  },
+  {
+    "provider": "exa", "name": "exa-codex", "displayName": "Exa", "description": "按需使用 Exa 搜索来源和读取网页。",
+    "usage": "用 web_search_exa 发现来源，web_fetch_exa 读取指定网页。只传 query 的旧调用仍受支持；缺省 objective 取 query 的前 4096 个字符。",
+    "config": "实际调用前需要在本插件私有 JSON 中填写 apiKey。"
+  },
+  {
+    "provider": "tavily", "name": "tavily-codex", "displayName": "Tavily", "description": "按需使用 Tavily 搜索、提取、抓取及综合研究。",
+    "usage": "search/extract 用于搜索与提取；map/crawl 用于明确站点范围；research 用于任务确实需要的多来源综合。扩大范围前核对原任务和用量。",
+    "config": "实际调用前需要在本插件私有 JSON 中填写 apiKey。"
+  },
+  {
+    "provider": "microsoft", "name": "microsoft-learn-codex", "displayName": "Microsoft Learn", "description": "按需查询 Microsoft Learn 官方文档与代码示例。",
+    "usage": "microsoft_docs_search 查官方文档，microsoft_code_sample_search 查代码示例，microsoft_docs_fetch 读取相关完整文档。连接 https://learn.microsoft.com/api/mcp。",
+    "config": "无需密钥。"
+  },
+  {
+    "provider": "fetch", "name": "fetch-codex", "displayName": "Fetch", "description": "按需使用官方 Python Fetch MCP 读取网页。",
+    "usage": "fetch 保留官方 Markdown、robots、raw、max_length 与 start_index 分页行为。被截断时按结果提示继续读取；需要原始页面时传 raw: true。",
+    "config": "无需密钥。需要 PATH 中的 uvx；首次实际调用才执行 uvx --from mcp-server-fetch==2026.8.18 mcp-server-fetch 并准备固定版官方包。Python 后端随网关关闭。"
+  },
+  {
+    "provider": "sequentialthinking", "name": "sequential-thinking-codex", "displayName": "Sequential Thinking", "description": "使用官方核心进行支持修订和分支的分步分析。",
+    "usage": "sequentialthinking 支持修订、分支、布尔字符串和历史。只有任务需要显式分步分析时调用；历史属于当前网关生命周期。",
+    "config": "无需密钥。首次调用在当前 Node 进程加载官方 2026.8.31 核心与 Chalk 5.6.2，不增加 Node 后端或安装器；思考日志关闭。固定来源、适配哈希和许可证在 vendor/sequential-thinking 中。"
+  }
+]

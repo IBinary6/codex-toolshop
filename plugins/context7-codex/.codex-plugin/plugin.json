@@ -1,0 +1,27 @@
+{
+  "name": "context7-codex",
+  "version": "0.1.2",
+  "description": "按需查询 Context7 库文档与代码示例。",
+  "author": {
+    "name": "IBinary6"
+  },
+  "keywords": [
+    "context7",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Context7",
+    "shortDescription": "按需查询 Context7 库文档与代码示例。",
+    "longDescription": "技能与按次命令入口，无常驻 MCP；在插件页面独立启停。",
+    "developerName": "IBinary6",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "使用 Context7。"
+    ],
+    "brandColor": "#2563EB"
+  }
+}

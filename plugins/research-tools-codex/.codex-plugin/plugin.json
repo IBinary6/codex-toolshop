@@ -1,0 +1,34 @@
+{
+  "name": "research-tools-codex",
+  "version": "0.1.4",
+  "description": "Context7, Exa, Tavily, Microsoft Learn, Fetch and Sequential Thinking through one lazy MCP gateway.",
+  "author": {
+    "name": "IBinary6"
+  },
+  "keywords": [
+    "research",
+    "context7",
+    "exa",
+    "tavily",
+    "microsoft-learn",
+    "fetch",
+    "sequentialthinking",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Research Tools",
+    "shortDescription": "六个提供方的 14 个按需工具。",
+    "longDescription": "一个轻量 Node 网关，官方远端 MCP 与按需本地后端；本地工具发现不联网，三个私有密钥保存在用户全局配置中。",
+    "developerName": "IBinary6",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "配置 Research Tools 并检查私有全局配置。"
+    ],
+    "brandColor": "#2563EB"
+  }
+}

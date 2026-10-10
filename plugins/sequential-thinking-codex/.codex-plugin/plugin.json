@@ -1,0 +1,28 @@
+{
+  "name": "sequential-thinking-codex",
+  "version": "0.1.2",
+  "description": "使用官方核心进行支持修订和分支的分步分析。",
+  "author": {
+    "name": "IBinary6"
+  },
+  "keywords": [
+    "sequentialthinking",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Sequential Thinking",
+    "shortDescription": "使用官方核心进行支持修订和分支的分步分析。",
+    "longDescription": "自包含的按需 MCP 插件；可在插件页面独立启停，工具发现完全本地。",
+    "developerName": "IBinary6",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "使用 Sequential Thinking。"
+    ],
+    "brandColor": "#2563EB"
+  }
+}

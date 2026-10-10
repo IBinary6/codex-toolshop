@@ -20,7 +20,7 @@
     },
     {
       "name": "codemap-boost-codex",
-      "version": "0.1.35",
+      "version": "0.1.39",
       "description": "CodeMap semantic graph search with synchronized graph-read barriers and complementary tgrep text-search routing.",
       "source": {
         "source": "local",
@@ -101,6 +101,68 @@
         "authentication": "ON_INSTALL"
       },
       "category": "Coding"
+    },
+    {
+      "name": "research-tools-codex",
+      "version": "0.1.4",
+      "description": "研究工具可选合并版；独立开关请安装各提供方插件，避免重复启用。",
+      "source": {
+        "source": "local",
+        "path": "./plugins/research-tools-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "context7-codex",
+      "version": "0.1.2",
+      "description": "Context7 官方 CLI 与文档技能，按次调用，无常驻 MCP 入口。",
+      "source": { "source": "local", "path": "./plugins/context7-codex" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    },
+    {
+      "name": "exa-codex",
+      "version": "0.1.2",
+      "description": "Exa 官方 REST API 搜索与内容读取，独立配置，无常驻 MCP 入口。",
+      "source": { "source": "local", "path": "./plugins/exa-codex" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    },
+    {
+      "name": "tavily-codex",
+      "version": "0.1.2",
+      "description": "Tavily 官方 REST API 搜索、提取、抓取与研究，按次调用、独立配置。",
+      "source": { "source": "local", "path": "./plugins/tavily-codex" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    },
+    {
+      "name": "microsoft-learn-codex",
+      "version": "0.1.2",
+      "description": "Microsoft Learn 官方文档、代码示例与页面读取，无需 Key。",
+      "source": { "source": "local", "path": "./plugins/microsoft-learn-codex" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    },
+    {
+      "name": "fetch-codex",
+      "version": "0.1.2",
+      "description": "官方 Fetch MCP，仅实际读取网页时启动 Python 后端。",
+      "source": { "source": "local", "path": "./plugins/fetch-codex" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    },
+    {
+      "name": "sequential-thinking-codex",
+      "version": "0.1.2",
+      "description": "Sequential Thinking 官方核心，支持历史、修订和分支，无额外 Node 后端。",
+      "source": { "source": "local", "path": "./plugins/sequential-thinking-codex" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
     },
     {
       "name": "tgrep-search-codex",

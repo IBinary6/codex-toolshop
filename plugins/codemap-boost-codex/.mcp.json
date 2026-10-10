@@ -5,7 +5,8 @@
       "command": "node",
       "args": ["scripts/serena-server.cjs"],
       "cwd": ".",
-      "startup_timeout_sec": 600
+      "startup_timeout_sec": 600,
+      "tool_timeout_sec": 600
     },
     "code-review-graph": {
       "type": "stdio",
@@ -14,7 +15,8 @@
         "scripts/mcp-server.cjs"
       ],
       "cwd": ".",
-      "startup_timeout_sec": 600
+      "startup_timeout_sec": 600,
+      "tool_timeout_sec": 600
     }
   }
 }

@@ -1,0 +1,18 @@
+{
+  "generator": "research-tools-codex",
+  "engineVersion": "0.1.4",
+  "mode": "command",
+  "files": {
+    "scripts/config.cjs": "b0cfe4644cc3a9a1dd4feb8048512cb5372e73d8f96c1b756f2f867e598434cd",
+    "scripts/setup.cjs": "1fa533a7e0855f5f85ba2439f7f6b8a7c0ba096cbd4c6b4c894785bacefb98bb",
+    "scripts/child-transport.cjs": "f0bc2edd2b6ed771b961679dec7f79791e03941ab8df2a3e9d84ecc14fbf5660",
+    "scripts/command.cjs": "eefcbfdfa2a6d0e75832a1a316480ef1ca09924eb70814820ec9094ec59bb438",
+    "scripts/command-client.cjs": "1ca667f217a1e7cb95d729a3c56762f53d10a103882a99e6b263d3e26b424acc",
+    "config.example.json": "e03e5918d7897e3326ad41266d28da69b0683df554293a9f3d5661d906c38d3f",
+    "scripts/catalog.json": "6b2c329f5890ac64816f44f3b622d23a1d4ac07025497e300b2d9a95fbbd26ae",
+    "package.json": "7141c9f8df71727f381b27a890b0ec37965376b0a5ba4aa2b41e5f066b608539",
+    ".codex-plugin/plugin.json": "c43dc8d87a8d50e4e48c8cc9646b1f4c642a63050f3b3a36900d4dcdc7c0be6c",
+    "skills/context7-codex/SKILL.md": "79e563b0f5411eed28ec66e1c64fd4a36ff328a85b08583d81904275cf6e164b",
+    "README.md": "9b9a534461d89a745a74be30e88bf5fa9504e0107a419874f623d67673b9c4bd"
+  }
+}

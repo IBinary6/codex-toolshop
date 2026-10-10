@@ -15,13 +15,14 @@ jobs:
         os:
           - windows-latest
           - macos-latest
+          - ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - uses: actions/setup-python@v5
         with:
@@ -39,6 +40,10 @@ jobs:
         working-directory: plugins/codemap-boost-codex
         run: npm test
 
+      - name: Validate independent research plugins
+        working-directory: plugins/research-tools-codex
+        run: npm test
+
       - name: Prepare ripgrep for tgrep CLI tests
         shell: bash
         run: |
@@ -46,6 +51,7 @@ jobs:
             case "$RUNNER_OS" in
               Windows) choco install ripgrep --yes --no-progress ;;
               macOS) brew install ripgrep ;;
+              Linux) sudo apt-get update && sudo apt-get install --yes ripgrep ;;
             esac
           fi
           rg --version
@@ -107,7 +113,7 @@ jobs:
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v6
-      - name: Verify isolated Serena MCP, no dashboard, and symbol lookup
+      - name: Verify isolated Serena MCP, C++ references and parameter refresh
         working-directory: plugins/codemap-boost-codex
         run: npm run test:serena-smoke
 
@@ -118,8 +124,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
-        crg: ["2.3.7", "2.3.8"]
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        crg: ["2.3.7", "2.3.8", "2.3.9"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

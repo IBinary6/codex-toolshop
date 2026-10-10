@@ -5,12 +5,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { MCP_STARTUP_TIMEOUT_SEC, crgRuntimePaths, probeCrgRuntime } = require('./bootstrap');
+const { MCP_STARTUP_TIMEOUT_SEC, MCP_BOOTSTRAP_BUDGET_MS, crgRuntimePaths, ensureCrg, probeCrgRuntime } = require('./bootstrap');
 
 const {
   codexHome,
   ensureDir,
-  isGitRepo,
   markerPath,
   repoRoot,
   spawnDetached,
@@ -26,7 +25,7 @@ const REFRESH_LOCK_WAIT_MS = 2 * 60 * 1000;
 const REFRESH_WAIT_MS = 10 * 60 * 1000;
 const REFRESH_DIAGNOSTIC_MAX_CHARS = 600;
 const SOURCE_STATE_FILE = '.codemap-boost-source-state';
-const SOURCE_STATE_VERSION = 'verified-graph-v3';
+const SOURCE_STATE_VERSION = 'verified-graph-v4';
 const BLOCK_START = '<!-- codemap-boost-codex:start -->';
 const BLOCK_END = '<!-- codemap-boost-codex:end -->';
 const GUIDANCE = [
@@ -144,8 +143,8 @@ function canUseCrg(options = {}) {
 }
 
 function isCodeMapEnabled() {
-  if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') return false;
-  return canUseCrg();
+  // 提醒入口判断会话策略即可；图运行时健康检查属于实际读取前的准备阶段。
+  return process.env.CODEMAP_BOOST_DISABLE_GRAPH !== '1';
 }
 
 function enableCodeMap() {
@@ -243,6 +242,8 @@ function acquireRefreshLock(lockFile, waitMs = REFRESH_WAIT_MS) {
 
 function gitResult(cwd, args, options = {}) {
   const spawn = options.spawnSync || spawnSync;
+  const timeout = remainingRefreshBudget(options, options.timeout || 30000);
+  if (timeout <= 0) return { status: null, error: new Error('Graph preparation budget exhausted'), stdout: '', stderr: '' };
   try {
     return spawn('git', args, {
       cwd,
@@ -250,25 +251,25 @@ function gitResult(cwd, args, options = {}) {
       encoding: 'utf8',
       stdio: options.stdio || ['ignore', 'pipe', 'ignore'],
       windowsHide: process.platform === 'win32',
-      timeout: options.timeout || 30000,
+      timeout,
     });
   } catch (error) {
     return { status: null, error, stdout: '', stderr: '' };
   }
 }
 
-function untrackedFiles(root) {
-  const result = gitResult(root, ['ls-files', '--others', '--exclude-standard', '-z']);
+function untrackedFiles(root, options = {}) {
+  const result = gitResult(root, ['ls-files', '--others', '--exclude-standard', '-z'], options);
   if (result.error || result.status !== 0) return [];
   return String(result.stdout || '')
     .split('\0')
     .filter(Boolean);
 }
 
-function sourceStateFingerprint(root) {
-  const head = gitResult(root, ['rev-parse', '--verify', 'HEAD']);
-  const branch = gitResult(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
-  const status = gitResult(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
+function sourceStateFingerprint(root, options = {}) {
+  const head = gitResult(root, ['rev-parse', '--verify', 'HEAD'], options);
+  const branch = gitResult(root, ['rev-parse', '--abbrev-ref', 'HEAD'], options);
+  const status = gitResult(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all'], options);
   if (head.error || head.status !== 0 || branch.error || branch.status !== 0
     || status.error || status.status !== 0) return null;
   const rawStatus = String(status.stdout || '');
@@ -293,6 +294,7 @@ function sourceStateFingerprint(root) {
         const buffer = Buffer.alloc(64 * 1024);
         let size;
         while ((size = fs.readSync(fd, buffer, 0, buffer.length, null)) > 0) {
+          if (remainingRefreshBudget(options) <= 0) return null;
           hash.update(buffer.subarray(0, size));
         }
       } finally {
@@ -372,16 +374,16 @@ function sourceStateMatches(state, source, runtime, graph) {
     && state.graph && state.graph.database === graph.database && state.graph.wal === graph.wal;
 }
 
-function withTemporaryGitIndex(root, callback) {
+function withTemporaryGitIndex(root, callback, options = {}) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-git-index-'));
   const indexFile = path.join(tempDir, 'index');
   const env = { ...process.env, GIT_INDEX_FILE: indexFile };
   try {
-    const head = gitResult(root, ['rev-parse', '--verify', 'HEAD']);
+    const head = gitResult(root, ['rev-parse', '--verify', 'HEAD'], options);
     const readTreeArgs = !head.error && head.status === 0 ? ['read-tree', 'HEAD'] : ['read-tree', '--empty'];
-    const readTree = gitResult(root, readTreeArgs, { env });
+    const readTree = gitResult(root, readTreeArgs, { ...options, env });
     if (readTree.error || readTree.status !== 0) return false;
-    const add = gitResult(root, ['add', '-A', '--', '.'], { env, timeout: 120000 });
+    const add = gitResult(root, ['add', '-A', '--', '.'], { ...options, env, timeout: 120000 });
     if (add.error || add.status !== 0) return false;
     return callback(env);
   } finally {
@@ -411,19 +413,27 @@ function refreshCrgUnlocked(root, options = {}) {
   if (!root) return refreshFailed(options, 'refresh_execution_failed', 'The target is not a Git working tree.');
   ensureGitInfoExclude(root);
   const hasGraph = fs.existsSync(path.join(root, '.code-review-graph'));
-  const sourceState = sourceStateFingerprint(root);
+  const sourceState = sourceStateFingerprint(root, options);
   if (!sourceState) {
     return refreshFailed(options, 'refresh_execution_failed', 'Unable to read a stable Git source state before refresh.');
   }
   const command = crgCommand(options);
   const runtime = runtimeState(command);
   const graph = graphStateStamp(root);
-  if (hasGraph && graph && sourceStateMatches(readSourceState(root), sourceState, runtime, graph)) return true;
+  const previous = readSourceState(root);
+  if (hasGraph && graph && sourceStateMatches(previous, sourceState, runtime, graph)) return true;
+  // embed 等工具会写同一 SQLite/WAL。仍进入适配器验证业务图内容，
+  // 不能把合法向量写入当作源码变化而直接清空整图。
+  const verifyGraphOnly = hasGraph && graph && previous
+    && previous.source === sourceState && previous.runtime === runtime;
   // 将工作树交给 CRG 自身筛选，避免遗漏它支持但 JS 未列举的文件类型。
-  const hasUntrackedSource = untrackedFiles(root).length > 0;
-  const args = [hasGraph && !hasUntrackedSource ? 'update' : 'build', '--repo', root];
+  const hasUntrackedSource = untrackedFiles(root, options).length > 0;
+  const action = verifyGraphOnly ? 'verify' : (hasGraph && !hasUntrackedSource ? 'update' : 'build');
+  const args = [action, '--repo', root];
   const runCrg = options.runCrg || runCrgDefault;
   const invoke = (env) => {
+    const timeout = remainingRefreshBudget(options, options.timeout || REFRESH_WAIT_MS);
+    if (timeout <= 0) return refreshFailed(options, 'prepare_budget_exhausted', 'The graph preparation budget was exhausted before refresh.');
     try {
       fs.rmSync(sourceStatePath(root), { force: true });
     } catch (error) {
@@ -436,7 +446,7 @@ function refreshCrgUnlocked(root, options = {}) {
         env,
         crgCommand: command,
         stdio: ['ignore', 'ignore', 'pipe'],
-        timeout: options.timeout || REFRESH_WAIT_MS,
+        timeout,
       });
     } catch (error) {
       return refreshFailed(options, 'refresh_process_failed', `Refresh process threw an exception: ${error.message}`);
@@ -444,7 +454,7 @@ function refreshCrgUnlocked(root, options = {}) {
     if (!result || result.error || result.status !== 0) {
       return refreshFailed(options, 'refresh_process_failed', refreshProcessFailure(result));
     }
-    if (sourceStateFingerprint(root) !== sourceState) {
+    if (sourceStateFingerprint(root, options) !== sourceState) {
       return refreshFailed(
         options,
         'refresh_source_changed',
@@ -476,7 +486,7 @@ function refreshCrgUnlocked(root, options = {}) {
   };
   if (!hasUntrackedSource) return invoke(process.env);
   const diagnosticCount = Array.isArray(options.diagnostics) ? options.diagnostics.length : 0;
-  const ok = withTemporaryGitIndex(root, invoke);
+  const ok = withTemporaryGitIndex(root, invoke, options);
   if (ok || (Array.isArray(options.diagnostics) && options.diagnostics.length > diagnosticCount)) return ok;
   return refreshFailed(options, 'refresh_execution_failed', 'Unable to prepare the temporary Git index for a full graph build.');
 }
@@ -490,7 +500,10 @@ function refreshCrgSync(cwd, options = {}) {
   const canUse = options.canUseCrg || canUseCrg;
   if (!canUse()) return refreshFailed(options, 'refresh_execution_failed', 'The managed code-review-graph runtime is not ready.');
   const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-refresh', root));
-  const waitMs = options.waitMs ?? REFRESH_LOCK_WAIT_MS;
+  const waitMs = remainingRefreshBudget(options, options.waitMs ?? REFRESH_LOCK_WAIT_MS);
+  if (remainingRefreshBudget(options) <= 0) {
+    return refreshFailed(options, 'prepare_budget_exhausted', 'The graph preparation budget was exhausted before acquiring the refresh lock.');
+  }
   if (!acquireRefreshLock(lockFile, waitMs)) {
     return refreshFailed(options, 'lock_wait_timeout', `Refresh lock wait timed out after ${waitMs} ms.`);
   }
@@ -499,6 +512,44 @@ function refreshCrgSync(cwd, options = {}) {
   } finally {
     try { fs.unlinkSync(lockFile); } catch (_) {}
   }
+}
+
+function remainingRefreshBudget(options, requestedMs = Infinity) {
+  if (!Number.isFinite(options.deadlineMs)) return requestedMs;
+  const now = typeof options.now === 'function' ? options.now() : Date.now();
+  return Math.max(0, Math.min(requestedMs, options.deadlineMs - now));
+}
+
+/**
+ * 仅在图工具实际读取时同步自愈运行时并刷新目标工作树。
+ * 安装、锁等待、Git 状态采集和刷新共用截止时间；600 秒 hook 保留 30 秒返回余量。
+ * 固定运行时快照使本次准备和图 provenance 使用同一精确版本和执行路径。
+ */
+function prepareCrgForRead(cwd, options = {}) {
+  if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') {
+    return refreshFailed(options, 'runtime_prepare_failed', 'Graph support is disabled for this session.');
+  }
+  const root = repoRoot(cwd);
+  if (!root) return refreshFailed(options, 'runtime_prepare_failed', 'The target is not a Git working tree.');
+  const now = typeof options.now === 'function' ? options.now() : Date.now();
+  const deadlineMs = Math.min(options.deadlineMs ?? Infinity, now + MCP_BOOTSTRAP_BUDGET_MS);
+  if (deadlineMs <= now) return refreshFailed(options, 'prepare_budget_exhausted', 'The graph preparation budget was exhausted before runtime preparation.');
+  // catalog helper 仅读取 active pointer/安装元数据，不启动 CRG 或解释器。
+  const { recordSelectedCrgRuntime, selectCrgRuntime } = require('../../../scripts/mcp-catalog.cjs');
+  const runtimeOptions = selectCrgRuntime({ ...options, deadlineMs });
+  const paths = crgRuntimePaths(runtimeOptions);
+  const diagnostics = [];
+  const ensure = options.ensureCrg || ensureCrg;
+  if (!ensure({ ...runtimeOptions, diagnostics })) {
+    return refreshFailed(options, 'runtime_prepare_failed', diagnostics.slice(-3).join('; ')
+      || 'The managed code-review-graph runtime could not be prepared within the graph call budget. Run setup for diagnostics, or retry the graph call.');
+  }
+  recordSelectedCrgRuntime(runtimeOptions);
+  return refreshCrgSync(root, {
+    ...options, deadlineMs, crgCommand: paths.command,
+    // ensureCrg 已验证本次固定快照，避免重复探针重新读取 active pointer。
+    canUseCrg: () => true,
+  });
 }
 
 function listLinkedWorktrees(cwd) {
@@ -533,10 +584,10 @@ function refreshLinkedWorktreesSync(cwd, options = {}) {
 
 function startCrgBuild(cwd, options = {}) {
   if (process.env.CODEMAP_BOOST_DISABLE_BACKGROUND === '1') return false;
-  const enabled = options.isCodeMapEnabled || isCodeMapEnabled;
-  if (!enabled() || !isGitRepo(cwd)) return false;
   const root = repoRoot(cwd);
   if (!root) return false;
+  const enabled = options.isCodeMapEnabled || (() => isCodeMapEnabled() && canUseCrg());
+  if (!enabled()) return false;
   const graphDir = path.join(root, '.code-review-graph');
   if (fs.existsSync(graphDir)) return false;
   const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-refresh', root));
@@ -571,7 +622,7 @@ function writeBootstrapDiagnostic(diagnostic) {
 }
 
 /**
- * 在 SessionStart 中启动一次后台环境自愈，并用锁避免重复安装。
+ * 显式 setup/修复路径可启动后台环境自愈，并用锁避免重复安装。
  * @example startAutoBootstrap(process.cwd())
  */
 function startAutoBootstrap(cwd, options = {}) {
@@ -633,10 +684,10 @@ function startAutoBootstrap(cwd, options = {}) {
 
 function startCrgUpdate(cwd, options = {}) {
   if (process.env.CODEMAP_BOOST_DISABLE_BACKGROUND === '1') return false;
-  const enabled = options.isCodeMapEnabled || isCodeMapEnabled;
-  if (!enabled() || !isGitRepo(cwd)) return false;
   const root = repoRoot(cwd);
   if (!root) return false;
+  const enabled = options.isCodeMapEnabled || (() => isCodeMapEnabled() && canUseCrg());
+  if (!enabled()) return false;
   if (!fs.existsSync(path.join(root, '.code-review-graph'))) return false;
   const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-refresh', root));
   const pendingFile = `${lockFile}.pending`;
@@ -1045,6 +1096,7 @@ module.exports = {
   startCrgUpdate,
   refreshCrgUnlocked,
   refreshCrgSync,
+  prepareCrgForRead,
   listLinkedWorktrees,
   refreshLinkedWorktreesSync,
   parseMcpJson,

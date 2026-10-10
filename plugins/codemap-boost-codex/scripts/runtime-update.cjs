@@ -5,16 +5,18 @@ const {
   runRuntimeUpdates,
   runtimeUpdateDoctor,
   updatesDisabled,
+  updateKinds,
 } = require('../hooks/js/lib/runtime-updates');
 
 function parseArgs(argv) {
-  const args = { background: false, checkNow: false, doctor: false, lockToken: '' };
+  const args = { background: false, checkNow: false, doctor: false, lockToken: '', kinds: ['crg', 'serena'] };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === '--background') args.background = true;
     else if (value === '--check-now') args.checkNow = true;
     else if (value === '--doctor') args.doctor = true;
     else if (value === '--lock-token') args.lockToken = argv[++index] || '';
+    else if (value === '--kinds') args.kinds = updateKinds({ kinds: String(argv[++index] || '').split(',') });
     else throw new Error(`未知参数：${value}`);
   }
   if (args.doctor && (args.background || args.checkNow || args.lockToken)) throw new Error('--doctor 必须保持只读');
@@ -39,7 +41,7 @@ async function main(argv = process.argv.slice(2), dependencies = {}) {
   }
   const lock = args.lockToken ? adopt(args.lockToken) : null;
   if (args.lockToken && !lock) throw new Error('后台更新锁已失效或不属于当前调度');
-  const result = await run({ force: args.checkNow, lock });
+  const result = await run({ force: args.checkNow, lock, kinds: args.kinds });
   if (!args.background) write(`${JSON.stringify(result)}\n`);
   return result.status === 'ok' || result.status === 'busy' ? 0 : 1;
 }

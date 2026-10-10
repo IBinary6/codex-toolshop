@@ -1,0 +1,17 @@
+{
+  "name": "research-tools-codex",
+  "version": "0.1.4",
+  "description": "Lazy official research MCP gateway",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.cjs",
+    "doctor": "node scripts/setup.cjs --doctor",
+    "check": "node scripts/check.cjs",
+    "test": "npm run check && npm run check:packages && node --test test/*.test.cjs",
+    "generate": "node packaging/generate.cjs",
+    "check:packages": "node packaging/generate.cjs --check"
+  }
+}

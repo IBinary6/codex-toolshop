@@ -21,6 +21,12 @@ codex plugin add agent-dispatch-codex@codex-toolshop
 codex plugin add local-knowledge-codex@codex-toolshop
 codex plugin add conversation-namer-codex@codex-toolshop
 codex plugin add system-proxy-codex@codex-toolshop
+codex plugin add context7-codex@codex-toolshop
+codex plugin add exa-codex@codex-toolshop
+codex plugin add tavily-codex@codex-toolshop
+codex plugin add microsoft-learn-codex@codex-toolshop
+codex plugin add fetch-codex@codex-toolshop
+codex plugin add sequential-thinking-codex@codex-toolshop
 ```
 
 安装或升级后，重新打开一个 Codex 会话，让 hooks、skills 和 MCP 配置重新加载。宿主将新增或变更的 hook 标为未信任时，先在 `/hooks` 中审查并信任；启用插件不等于对应 hook 已获信任，插件不会自行写入信任哈希。
@@ -35,12 +41,15 @@ codex plugin add system-proxy-codex@codex-toolshop
 | macOS | zsh、bash、`python3`、Apple Silicon 常用工具链 | GitHub Actions `macos-latest` |
 | Linux（Dbg、tgrep） | bash；Dbg 需要 Python 及适用调试工具，tgrep 使用固定发布包 | 对应插件的 GitHub Actions `ubuntu-latest` |
 
-`codemap-boost-codex` 还需要 Git，以及 `uv` 或支持 `venv` 的 Python；`cpp-style-enforcer-codex` 的 `clang-format` 和 `iconv-lite` 为可选能力。
+`codemap-boost-codex` 还需要 Git，以及 `uv` 或支持 `venv` 的 Python；`cpp-style-enforcer-codex` 的 `clang-format` 和 `iconv-lite` 为可选能力。研究工具插件要求 Node.js 20 或更高版本；Fetch 首次实际使用时还需要 `uvx`，其他研究工具不启动 Python 服务。
 
 ## 插件索引
 
 | 插件 | 当前用途 | 日常用法 |
 | --- | --- | --- |
+| [Context7](plugins/context7-codex/README.md)、[Exa](plugins/exa-codex/README.md)、[Tavily](plugins/tavily-codex/README.md) | 库文档、网页检索、提取与综合研究，各自独立插件。 | 在 Codex 插件页面分别启用或关闭；各自的 `$CODEX_HOME/<插件名>/config.json` 保存个人 Key。 |
+| [Microsoft Learn](plugins/microsoft-learn-codex/README.md)、[Fetch](plugins/fetch-codex/README.md)、[Sequential Thinking](plugins/sequential-thinking-codex/README.md) | 官方文档、网页读取和分步分析，各自独立插件。 | 不需要 Key；仅 Fetch 实际调用后启动 Python 后端。 |
+| [research-tools-codex](plugins/research-tools-codex/README.md) | 六项研究工具的可选合并版，也是独立包的维护源。 | 只需一个入口；独立插件便于分别开关，两种形式不要重复启用。 |
 | [Dbg](plugins/dbg-codex/README.md) | 发现 Scoop、Homebrew 和手动安装的调试工具，部署 x64dbg、Ghidra、WinDbg、IDA 的扩展及 MCP。 | 首次加载自动部署；`dbg doctor` 再次检测、更新、修复；不兼容版本明确跳过，全程由脚本执行。 |
 | `codemap-boost-codex` | 内置 `code-review-graph` 代码图与 Serena 语义 MCP，提供结构、符号、引用和影响面检索。 | 自动准备独立运行时并维护图谱；图先定位，Serena 按需补充。默认关闭 Serena Dashboard、自动打开浏览器和 GUI 日志窗口。 |
 | [tgrep-search-codex](plugins/tgrep-search-codex/README.md) | 自动准备固定版本 tgrep，按 Git 工作树维护文本搜索索引和后台服务，与 CodeMap 配合。 | 任务启动自动准备；通过 hook 给出的搜索入口查询。索引未就绪或服务异常时实时扫描，`--fresh` 用于刚修改的内容和完整性核查。 |
@@ -49,6 +58,18 @@ codex plugin add system-proxy-codex@codex-toolshop
 | `local-knowledge-codex` | 为 Codex 提供本地索引知识，覆盖错误方案、用户偏好、事实、决策和工作流。 | 按作用域和相关性只读召回；明确要求保存或存在已验证且获授权的可复用内容时，再按宿主策略写入。 |
 | `conversation-namer-codex` | 按创建日期、任务类型和实际主题生成统一的 Codex 会话标题。 | 新任务后台调用轻量模型命名，主任务继续工作；批量整理当前项目时先预览两列表格，确认后才改标题。 |
 | `system-proxy-codex` | 自动启用 Codex 系统代理支持，并用 Python 安全配置 `.env`。 | 默认使用系统代理；也可用 `system-proxy-setup` 自动检测或指定 `7897`、`7890` 等端口。 |
+
+## 研究工具怎么开关
+
+六项研究工具可以全部安装，再在 Codex 的插件页面分别启用或关闭；安装和启用是两个状态。关闭某项不会删除其私有配置，重新启用无需再填写 Key。按宿主提示重新加载或重启 Codex，使工具清单和进程状态更新。无需再在 CC Switch 勾选这些 MCP。
+
+每个独立插件使用自己的 `~/.codex/<插件名>/config.json`，设置 `CODEX_HOME` 时随其目录移动。例如 Exa 使用 `~/.codex/exa-codex/config.json`，Tavily 使用 `~/.codex/tavily-codex/config.json`。首次启动仅在文件不存在时创建该插件的空白模板；其他人安装后填写自己的 `apiKey`，无需 Key 的三项不含密钥字段。用户配置不包含在公开插件包中，重装或升级不覆盖配置；修改 Key 后，下一次调用会重新读取。
+
+可选合并版继续使用 `~/.codex/research-tools/config.json` 中的三个原有字段，与独立插件的配置分开。
+
+Context7、Exa、Tavily 的独立插件使用技能引导的按次命令：Context7 调用官方 `ctx7` CLI，Exa 和 Tavily 直接请求官方 REST API。这三项没有常驻 MCP 入口，只有实际调用时运行命令；Key 从各自的私有 JSON 读取。Context7 CLI 需要 Node.js ≥22.13.0 及 npm，首次使用才准备固定版本，普通文档查询可以匿名使用。Exa、Tavily 使用现有 API Key，无需额外登录。
+
+Microsoft Learn、Fetch、Sequential Thinking 保留轻量 MCP 入口，发现工具时不联网、准备依赖或启动后端；Fetch 实际调用后才持有 Python 后端。可选合并版仍提供原来的 MCP 工具接口，两种形式避免重复启用。CodeMap 的图谱与 Serena 仍由 CodeMap 插件管理，`node_repl` 的版本路径和宿主绑定由 Codex 原生功能管理。
 
 ## Dbg 怎么用
 
@@ -116,13 +137,13 @@ CodeMap/Serena 与 tgrep 的封装运行时支持每周自动检查上游稳定�
 
 安装 `codemap-boost-codex` 后，新任务的原生 MCP 启动器与 hooks 会主动做这些事：
 
-- 检查 `code-review-graph` 是否可用；缺失时先完成 bootstrap，再继续本次启动刷新。
+- CRG 的轻量 Node MCP 先提供工具发现，首次实际使用才准备并启动 `code-review-graph`，保留 Windows 主线程模型预热；最后一项后端工作完成后空闲 10 分钟回收重型后端，下一次请求重新启动。准备、请求、回调和取消未确认结束时不回收。
 - 通过插件自身 `.mcp.json` 暴露 MCP，不另注册一个同名全局服务器；运行时安装只准备所需依赖。
 - 自动安装固定 Serena 1.7.0 到独立私有 venv，关闭 Dashboard、浏览器自动打开和 GUI 日志窗口；保留用户已有的 MCP 管理器配置。语义查询前激活实际目标项目，避免误用插件目录。
 - 更新 `$CODEX_HOME/AGENTS.md` 中边界明确的托管块，保留块外内容；边界损坏时报告问题，不猜测替换范围。
-- 当前目录是 Git 仓库时，同步完成 build/update；存在未跟踪源码时使用临时 Git index 做 full build。
+- 实际图读取前同步完成目标 Git 工作树的 build/update；存在未跟踪源码时使用临时 Git index 做 full build。
 - 结构、依赖、调用链与影响面优先查询可用图工具，再读源码核对。SessionStart、结构请求和子代理入口保留规则；常见源码搜索前每用户轮补充一次短提醒，用户补充后复位，不阻断命令或重复刷新。
-- 源码修改后在后台合并刷新，读取图谱前通过同步 barrier 等待。已知文件直接读取；普通仓库文本与文件发现优先使用可用的 tgrep 搜索入口，需要即时内容或索引不可用时实时扫描。图不可用或覆盖不足时核对源码并说明限制。
+- 会话启动和源码修改后的 hook 不探测、安装或刷新 CRG；读取图谱前通过同步 barrier 校验源码与数据库指纹并准备新鲜索引。已知文件直接读取；普通仓库文本与文件发现优先使用可用的 tgrep 搜索入口，需要即时内容或索引不可用时实时扫描。图不可用或覆盖不足时核对源码并说明限制。
 - 把 `.code-review-graph/` 和 `graphify-out/` 写入当前仓库的 `.git/info/exclude`，不改项目 `.gitignore`。
 
 如果想手动预热或排障，可以在 Codex 中说：
@@ -139,7 +160,7 @@ codex mcp get serena --json
 codex plugin list
 ```
 
-## CodeMap、Serena 与 tgrep 怎么配合
+## CodeMap、Serena、tgrep 与 Agent Dispatch 怎么配合
 
 安装 `tgrep-search-codex` 后，受宿主信任的 `SessionStart` hook 在 Git 任务启动或恢复时自动准备 tgrep 并启动 `serve`；缺少索引由服务建立，无需手动执行 `tgrep index` 或 `tgrep serve`。首次下载和建索引在后台进行，查询入口会处理未就绪状态。非 Git 任务和子代理也会收到绝对 CLI 入口；子代理提示只提供调用说明，不启动安装、更新或索引服务。打开 Codex 首页本身不等于触发任务启动 hook。
 
@@ -155,6 +176,8 @@ codex plugin list
 包装入口按真实工作树隔离状态、复用服务，索引未完成、服务异常或索引查询零命中时走实时扫描。实时扫描仍遵守查询过滤与大小限制；特殊编码、原始字节或索引范围以外的需求按 [tgrep 插件说明](plugins/tgrep-search-codex/README.md)选择参数。代码定位先查图；未命中或覆盖不足时由 Serena 或文本搜索补充候选，必要时再交给图查关系或 Serena 查符号。证据充分即可结束，不要求每次调用全部工具。tgrep 插件独立负责安装、启动和查询降级；Serena 的语言服务依赖及项目激活见 [CodeMap 说明](plugins/codemap-boost-codex/README.md#内置-serena安静启动与项目边界)。
 
 会话目录可以与目标项目不同：图查询显式指定目标 `repo_root`，Serena 激活目标项目，命令使用目标 `workdir` 或明确的搜索路径。tgrep 的 `search` 在非 Git 目录也能按指定路径实时扫描；`--root` 选择服务范围，不改变相对搜索路径的含义。分别核验 CodeMap、Serena 的实际工具入口和 tgrep 的 CLI；某项当前不可见时使用其余能力继续，后续确实需要时再检查，不把一次缺失当作整个任务永久不可用。
+
+四者没有互相强制安装或启用的依赖。Agent Dispatch 只帮助主代理分配任务，不承担检索、语言服务就绪或图刷新；缺少它时由主代理直接执行。缺少 tgrep 时实时扫描，缺少图谱时使用 Serena 和源码，Serena 不可用或编译参数不完整时使用图谱和文本，并保留证据限制。文本命中不能当作已经验证的语义引用。CodeMap 0.1.39 会在 Serena 激活 C/C++ 工程时复用现有编译数据库，或为受支持的 Windows VC++ 工程自动求值参数并保存在插件私有目录；多项目有歧义时明确选择，具体配置和缓存刷新见 [Serena 项目边界](plugins/codemap-boost-codex/README.md#内置-serena安静启动与项目边界)。
 
 ## Local Knowledge 怎么用
 

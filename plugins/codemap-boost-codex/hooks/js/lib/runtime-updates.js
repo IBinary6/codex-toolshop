@@ -3,6 +3,7 @@
 const fs = require('fs');
 const https = require('https');
 const path = require('path');
+const os = require('os');
 const { spawn, spawnSync } = require('child_process');
 const {
   MCP_BOOTSTRAP_BUDGET_MS,
@@ -12,6 +13,7 @@ const {
   probeCrgRuntime,
 } = require('./bootstrap');
 const { pluginDataDir } = require('./runtime');
+const { exportCatalog } = require('../../../scripts/mcp-catalog.cjs');
 const {
   activeRuntimeVersion,
   compareVersions,
@@ -31,6 +33,22 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const UPDATE_STATE_FILE = 'runtime-update-state.json';
 const UPDATE_LOCK_FILE = 'runtime-update.lock';
 const UPDATE_LOCK_STALE_MS = 30 * 60 * 1000;
+
+function updateKinds(options = {}) {
+  const kinds = options.kinds || ['crg', 'serena'];
+  if (!Array.isArray(kinds) || !kinds.length || kinds.some((kind) => !['crg', 'serena'].includes(kind))) {
+    throw new Error('runtime update kinds 必须是 crg/serena 的非空列表');
+  }
+  return [...new Set(kinds)];
+}
+
+async function checkCrgCatalog(paths, version, options = {}) {
+  const now = typeof options.now === 'function' ? options.now() : Date.now();
+  const catalogTimeoutMs = Number.isFinite(options.deadlineMs) ? Math.min(30000, options.deadlineMs - now) : 30000;
+  if (catalogTimeoutMs <= 0) throw new Error('CRG catalog 验证预算已耗尽');
+  await exportCatalog(paths, version, { ...options, catalogTimeoutMs, expectedVersion: version });
+  return true;
+}
 
 function updateStatePath(options = {}) {
   return path.join(options.pluginDataDir || pluginDataDir(options), UPDATE_STATE_FILE);
@@ -220,11 +238,29 @@ function verifySerenaCli(paths, options = {}) {
   const timeout = Number.isFinite(options.deadlineMs) ? Math.max(0, Math.min(requested, options.deadlineMs - now)) : requested;
   if (timeout <= 0) return false;
   const script = [
-    'import asyncio, json, sys',
+    'import asyncio, json, sys, pathlib, runpy, tempfile, yaml',
     'from unittest.mock import patch',
     'from serena.agent import SerenaAgent',
     'from serena.cli import top_level',
     'from serena.mcp import SerenaMCPFactory',
+    // 新前端也依赖配置解析契约；候选必须能运行真实私有配置流程才可提升。
+    "with tempfile.TemporaryDirectory(prefix='serena-frontend-compat-') as temporary:",
+    '    root = pathlib.Path(temporary).resolve()',
+    "    source = root / 'source'; source.mkdir()",
+    "    (source / 'serena_config.yml').write_text(yaml.safe_dump({'projects': [], 'ls_specific_settings': {}}), encoding='utf-8')",
+    "    project = root / 'project'; (project / '.serena').mkdir(parents=True)",
+    "    (project / '.serena' / 'project.yml').write_text('project_name: CompatibilityProbe\\nlanguage_servers: [cpp]\\n', encoding='utf-8')",
+    "    helper = runpy.run_path(sys.argv[2])['main']",
+    "    home = root / 'session'",
+    "    assert helper({'command': 'clone', 'source': str(source), 'home': str(home)})['ok']",
+    "    resolved = helper({'command': 'resolve', 'home': str(home), 'project': str(project)})",
+    "    assert pathlib.Path(resolved['root']) == project and resolved['languages'] == ['cpp']",
+    "    database = root / 'database'; database.mkdir()",
+    "    preparation = {'status': 'ready', 'generation': 'compatibility', 'databaseDir': str(database)}",
+    "    assert helper({'command': 'apply', 'home': str(home), 'root': str(project), 'preparation': preparation})['ok']",
+    "    cpp = yaml.safe_load((home / 'serena_config.yml').read_text(encoding='utf-8'))['ls_specific_settings']['cpp']",
+    "    assert '--compile-commands-dir=' + str(database) in cpp['ls_extra_args']",
+    "    assert pathlib.Path(cpp['compile_commands_dir']).is_relative_to(home)",
     'original = SerenaMCPFactory.create_mcp_server',
     'original_agent_init = SerenaAgent.__init__',
     'def guarded_agent_init(self, *args, **kwargs):',
@@ -251,13 +287,18 @@ function verifySerenaCli(paths, options = {}) {
     "        with patch('serena.mcp.FastMCP.run', lambda *_args, **_kwargs: None):",
     "            top_level.main(args=json.loads(sys.argv[1]), prog_name='serena', standalone_mode=False)",
   ].join('\n');
+  let probeHome;
   try {
-    const result = executable(paths.python, ['-I', '-B', '-c', script, JSON.stringify(SERENA_MCP_ARGS)], {
+    // 候选CLI会写默认配置和日志；它只能使用本次探针自有目录。
+    probeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-serena-probe-'));
+    const result = executable(paths.python, ['-I', '-B', '-c', script, JSON.stringify(SERENA_MCP_ARGS), path.resolve(__dirname, '../../../scripts/serena-session.py')], {
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout,
-      windowsHide: process.platform === 'win32', env: serenaLaunchEnv({ ...options, runtimeDir: paths.dir }),
+      cwd: probeHome, windowsHide: process.platform === 'win32',
+      env: { ...serenaLaunchEnv({ ...options, runtimeDir: paths.dir }), SERENA_HOME: probeHome },
     });
     return !!result && !result.error && result.status === 0;
   } catch (_) { return false; }
+  finally { if (probeHome) fs.rmSync(probeHome, { recursive: true, force: true }); }
 }
 
 function recordAttempt(state, kind, attempt) {
@@ -295,6 +336,9 @@ async function updateOne(kind, state, options = {}) {
       if (installed && (!adapter || adapter.ok !== true)) {
         throw new Error(`CRG refresh adapter 验证失败：${adapter && adapter.reason || '未知原因'}`);
       }
+      if (installed && !(await (options.checkCrgCatalog || checkCrgCatalog)(paths, latest, { ...options, deadlineMs }))) {
+        throw new Error('CRG MCP catalog 验证失败');
+      }
     } else {
       const paths = serenaRuntimePaths({ ...options, runtimeDir: candidateDir, version: latest });
       const serenaProbe = options.probeSerena || probeSerenaRuntime;
@@ -320,7 +364,7 @@ async function runRuntimeUpdates(options = {}) {
   try {
     let state = readUpdateState(options);
     const results = [];
-    for (const kind of ['crg', 'serena']) {
+    for (const kind of updateKinds(options)) {
       const output = await updateOne(kind, state, options);
       state = output.state;
       results.push(output.result);
@@ -353,9 +397,10 @@ function runtimeUpdateDoctor(options = {}) {
 
 function scheduleRuntimeUpdates(options = {}) {
   if (updatesDisabled(options)) return false;
+  const kinds = updateKinds(options);
   const now = typeof options.now === 'function' ? options.now() : Date.now();
   const state = readUpdateState(options);
-  if (!isUpdateDue(state, 'crg', now, false) && !isUpdateDue(state, 'serena', now, false)) return false;
+  if (!kinds.some((kind) => isUpdateDue(state, kind, now, false))) return false;
   const lock = acquireUpdateLock(options);
   if (!lock) return false;
   const script = path.resolve(__dirname, '../../../scripts/runtime-update.cjs');
@@ -365,7 +410,7 @@ function scheduleRuntimeUpdates(options = {}) {
       releaseUpdateLock(lock);
       return false;
     };
-    const child = (options.spawn || spawn)(options.nodeCommand || process.execPath, [script, '--background', '--lock-token', lock.token], {
+    const child = (options.spawn || spawn)(options.nodeCommand || process.execPath, [script, '--background', '--lock-token', lock.token, '--kinds', kinds.join(',')], {
       detached: true, stdio: 'ignore', windowsHide: process.platform === 'win32',
       env: { ...process.env, ...(options.env || {}), PLUGIN_DATA: path.resolve(options.pluginDataDir || pluginDataDir(options)) },
     });
@@ -403,4 +448,5 @@ module.exports = {
   runRuntimeUpdates, runtimeDir, runtimeUpdateDoctor, scheduleRuntimeUpdates, installedPackageVersion,
   updateLockPath, updateStatePath, updatesDisabled, verifySerenaCli, writeUpdateState,
   recordScheduleError, transferUpdateLock,
+  checkCrgCatalog, updateKinds,
 };

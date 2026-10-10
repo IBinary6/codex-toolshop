@@ -1,0 +1,14 @@
+{
+  "name": "fetch-codex",
+  "version": "0.1.2",
+  "private": true,
+  "description": "按需使用官方 Python Fetch MCP 读取网页。",
+  "researchToolsProvider": "fetch",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.cjs",
+    "doctor": "node scripts/setup.cjs --doctor"
+  }
+}

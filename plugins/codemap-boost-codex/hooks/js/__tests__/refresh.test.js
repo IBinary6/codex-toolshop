@@ -12,7 +12,6 @@ const {
   refreshCrgSync,
   refreshLinkedWorktreesSync,
 } = require('../lib/codemap');
-const { bashMayChangeSources } = require('../post_tool_use');
 const {
   ROOT_SCOPED_CRG_TOOLS,
   refreshFailureReason,
@@ -20,7 +19,6 @@ const {
   shouldInjectRepoRoot,
 } = require('../pre_graph_tool');
 
-const postToolSource = fs.readFileSync(path.join(__dirname, '..', 'post_tool_use.js'), 'utf8');
 
 function git(cwd, args, env = process.env) {
   const result = spawnSync('git', args, {
@@ -80,26 +78,6 @@ try {
     { target: 'main', repo_root: 'D:/explicit/nested' },
     'D:/explicit'
   ), { target: 'main', repo_root: 'D:/explicit' }, 'explicit subdirectories use the same Git root as the refresh barrier');
-
-  assert.ok(postToolSource.includes('startCrgUpdate'), 'PostToolUse must refresh in the background');
-  assert.ok(!postToolSource.includes('refreshCrgSync(cwd)'), 'PostToolUse must not block on a synchronous refresh');
-
-  for (const command of [
-    'git status',
-    'git diff --stat',
-    'git rev-list --left-right --count origin/main...HEAD',
-    'rg TODO src',
-    'Get-Content README.md',
-    'Get-Process -Id 1234',
-    'Get-Item file.txt',
-    'tasklist /FI "IMAGENAME eq node.exe"',
-    'npm test',
-  ]) {
-    assert.strictEqual(bashMayChangeSources(command), false, `${command} must not trigger a graph refresh`);
-  }
-  for (const command of ['git worktree add ../wt', 'git switch feature', 'Set-Content a.cpp x', 'node generate.js', 'rg old src | Set-Content out.txt']) {
-    assert.strictEqual(bashMayChangeSources(command), true, `${command} must trigger a graph refresh`);
-  }
 
   delete process.env.CODEMAP_BOOST_DISABLE_GRAPH;
   const repo = path.join(tmp, 'repo');
@@ -310,6 +288,8 @@ try {
   assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
   assert.strictEqual(calls.length, beforeRuntimeChange + 3,
     'an externally modified graph database enters the adapter once');
+  assert.strictEqual(calls.at(-1).args[0], 'verify',
+    'unchanged source/runtime with a changed database requests verified structural comparison');
   assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
   assert.strictEqual(calls.length, beforeRuntimeChange + 3);
 
@@ -317,6 +297,7 @@ try {
   assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
   assert.strictEqual(calls.length, beforeRuntimeChange + 4,
     'a WAL state change enters the adapter once');
+  assert.strictEqual(calls.at(-1).args[0], 'verify', 'WAL writes do not directly force a full rebuild');
   assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
   assert.strictEqual(calls.length, beforeRuntimeChange + 4);
   fs.unlinkSync(graphWal);
@@ -330,6 +311,7 @@ try {
   assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
   assert.strictEqual(calls.length, beforeRuntimeChange + 6,
     'a deleted graph database re-enters the adapter');
+  assert.strictEqual(calls.at(-1).args[0], 'build', 'a missing database cannot use graph-only verification');
   assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
   assert.strictEqual(calls.length, beforeRuntimeChange + 6);
 

@@ -1,0 +1,16 @@
+{
+  "name": "tavily-codex",
+  "version": "0.1.2",
+  "private": true,
+  "description": "按需使用 Tavily 搜索、提取、抓取及综合研究。",
+  "researchToolsProvider": "tavily",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.cjs",
+    "doctor": "node scripts/setup.cjs --doctor",
+    "list": "node scripts/command.cjs --list",
+    "call": "node scripts/command.cjs"
+  }
+}

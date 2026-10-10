@@ -175,7 +175,50 @@ def proof_for(store, files: dict[str, str], runtime: dict[str, str]) -> dict:
         "runtime": runtime,
         "updated": store.get_metadata("last_updated"),
         "postprocessed": store.get_metadata("last_postprocessed_at"),
+        "structure": structure_digest(store),
     }
+
+
+def structure_digest(store) -> str:
+    """覆盖业务表 schema/行，允许独立向量写入；调用方须持 SQLite 写锁。
+
+    排除 embeddings、SQLite 内部对象和验证 proof 自身；git_head_sha/git_branch
+    可在源码未变的提交推进时更新。节点、边、派生表、FTS（含 shadow）、其他
+    metadata 及额外业务对象均参与，不能只凭节点 file_hash 忽略外部图篡改。
+    """
+    digest = hashlib.sha256()
+
+    def encode(value):
+        return {"blob": value.hex()} if isinstance(value, bytes) else value
+
+    def add(value):
+        digest.update(json.dumps(value, ensure_ascii=True, separators=(",", ":")).encode())
+        digest.update(b"\n")
+
+    def quote(identifier):
+        return '"' + identifier.replace('"', '""') + '"'
+
+    objects = store._conn.execute(
+        "SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name COLLATE BINARY"
+    ).fetchall()
+    for item in objects:
+        kind, name, table, sql = tuple(item)
+        if name.startswith("sqlite_") or table == "embeddings":
+            continue
+        add([kind, name, table, sql])
+        if kind != "table":
+            continue
+        columns = [row[1] for row in store._conn.execute(f"PRAGMA table_info({quote(name)})")]
+        order = ", ".join(f"{quote(column)} COLLATE BINARY" for column in columns)
+        query = f"SELECT * FROM {quote(name)}"
+        args = ()
+        if name == "metadata":
+            query += " WHERE key NOT IN (?, ?, ?)"
+            args = (VERIFIED_KEY, "git_head_sha", "git_branch")
+        query += f" ORDER BY {order}"
+        for row in store._conn.execute(query, args):
+            add([encode(value) for value in row])
+    return digest.hexdigest()
 
 
 def has_verified_graph(store, runtime: dict[str, str] | None = None) -> bool:
@@ -183,9 +226,11 @@ def has_verified_graph(store, runtime: dict[str, str] | None = None) -> bool:
         runtime = runtime or runtime_identity()
         proof = json.loads(store.get_metadata(VERIFIED_KEY) or "null")
         return (isinstance(proof, dict) and bool(proof.get("inventory"))
+                and bool(proof.get("structure"))
                 and proof.get("runtime") == runtime
                 and proof.get("updated") == store.get_metadata("last_updated")
-                and proof.get("postprocessed") == store.get_metadata("last_postprocessed_at"))
+                and proof.get("postprocessed") == store.get_metadata("last_postprocessed_at")
+                and proof.get("structure") == structure_digest(store))
     except (ValueError, TypeError):
         return False
 
@@ -246,7 +291,37 @@ def clear_file_backed_graph(store) -> None:
         raise
 
 
-def refresh(root: Path, full: bool = False) -> dict:
+def verify_and_record(root: Path, store, snapshot, runtime, prior_proof: bool = False):
+    """一致性事务内核对源码和结构，成功才推进 proof/provenance。"""
+    with store._conn:
+        store._conn.execute("BEGIN IMMEDIATE")
+        trusted = True
+        if prior_proof:
+            trusted = has_verified_graph(store, runtime)
+            if trusted:
+                proof = json.loads(store.get_metadata(VERIFIED_KEY))
+                inventory = hashlib.sha256(json.dumps(
+                    snapshot[0], sort_keys=True, ensure_ascii=True
+                ).encode()).hexdigest()
+                trusted = proof["inventory"] == inventory
+        matched = trusted and graph_matches(root, store, snapshot[0])
+        if source_snapshot(root) != snapshot:
+            raise RuntimeError("核对期间源码或提交发生变化，请重试")
+        if runtime_identity() != runtime:
+            raise RuntimeError("核对期间 CRG runtime 发生变化，请重试")
+        if not matched:
+            return None
+        head, branch = snapshot[1:]
+        advanced = bool(head and store.get_metadata("git_head_sha") != head)
+        values = [(VERIFIED_KEY, json.dumps(proof_for(store, snapshot[0], runtime)))]
+        if head:
+            values.extend([("git_branch", branch), ("git_head_sha", head)])
+        # 不改 last_updated；verified/no-op 不冒充重新解析。
+        store._conn.executemany("INSERT OR REPLACE INTO metadata(key, value) VALUES (?, ?)", values)
+        return advanced
+
+
+def refresh(root: Path, full: bool = False, verify: bool = False) -> dict:
     """成功返回时源码快照稳定、图内容一致；提交推进无需重复解析整图。"""
     from code_review_graph.tools._common import _get_store
     from code_review_graph.tools.build import build_or_update_graph
@@ -258,8 +333,24 @@ def refresh(root: Path, full: bool = False) -> dict:
     runtime = runtime_identity()
     store, _ = _get_store(str(root))
     try:
+        if not full:
+            try:
+                advanced = verify_and_record(root, store, before, runtime, prior_proof=True)
+            except Exception:
+                store.close()
+                invalidate(root)
+                raise
+            if advanced is not None:
+                return {"status": "ok", "build_type": "verified", "files_updated": 0,
+                        "codemap_metadata_advanced": advanced}
+            # 数据库变化不能仅凭源码 hash 放行；显式 verify 的结构 proof
+            # 失配或缺失就完整修复。普通 update 的真实源码变化仍可增量更新。
+            if verify:
+                full = True
         # 旧版成功标记不能证明后处理完整，首次迁移只做一次完整验证。
-        full = full or not has_verified_graph(store, runtime)
+        with store._conn:
+            store._conn.execute("BEGIN IMMEDIATE")
+            full = full or not has_verified_graph(store, runtime)
     finally:
         store.close()
     try:
@@ -274,26 +365,8 @@ def refresh(root: Path, full: bool = False) -> dict:
             check_result(result)
             store, _ = _get_store(str(root))
             try:
-                # GraphStore.set_metadata 自行提交；此处统一事务避免 SHA、分支和
-                # 验证标记分批提交，也防止其他 SQLite 写者穿插在多次核对之间。
-                with store._conn:
-                    store._conn.execute("BEGIN IMMEDIATE")
-                    matched = graph_matches(root, store, before[0])
-                    if source_snapshot(root) != before:
-                        raise RuntimeError("核对期间源码或提交发生变化，请重试")
-                    if runtime_identity() != runtime:
-                        raise RuntimeError("核对期间 CRG runtime 发生变化，请重试")
-                    if matched:
-                        head, branch = before[1:]
-                        advanced = bool(head and store.get_metadata("git_head_sha") != head)
-                        values = [(VERIFIED_KEY, json.dumps(proof_for(store, before[0], runtime)))]
-                        if head:
-                            values.extend([("git_branch", branch), ("git_head_sha", head)])
-                        # 不改 last_updated，纯提交推进不冒充重新解析。
-                        store._conn.executemany(
-                            "INSERT OR REPLACE INTO metadata(key, value) VALUES (?, ?)", values,
-                        )
-                if matched:
+                advanced = verify_and_record(root, store, before, runtime)
+                if advanced is not None:
                     return {**result, "codemap_metadata_advanced": advanced}
             finally:
                 store.close()
@@ -309,7 +382,7 @@ def refresh(root: Path, full: bool = False) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", nargs="?", choices=("build", "update"))
+    parser.add_argument("action", nargs="?", choices=("build", "update", "verify"))
     parser.add_argument("--repo", type=Path)
     parser.add_argument("--check-runtime", action="store_true")
     args = parser.parse_args()
@@ -318,7 +391,9 @@ def main() -> int:
     if not args.check_runtime and (not args.action or args.repo is None):
         parser.error("刷新必须指定 action 和 --repo")
     try:
-        result = check_runtime() if args.check_runtime else refresh(args.repo, args.action == "build")
+        result = check_runtime() if args.check_runtime else refresh(
+            args.repo, full=args.action == "build", verify=args.action == "verify"
+        )
         print(json.dumps(result, ensure_ascii=False))
         return 0
     except Exception as error:

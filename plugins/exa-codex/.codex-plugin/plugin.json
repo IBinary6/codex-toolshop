@@ -1,0 +1,27 @@
+{
+  "name": "exa-codex",
+  "version": "0.1.2",
+  "description": "按需使用 Exa 搜索来源和读取网页。",
+  "author": {
+    "name": "IBinary6"
+  },
+  "keywords": [
+    "exa",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Exa",
+    "shortDescription": "按需使用 Exa 搜索来源和读取网页。",
+    "longDescription": "技能与按次命令入口，无常驻 MCP；在插件页面独立启停。",
+    "developerName": "IBinary6",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "使用 Exa。"
+    ],
+    "brandColor": "#2563EB"
+  }
+}

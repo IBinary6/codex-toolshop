@@ -19,6 +19,7 @@ const {
   runtimeUpdateDoctor,
   scheduleRuntimeUpdates,
   updateLockPath,
+  verifySerenaCli,
 } = require('../lib/runtime-updates');
 const {
   activeRuntimeVersion,
@@ -37,6 +38,27 @@ assert.strictEqual(isUpdateDue({ attempts: { crg: { at: 100 } } }, 'crg', 100 + 
 async function main() {
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-runtime-updates-'));
   try {
+    const stableHome = path.join(data, 'serena-home');
+    fs.mkdirSync(stableHome);
+    const stableConfig = path.join(stableHome, 'serena_config.yml');
+    const originalConfig = 'projects: []\nls_specific_settings: {}\n';
+    fs.writeFileSync(stableConfig, originalConfig);
+    for (const status of [0, 1]) {
+      let probeHome;
+      assert.strictEqual(verifySerenaCli({ python: 'candidate-python', dir: data }, {
+        pluginDataDir: data,
+        spawnSync: (_command, _args, options) => {
+          probeHome = options.env.SERENA_HOME;
+          assert.notStrictEqual(probeHome, stableHome);
+          assert.strictEqual(options.cwd, probeHome);
+          fs.writeFileSync(path.join(probeHome, 'serena_config.yml'), 'candidate defaults');
+          return { status };
+        },
+      }), status === 0);
+      assert.strictEqual(fs.existsSync(probeHome), false, '候选成功或失败后清理自己的探针目录');
+      assert.strictEqual(fs.readFileSync(stableConfig, 'utf8'), originalConfig);
+      assert.deepStrictEqual(fs.readdirSync(stableHome), ['serena_config.yml'], '候选不能在稳定HOME增加日志或默认目录');
+    }
     promoteRuntimeVersion('crg', '2.0.0', { pluginDataDir: data });
     promoteRuntimeVersion('serena', '1.7.0', { pluginDataDir: data });
     assert.strictEqual(activeRuntimeVersion('crg', { pluginDataDir: data }), '2.0.0');
@@ -105,6 +127,7 @@ async function main() {
       probeCrg: (opts) => opts.expectedVersion === '2.1.0',
       probeSerena: (opts) => opts.expectedVersion === '1.8.0',
       checkCrgAdapter: (_paths, version) => ({ ok: version === '2.1.0' }),
+      checkCrgCatalog: (_paths, version) => version === '2.1.0',
       verifySerenaCli: () => true,
     });
     assert.strictEqual(first.status, 'ok');
@@ -145,6 +168,23 @@ async function main() {
     assert.match(incompatible.results[0].reason, /adapter contract rejected/);
     assert.deepStrictEqual(readRuntimeVersions({ pluginDataDir: data }), beforeIncompatible, 'adapter/CLI 拒绝不能切换 pointer');
 
+    const catalogRejected = await runRuntimeUpdates({
+      pluginDataDir: data, force: true, kinds: ['crg'], now: () => 2600,
+      fetchLatest: async () => '2.2.0', installCrg: () => true, probeCrg: () => true,
+      checkCrgAdapter: () => ({ ok: true }), checkCrgCatalog: async () => { throw new Error('schema export rejected'); },
+    });
+    assert.strictEqual(catalogRejected.status, 'partial');
+    assert.match(catalogRejected.results[0].reason, /schema export rejected/);
+    assert.deepStrictEqual(readRuntimeVersions({ pluginDataDir: data }), beforeIncompatible, 'catalog失败不能promotion');
+
+    const onlySerena = await runRuntimeUpdates({
+      pluginDataDir: data, force: true, kinds: ['serena'], now: () => 2700,
+      fetchLatest: async (name) => { assert.strictEqual(name, 'serena-agent'); return '1.8.0'; },
+      currentCrgVersion: () => { throw new Error('CRG must remain cold'); },
+      installCrg: () => { throw new Error('CRG must remain cold'); },
+    });
+    assert.deepStrictEqual(onlySerena.results.map((item) => item.kind), ['serena']);
+
     let cliOutput = '';
     const cliCode = await runtimeUpdateMain(['--check-now'], {
       updatesDisabled: () => false,
@@ -166,7 +206,7 @@ async function main() {
     assert.strictEqual(busy.status, 'busy', '并发更新不得重复安装');
     fs.rmSync(updateLockPath({ pluginDataDir: data }), { force: true });
 
-    let launchOptions;
+    let launchOptions, launchArgs;
     let onChildError;
     const child = {
       pid: process.pid,
@@ -177,13 +217,15 @@ async function main() {
       pluginDataDir: data,
       now: () => WEEK_MS * 2,
       env: { EXTRA_TEST_ENV: 'yes' },
-      spawn: (_command, _args, options) => { launchOptions = options; return child; },
+      kinds: ['serena'],
+      spawn: (_command, args, options) => { launchArgs = args; launchOptions = options; return child; },
     }), true);
     const scheduledLock = JSON.parse(fs.readFileSync(updateLockPath({ pluginDataDir: data }), 'utf8'));
     assert.strictEqual(scheduledLock.pid, process.pid, '调度锁必须移交给 updater 子进程 pid');
     assert.ok(adoptedUpdateLock(scheduledLock.token, { pluginDataDir: data }), '同 pid/token 的 updater 才能接管锁');
     assert.strictEqual(launchOptions.env.PLUGIN_DATA, path.resolve(data));
     assert.strictEqual(launchOptions.env.EXTRA_TEST_ENV, 'yes');
+    assert.deepStrictEqual(launchArgs.slice(-2), ['--kinds', 'serena'], '后台调度不能隐式扩到CRG');
     onChildError(new Error('mock spawn failure'));
     assert.ok(!fs.existsSync(updateLockPath({ pluginDataDir: data })), '异步启动错误必须释放本次锁');
     assert.strictEqual(readUpdateState({ pluginDataDir: data }).scheduler.status, 'failed');

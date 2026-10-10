@@ -1,0 +1,28 @@
+{
+  "name": "microsoft-learn-codex",
+  "version": "0.1.2",
+  "description": "按需查询 Microsoft Learn 官方文档与代码示例。",
+  "author": {
+    "name": "IBinary6"
+  },
+  "keywords": [
+    "microsoft",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Microsoft Learn",
+    "shortDescription": "按需查询 Microsoft Learn 官方文档与代码示例。",
+    "longDescription": "自包含的按需 MCP 插件；可在插件页面独立启停，工具发现完全本地。",
+    "developerName": "IBinary6",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "使用 Microsoft Learn。"
+    ],
+    "brandColor": "#2563EB"
+  }
+}

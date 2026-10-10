@@ -1,7 +1,7 @@
 'use strict';
 
 const { hookCwd, passSilent, readStdinJson, repoRoot } = require('./lib/runtime');
-const { canUseCrg, refreshCrgSync, startAutoBootstrap } = require('./lib/codemap');
+const { prepareCrgForRead } = require('./lib/codemap');
 
 const ROOT_SCOPED_CRG_TOOLS = new Set([
   'build_or_update_graph_tool',
@@ -84,6 +84,12 @@ function deny(reason) {
  */
 function refreshFailureReason(diagnostics) {
   const diagnostic = Array.isArray(diagnostics) ? diagnostics.at(-1) : null;
+  if (diagnostic && diagnostic.code === 'runtime_prepare_failed') {
+    return `CodeMap graph tool blocked because the managed runtime preparation failed. ${diagnostic.message}`;
+  }
+  if (diagnostic && diagnostic.code === 'prepare_budget_exhausted') {
+    return `CodeMap graph tool blocked because the graph call preparation budget was exhausted. ${diagnostic.message} Retry the graph call or run setup for diagnostics.`;
+  }
   if (diagnostic && diagnostic.code === 'lock_wait_timeout') {
     return `CodeMap graph tool blocked because the refresh lock wait timed out while an active refresh held the repository lock. ${diagnostic.message} Retry after the active refresh finishes.`;
   }
@@ -106,14 +112,12 @@ async function main() {
   if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') {
     return deny('CodeMap graph tool blocked because graph support is explicitly disabled for this session.');
   }
-  if (!canUseCrg()) {
-    try { startAutoBootstrap(cwd); } catch (_) {}
-    return deny('CodeMap graph tool blocked because code-review-graph is not ready. Wait for bootstrap or run codemap-boost-setup, then retry.');
-  }
   const refreshDiagnostics = [];
-  if (!refreshCrgSync(root, { diagnostics: refreshDiagnostics })) {
+  if (!prepareCrgForRead(root, { diagnostics: refreshDiagnostics })) {
     return deny(refreshFailureReason(refreshDiagnostics));
   }
+  // 源码刷新检查仅在真正使用图工具后调度，并与运行时准备的共享锁独立。
+  try { require('./lib/plugin-updates').schedulePluginUpdate(); } catch (_) {}
   const toolInput = input && input.tool_input && typeof input.tool_input === 'object'
     ? input.tool_input
     : {};

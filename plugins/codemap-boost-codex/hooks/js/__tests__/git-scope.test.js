@@ -56,7 +56,7 @@ try {
 'use strict';
 const fs = require('fs');
 const codemap = require(process.env.CODEMAP_SCOPE_LIBRARY);
-for (const name of ['isCodeMapEnabled', 'canUseCrg', 'refreshCrgSync', 'startAutoBootstrap',
+for (const name of ['isCodeMapEnabled', 'canUseCrg', 'refreshCrgSync', 'prepareCrgForRead', 'startAutoBootstrap',
   'removeLegacyCrgMcp', 'cleanLegacyCrgHooks', 'cleanLegacyCrgGitHook',
   'ensureAgentsBlock', 'ensureGitInfoExclude', 'readBootstrapFailure']) {
   codemap[name] = (...args) => {
@@ -67,6 +67,7 @@ for (const name of ['isCodeMapEnabled', 'canUseCrg', 'refreshCrgSync', 'startAut
     return true;
   };
 }
+require(process.env.CODEMAP_SCOPE_UPDATES).schedulePluginUpdate = () => {};
 `);
 
   let invocation = 0;
@@ -82,6 +83,7 @@ for (const name of ['isCodeMapEnabled', 'canUseCrg', 'refreshCrgSync', 'startAut
       CODEMAP_BOOST_DISABLE_BOOTSTRAP: '1',
       CODEMAP_BOOST_DISABLE_BACKGROUND: '1',
       CODEMAP_SCOPE_LIBRARY: path.join(hooksDir, 'lib', 'codemap.js'),
+      CODEMAP_SCOPE_UPDATES: path.join(hooksDir, 'lib', 'plugin-updates.js'),
       CODEMAP_SCOPE_EVENTS: eventFile,
     };
     delete env.CODEMAP_BOOST_DISABLE_GRAPH;
@@ -162,15 +164,14 @@ for (const name of ['isCodeMapEnabled', 'canUseCrg', 'refreshCrgSync', 'startAut
     for (const [name, payload] of nudges) {
       const result = invoke(name, cwd, payload);
       assert.ok(result.output.additionalContext, `${name} recognizes a Git parent of ${cwd}`);
-      const refreshes = result.events.filter((event) => event.name === 'refreshCrgSync');
-      assert.strictEqual(refreshes.length, name === 'session_start' ? 1 : 0,
-        'only SessionStart refreshes; reminders never refresh');
-      if (refreshes.length) assertSameDirectory(refreshes[0].args[0], expectedRoot);
+      assert.ok(!result.events.some((event) => ['canUseCrg',
+        'refreshCrgSync', 'prepareCrgForRead', 'startAutoBootstrap'].includes(event.name)),
+      'session and reminders never probe, bootstrap or refresh before a graph call');
     }
     const implicit = invoke('pre_graph_tool', cwd, graph);
     assert.strictEqual(implicit.output.permissionDecision, 'allow');
     assertSameDirectory(implicit.output.updatedInput.repo_root, expectedRoot);
-    assertSameDirectory(implicit.events.find((event) => event.name === 'refreshCrgSync').args[0], expectedRoot);
+    assertSameDirectory(implicit.events.find((event) => event.name === 'prepareCrgForRead').args[0], expectedRoot);
   }
 
   const explicit = invoke('pre_graph_tool', nested, {
@@ -179,7 +180,7 @@ for (const name of ['isCodeMapEnabled', 'canUseCrg', 'refreshCrgSync', 'startAut
   assert.strictEqual(explicit.output.permissionDecision, 'allow');
   assertSameDirectory(explicit.output.updatedInput.repo_root, linked,
     'explicit worktree subdirectory resolves to its own root, not the current checkout');
-  assertSameDirectory(explicit.events.find((event) => event.name === 'refreshCrgSync').args[0], linked);
+  assertSameDirectory(explicit.events.find((event) => event.name === 'prepareCrgForRead').args[0], linked);
 
   const fromNonGit = invoke('pre_graph_tool', plain, {
     ...graph, tool_input: { ...graph.tool_input, repo_root: nested },

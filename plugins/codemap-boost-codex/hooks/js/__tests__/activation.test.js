@@ -23,6 +23,7 @@ try {
   delete process.env.CODEMAP_BOOST_DISABLE_GRAPH;
 
   assert.strictEqual(fs.existsSync(markerPath(ENABLED_MARKER)), false, 'setup marker starts absent');
+  assert.strictEqual(isCodeMapEnabled(), true, 'missing runtime still permits lightweight guidance without a health probe');
 
   process.env.CODEMAP_BOOST_ASSUME_CRG = '1';
   assert.strictEqual(isCodeMapEnabled(), true, 'available CLI enables CodeMap hooks without setup');

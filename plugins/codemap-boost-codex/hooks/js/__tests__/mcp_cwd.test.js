@@ -31,7 +31,7 @@ async function verifyLauncher(name, expression) {
   const pythonSetting = name === 'crg' ? path.relative(version, pythonPath) : 'python3';
   fs.mkdirSync(version, { recursive: true });
   const fakeBackend = path.join(temp, 'backend.cjs');
-  fs.writeFileSync(fakeBackend, `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(backendState)}+'.tmp',JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2)}));fs.renameSync(${JSON.stringify(backendState)}+'.tmp',${JSON.stringify(backendState)});const timer=setInterval(()=>{if(fs.existsSync(${JSON.stringify(stopFile)})){clearInterval(timer);process.exit(0)}},25);`);
+  fs.writeFileSync(fakeBackend, `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(backendState)}+'.tmp',JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2)}));fs.renameSync(${JSON.stringify(backendState)}+'.tmp',${JSON.stringify(backendState)});require('node:readline').createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(m.method==='initialize')process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2025-11-25',capabilities:{},serverInfo:{name:'fixture',version:'1'}}})+'\\n');});const timer=setInterval(()=>{if(fs.existsSync(${JSON.stringify(stopFile)})){clearInterval(timer);process.exit(0)}},25);`);
   const code = `
     const fs=require('node:fs'); const cp=require('node:child_process');
     const mod=require(${JSON.stringify(path.join(scripts, name === 'crg' ? 'mcp-server.cjs' : 'serena-server.cjs'))});
@@ -40,11 +40,13 @@ async function verifyLauncher(name, expression) {
     ${expression}
   `;
   const child = spawn(process.execPath, ['-e', code], {
-    cwd: version, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    cwd: version, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
     env: { ...process.env, PLUGIN_DATA: path.relative(version, data), CODEMAP_BOOST_PYTHON: pythonSetting },
   });
   let stderr = '';
   child.stderr.on('data', (chunk) => { stderr += chunk; });
+  child.stdout.resume();
+  if (name === 'crg') child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'fixture' } })}\n`);
   try {
     const state = await waitForFile(launcherState, child).catch((error) => { throw new Error(`${error.message}; ${stderr}`); });
     const backend = await waitForFile(backendState, child).catch((error) => { throw new Error(`${error.message}; ${stderr}`); });
@@ -59,6 +61,7 @@ async function verifyLauncher(name, expression) {
     assert.ok(fs.existsSync(backup));
   } finally {
     fs.writeFileSync(stopFile, 'stop');
+    child.stdin.end();
     let timeout;
     try {
       await Promise.race([
@@ -72,6 +75,6 @@ async function verifyLauncher(name, expression) {
 
 (async () => {
   await verifyLauncher('crg', `mod.runMcpServer({ensureCrg:()=>true,enableCodeMap:()=>{},crgRuntimePaths:()=>({command:process.execPath}),scheduleRuntimeUpdates:()=>{},spawn(command,args,opts){writeState({cwd:process.cwd(),pluginData:process.env.PLUGIN_DATA,python:process.env.CODEMAP_BOOST_PYTHON,command,args,childCwd:opts.cwd});return cp.spawn(process.execPath,[backend,...args],opts);}});`);
-  await verifyLauncher('serena', `mod.runSerenaServer({ensureSerena:()=>true,serenaRuntimePaths:()=>({command:process.execPath}),serenaLaunchEnv:()=>process.env,scheduleRuntimeUpdates:()=>{},spawn(command,args,opts){writeState({cwd:process.cwd(),pluginData:process.env.PLUGIN_DATA,python:process.env.CODEMAP_BOOST_PYTHON,command,args,childCwd:opts.cwd});return cp.spawn(process.execPath,[backend,...args],opts);}});`);
+  await verifyLauncher('serena', `mod.runSerenaServer({ensureSerena:()=>true,serenaRuntimePaths:()=>({command:process.execPath}),serenaLaunchEnv:()=>({...process.env,SERENA_HOME:data+'/serena-home'}),sessionCommand:()=>({ok:true}),scheduleRuntimeUpdates:()=>{},spawn(command,args,opts){writeState({cwd:process.cwd(),pluginData:process.env.PLUGIN_DATA,python:process.env.CODEMAP_BOOST_PYTHON,command,args,childCwd:opts.cwd});return cp.spawn(process.execPath,[backend,...args],opts);}});`);
   console.log('mcp_cwd.test.js PASS');
 })().catch((error) => { console.error(error); process.exitCode = 1; });
