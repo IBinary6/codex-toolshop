@@ -13,7 +13,8 @@ const catalog = require('../scripts/catalog.json');
 const { PROFILES, configPath, template, createConfig, readConfig } = require('../scripts/config.cjs');
 
 function temporary(t) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'research-packages-test-'));
+  // Node 解析模块时使用真实路径，隔离检查也必须从规范化的临时根目录构造。
+  const directory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'research-packages-test-')));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   return directory;
 }
