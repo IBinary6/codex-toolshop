@@ -11,6 +11,7 @@ const tests = [
   'shell.test.js',
   'guidance.test.js',
   'hooks.integration.test.js',
+  'manifest.test.js',
 ];
 const testDir = path.resolve(__dirname, '..', 'hooks', 'js', '__tests__');
 
