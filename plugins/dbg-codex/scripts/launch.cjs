@@ -61,9 +61,53 @@ function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM';
+  }
+}
+
+/**
+ * Remove a lock left behind by a crashed process. A lock is abandoned when its recorded owner is gone, or when it
+ * is older than staleMs. Only one waiter at a time may judge and remove it: the guard directory serializes the
+ * check-and-remove, so a waiter can never delete a lock that another waiter has just reclaimed and re-taken.
+ * Returns true when the caller should try to take the lock again right away.
+ */
+function reclaimAbandonedLock(lockDir, staleMs) {
+  const guard = `${lockDir}.reclaim`;
+  try {
+    fs.mkdirSync(guard);
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+    // The guard is held for a few milliseconds; one older than a minute belongs to a process that died inside it.
+    try {
+      if (Date.now() - fs.statSync(guard).mtimeMs > 60 * 1000) fs.rmSync(guard, { recursive: true, force: true });
+    } catch (_) {}
+    return false;
+  }
+  try {
+    let ageMs;
+    try {
+      ageMs = Date.now() - fs.statSync(lockDir).mtimeMs;
+    } catch (error) {
+      return error.code === 'ENOENT'; // released in the meantime: take it now; anything else: keep waiting
+    }
+    let owner = 0;
+    try { owner = Number(fs.readFileSync(path.join(lockDir, 'pid'), 'utf8')); } catch (_) {}
+    if (!(owner > 0 && !pidAlive(owner)) && ageMs <= staleMs) return false;
+    fs.rmSync(lockDir, { recursive: true, force: true });
+    return true;
+  } finally {
+    fs.rmSync(guard, { recursive: true, force: true });
+  }
+}
+
 /**
  * Serialize first-run bootstrap across the five MCP servers and the SessionStart hook.
- * mkdir is atomic on every platform; a lock older than the stale window belongs to a crashed process.
+ * mkdir is atomic on every platform; the owner's pid lets waiters recover at once from a killed process.
  */
 function withBootstrapLock(lockDir, fn, options = {}) {
   const waitMs = options.waitMs ?? BOOTSTRAP_LOCK_WAIT_MS;
@@ -76,17 +120,12 @@ function withBootstrapLock(lockDir, fn, options = {}) {
       break;
     } catch (error) {
       if (error.code !== 'EEXIST') throw error;
-      try {
-        if (Date.now() - fs.statSync(lockDir).mtimeMs > staleMs) {
-          fs.rmSync(lockDir, { recursive: true, force: true });
-          continue;
-        }
-      } catch (_) { continue; }
-      if (Date.now() > deadline) throw new Error('Runtime preparation failed: another Dbg process is still preparing Python');
-      sleepSync(250);
     }
+    if (Date.now() > deadline) throw new Error('Runtime preparation failed: another Dbg process is still preparing Python');
+    if (!reclaimAbandonedLock(lockDir, staleMs)) sleepSync(250);
   }
   try {
+    try { fs.writeFileSync(path.join(lockDir, 'pid'), String(process.pid)); } catch (_) {}
     return fn();
   } finally {
     try { fs.rmSync(lockDir, { recursive: true, force: true }); } catch (_) {}

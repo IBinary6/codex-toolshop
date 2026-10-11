@@ -13,7 +13,7 @@ The first plugin load only enables `features.respect_system_proxy` in `$CODEX_HO
 
 ## Configure `.env` and `config.toml`
 
-Requires Python 3.10 or later. Use `python3` on macOS and `py -3` on Windows:
+Requires Python 3.10 or later. Use `python3` on macOS and `py -3` on Windows. The plugin's own hooks also find versioned names such as `python3.12`, Homebrew and python.org locations, and uv-managed interpreters; set `SYSTEM_PROXY_PYTHON` to choose one explicitly:
 
 ```text
 # macOS
@@ -30,13 +30,13 @@ Script source:
 The remote commands below require the matching release tag to be published. For an unreleased checkout, run the repository's local `scripts/install_system_proxy_codex.py` instead; it uses the bundled components.
 
 ```text
-https://raw.githubusercontent.com/IBinary6/codex-toolshop/system-proxy-codex-v0.1.3/scripts/install_system_proxy_codex.py
+https://raw.githubusercontent.com/IBinary6/codex-toolshop/system-proxy-codex-v0.1.4/scripts/install_system_proxy_codex.py
 ```
 
 Download into the current directory and review before running. For example, on macOS:
 
 ```text
-python3 -c "import urllib.request; open('install_system_proxy_codex.py','wb').write(urllib.request.urlopen('https://raw.githubusercontent.com/IBinary6/codex-toolshop/system-proxy-codex-v0.1.3/scripts/install_system_proxy_codex.py').read())"
+python3 -c "import urllib.request; open('install_system_proxy_codex.py','wb').write(urllib.request.urlopen('https://raw.githubusercontent.com/IBinary6/codex-toolshop/system-proxy-codex-v0.1.4/scripts/install_system_proxy_codex.py').read())"
 python3 install_system_proxy_codex.py --dry-run
 python3 install_system_proxy_codex.py
 ```
@@ -44,10 +44,10 @@ python3 install_system_proxy_codex.py
 On Windows, replace `python3` with `py -3`. After verifying that you trust the repository URL, you can also run the bootstrap directly:
 
 ```text
-python3 -c "import urllib.request; exec(compile(urllib.request.urlopen('https://raw.githubusercontent.com/IBinary6/codex-toolshop/system-proxy-codex-v0.1.3/scripts/install_system_proxy_codex.py').read(), 'install_system_proxy_codex.py', 'exec'))"
+python3 -c "import urllib.request; exec(compile(urllib.request.urlopen('https://raw.githubusercontent.com/IBinary6/codex-toolshop/system-proxy-codex-v0.1.4/scripts/install_system_proxy_codex.py').read(), 'install_system_proxy_codex.py', 'exec'))"
 ```
 
-The standalone release script is pinned to `system-proxy-codex-v0.1.3` and verifies downloaded components with SHA-256 before execution.
+The standalone release script is pinned to `system-proxy-codex-v0.1.4` and verifies downloaded components with SHA-256 before execution.
 
 After installing the plugin, you can also ask Codex:
 

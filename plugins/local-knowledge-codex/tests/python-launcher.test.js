@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 
 const {
+  cachePath,
   pythonCandidates,
   resolvePython,
 } = require('../scripts/python-launcher.cjs');
@@ -97,16 +98,37 @@ try {
   const cacheFile = path.join(cacheDir, 'python-runtime.json');
   const first = resolvePython({ cacheFile, environment: process.env });
   if (first.ok) {
-    assert.ok(path.isAbsolute(first.command), 'resolved interpreters are absolute paths');
-    assert.equal(JSON.parse(fs.readFileSync(cacheFile, 'utf8')).command, first.command);
+    // Bare commands are returned as typed; the cache stores the absolute path they resolved to.
+    const cachedEntry = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+    assert.ok(path.isAbsolute(cachedEntry.command), 'the cache stores an absolute interpreter path');
+    assert.deepEqual(cachedEntry.args, first.args);
     const probes = [];
     const second = resolvePython({ cacheFile, environment: {}, platform: process.platform,
       spawnSyncImpl(command) { probes.push(command); return result(first.version); } });
-    assert.equal(second.command, first.command);
-    assert.deepEqual(probes, [first.command], 'cached interpreter is probed first and alone');
+    assert.equal(second.command, cachedEntry.command);
+    assert.deepEqual(probes, [cachedEntry.command], 'cached interpreter is probed first and alone');
   }
 } finally {
   fs.rmSync(cacheDir, { recursive: true, force: true });
+}
+
+// The cache lives in the host-injected plugin data directory only; without it nothing is ever written.
+assert.equal(cachePath({}), null, 'no PLUGIN_DATA: caching is off');
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lk-data-'));
+try {
+  assert.equal(cachePath({ PLUGIN_DATA: dataDir }), path.join(dataDir, 'python-runtime.json'));
+  const withData = resolvePython({ environment: { ...process.env, PLUGIN_DATA: dataDir } });
+  if (withData.ok) {
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'python-runtime.json'), 'utf8')).command.length > 0, true,
+      'a verified interpreter is cached in PLUGIN_DATA');
+  }
+  const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lk-nodata-'));
+  const noData = { ...process.env }; delete noData.PLUGIN_DATA;
+  resolvePython({ environment: noData, cacheFile: null });
+  assert.deepEqual(fs.readdirSync(emptyDir), [], 'a disabled cache writes nothing');
+  fs.rmSync(emptyDir, { recursive: true, force: true });
+} finally {
+  fs.rmSync(dataDir, { recursive: true, force: true });
 }
 
 const probeTimeouts = [];

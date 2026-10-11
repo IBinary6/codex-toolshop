@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
+const LABEL = 'agent-dispatch-codex';
 const HOOKS = {
   session_start: path.join('hooks', 'js', 'session_start.js'),
   user_prompt_submit: path.join('hooks', 'js', 'user_prompt_submit.js'),
@@ -26,28 +27,63 @@ function pluginDataDir() {
   return path.join(codexHome, 'plugins', 'data', 'agent-dispatch-codex');
 }
 
-function main() {
-  const hook = process.argv[2];
-  const relative = HOOKS[hook];
-  if (!relative) {
-    process.stderr.write(`[agent-dispatch-codex] unknown hook: ${hook || '<missing>'}\n`);
-    return;
-  }
-  const root = pluginRoot();
-  const data = pluginDataDir();
-  try { fs.mkdirSync(data, { recursive: true }); } catch (_) {}
+/**
+ * Run `script` as this process's entry point, as `node script` would, instead of starting a second Node
+ * process (about 40 ms per hook). Hooks that guard on `require.main === module` still run.
+ * A failing hook must never fail the task: report on stderr and exit 0, as this runner always has.
+ * Returns false when in-process mode is unavailable or switched off with TOOLSHOP_HOOKS_CHILD_PROCESS=1.
+ * The same block is used by the other hook runners in this marketplace; keep them in sync.
+ * @example runInProcess('/plugin/hooks/js/session_start.js', { label: 'my-plugin', env: { PLUGIN_ROOT: '/plugin' } })
+ */
+function runInProcess(script, { label, env = {}, timeoutMs = 0 } = {}) {
+  const Module = require('module');
+  if (process.env.TOOLSHOP_HOOKS_CHILD_PROCESS === '1' || typeof Module._load !== 'function') return false;
+  Object.assign(process.env, env);
+  process.argv[1] = script;
+  process.on('uncaughtException', (error) => {
+    process.stderr.write(`[${label}] hook failed: ${error && error.message ? error.message : error}\n`);
+    process.exit(0);
+  });
+  process.once('exit', (code) => {
+    if (code) process.stderr.write(`[${label}] hook exited with status ${code}\n`);
+    process.exitCode = 0;
+  });
+  if (timeoutMs > 0) setTimeout(() => process.exit(0), timeoutMs).unref();
+  Module._load(script, null, true);
+  return true;
+}
+
+/** Fallback: run the hook in a child process with the same environment. */
+function runInChild(script, env) {
   let stdin = Buffer.alloc(0);
   try { stdin = fs.readFileSync(0); } catch (_) {}
-  const child = spawnSync(process.execPath, [path.join(root, relative)], {
+  const child = spawnSync(process.execPath, [script], {
     cwd: process.cwd(),
-    env: { ...process.env, PLUGIN_ROOT: root, PLUGIN_DATA: data },
+    env: { ...process.env, ...env },
     input: stdin,
     stdio: ['pipe', 'inherit', 'inherit'],
     windowsHide: process.platform === 'win32',
   });
   if (child.error) {
-    process.stderr.write(`[agent-dispatch-codex] hook failed to start: ${child.error.message}\n`);
+    process.stderr.write(`[${LABEL}] hook failed to start: ${child.error.message}\n`);
   }
 }
 
-main();
+function main() {
+  const hook = process.argv[2];
+  const relative = HOOKS[hook];
+  if (!relative) {
+    process.stderr.write(`[${LABEL}] unknown hook: ${hook || '<missing>'}\n`);
+    return;
+  }
+  const root = pluginRoot();
+  const data = pluginDataDir();
+  try { fs.mkdirSync(data, { recursive: true }); } catch (_) {}
+  const script = path.join(root, relative);
+  const env = { PLUGIN_ROOT: root, PLUGIN_DATA: data };
+  if (!runInProcess(script, { label: LABEL, env })) runInChild(script, env);
+}
+
+if (require.main === module) main();
+
+module.exports = { runInProcess };

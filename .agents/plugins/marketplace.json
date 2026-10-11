@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "cpp-style-enforcer-codex",
-      "version": "0.1.13",
+      "version": "0.1.14",
       "description": "C++ style enforcement workflow with tracked-file encoding preservation and staged-content cpplint checks.",
       "source": {
         "source": "local",
@@ -20,7 +20,7 @@
     },
     {
       "name": "codemap-boost-codex",
-      "version": "0.1.42",
+      "version": "0.1.43",
       "description": "CodeMap semantic graph search with synchronized graph-read barriers and complementary tgrep text-search routing.",
       "source": {
         "source": "local",
@@ -34,7 +34,7 @@
     },
     {
       "name": "agent-dispatch-codex",
-      "version": "0.1.26",
+      "version": "0.1.27",
       "description": "General-purpose task routing for product, design, QA, research, operations, and development, with code-first staging, configurable low-cost evidence work, and independent review.",
       "source": {
         "source": "local",
@@ -48,7 +48,7 @@
     },
     {
       "name": "local-knowledge-codex",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "description": "Local indexed knowledge for Codex with relevant recall of fixes, preferences, facts, decisions, and workflows.",
       "source": {
         "source": "local",
@@ -62,7 +62,7 @@
     },
     {
       "name": "system-proxy-codex",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "description": "Automatically enables Codex system-proxy support and provides a Python setup command for safe .env proxy configuration.",
       "source": {
         "source": "local",
@@ -76,7 +76,7 @@
     },
     {
       "name": "conversation-namer-codex",
-      "version": "0.1.8",
+      "version": "0.1.9",
       "description": "Automatically names new Codex conversations from the first user message with a lightweight model.",
       "source": {
         "source": "local",
@@ -90,7 +90,7 @@
     },
     {
       "name": "dbg-codex",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "description": "Script-driven deployment, update and repair of debugger extensions and their MCP servers.",
       "source": {
         "source": "local",

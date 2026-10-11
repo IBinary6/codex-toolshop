@@ -1,6 +1,6 @@
 {
   "name": "dbg-codex",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Script-driven deployment, update and repair of debugger extensions and their MCP servers.",
   "author": {
     "name": "IBinary6",
