@@ -7,7 +7,7 @@ const {
   cleanLegacyCrgHooks,
   ensureAgentsBlock,
   ensureGitInfoExclude,
-  removeLegacyCrgMcp,
+  removeLegacyCrgMcpOnce,
 } = require('./lib/codemap');
 
 async function main() {
@@ -18,7 +18,7 @@ async function main() {
   if (!cwd) return additionalContext('SessionStart', CONTEXT);
   let mcpNotice = '';
   // At startup, maintain lightweight compatibility state only; actual graph reads trigger runtime probes, installation, and indexing.
-  const migration = removeLegacyCrgMcp({ cwd });
+  const migration = removeLegacyCrgMcpOnce({ cwd });
   if (!migration.ok) {
     return additionalContext('SessionStart', [migration.diagnostic, CONTEXT].filter(Boolean).join(' '));
   }

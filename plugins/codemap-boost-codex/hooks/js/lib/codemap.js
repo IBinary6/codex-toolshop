@@ -17,6 +17,7 @@ const {
 } = require('./runtime');
 
 const ENABLED_MARKER = '.codemap-boost-enabled';
+const LEGACY_MCP_CHECKED_MARKER = '.legacy-crg-mcp-checked';
 const BOOTSTRAP_FAILED_MARKER = '.codemap-bootstrap-failed';
 const LOCK_BOOT_MS = 5000;
 const LOCK_STALE_MS = 4 * 60 * 60 * 1000;
@@ -34,8 +35,12 @@ const GUIDANCE = [
   '3. Evidence and refresh: Use graph queries for relationships and impact, Serena/LSP for precise symbols, and tgrep/rg for text. Combine only as needed and stop when evidence is sufficient. Graphs apply only to Git worktrees, each with its own graph. Hooks own refresh and the pre-read barrier; update manually only after failure or for setup/diagnosis. A text match does not prove a relationship, and zero matches do not prove absence.',
 ].join('\n');
 
+// Codex has no uninstall hook, so the block names its owner and tells the agent to ignore it once the plugin is gone.
+const AGENTS_OWNER_NOTE = 'Managed by the codemap-boost-codex plugin; remove with `node scripts/setup.cjs --uninstall`. If that plugin is no longer installed, ignore this section.';
 const AGENTS_BLOCK = `${BLOCK_START}
 ## CodeMap Boost
+
+${AGENTS_OWNER_NOTE}
 
 ${GUIDANCE}
 
@@ -46,31 +51,78 @@ function agentsPath(home = codexHome()) {
   return path.join(home, 'AGENTS.md');
 }
 
-function ensureAgentsBlock(home = codexHome()) {
-  const target = agentsPath(home);
-  let existing = '';
-  try {
-    existing = fs.readFileSync(target, 'utf8');
-  } catch (error) {
-    if (error.code !== 'ENOENT') return false;
-  }
-  let next = '';
+/**
+ * Locate the single managed block; return null when absent and false when markers are ambiguous.
+ * Incomplete, reversed, or duplicated markers are never guessed over user rules.
+ */
+function managedBlockSpan(existing) {
   const start = existing.indexOf(BLOCK_START);
   const endMarker = existing.indexOf(BLOCK_END);
-  if (start !== -1 || endMarker !== -1) {
-    // Preserve the file when markers are incomplete, reversed, or duplicated; never guess a managed span over user rules.
-    if (start === -1 || endMarker < start
-      || existing.indexOf(BLOCK_START, start + BLOCK_START.length) !== -1
-      || existing.indexOf(BLOCK_END, endMarker + BLOCK_END.length) !== -1) return false;
-    const end = endMarker + BLOCK_END.length;
-    next = existing.slice(0, start) + AGENTS_BLOCK.trimEnd() + existing.slice(end);
+  if (start === -1 && endMarker === -1) return null;
+  if (start === -1 || endMarker < start
+    || existing.indexOf(BLOCK_START, start + BLOCK_START.length) !== -1
+    || existing.indexOf(BLOCK_END, endMarker + BLOCK_END.length) !== -1) return false;
+  return { start, end: endMarker + BLOCK_END.length };
+}
+
+/** Replace a file through a sibling temporary file so concurrent sessions never observe a partial write. */
+function writeFileAtomic(target, content) {
+  ensureDir(path.dirname(target));
+  const temporary = `${target}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  try {
+    fs.writeFileSync(temporary, content, 'utf8');
+    fs.renameSync(temporary, target);
+  } finally {
+    try { fs.rmSync(temporary, { force: true }); } catch (_) {}
+  }
+}
+
+function readAgents(target) {
+  try {
+    return fs.readFileSync(target, 'utf8');
+  } catch (error) {
+    return error.code === 'ENOENT' ? '' : null;
+  }
+}
+
+function ensureAgentsBlock(home = codexHome()) {
+  const target = agentsPath(home);
+  const existing = readAgents(target);
+  if (existing === null) return false;
+  const span = managedBlockSpan(existing);
+  if (span === false) return false;
+  let next = '';
+  if (span) {
+    next = existing.slice(0, span.start) + AGENTS_BLOCK.trimEnd() + existing.slice(span.end);
   } else {
     next = existing.replace(/\s+$/, '');
     next += (next ? '\n\n' : '') + AGENTS_BLOCK.trimEnd() + '\n';
   }
   if (next === existing) return true;
-  ensureDir(path.dirname(target));
-  fs.writeFileSync(target, next, 'utf8');
+  writeFileAtomic(target, next);
+  return true;
+}
+
+/**
+ * Remove the managed block and the blank separator inserted before it; user text is preserved byte for byte.
+ * @example removeAgentsBlock() // during `setup.cjs --uninstall`
+ */
+function removeAgentsBlock(home = codexHome()) {
+  const target = agentsPath(home);
+  const existing = readAgents(target);
+  if (existing === null) return false;
+  const span = managedBlockSpan(existing);
+  if (span === false) return false;
+  if (!span) return true;
+  const before = existing.slice(0, span.start).replace(/(?:\r?\n){1,2}$/, '');
+  const after = existing.slice(span.end).replace(/^\r?\n/, '');
+  const eol = existing.includes('\r\n') ? '\r\n' : '\n';
+  const next = before && after ? `${before}${eol}${after}` : before ? `${before}${eol}` : after;
+  if (next.trim() === '') {
+    fs.rmSync(target, { force: true });
+    return true;
+  }
+  writeFileAtomic(target, next);
   return true;
 }
 
@@ -971,6 +1023,22 @@ function removeLegacyCrgMcp(options = {}) {
   };
 }
 
+/**
+ * Run the legacy MCP migration until it has checked a real Codex CLI once, then never again.
+ * SessionStart fires on startup, resume, clear and compact; repeating CLI probes there only adds latency.
+ * @example removeLegacyCrgMcpOnce({ cwd: process.cwd() })
+ */
+function removeLegacyCrgMcpOnce(options = {}) {
+  const marker = markerPath(LEGACY_MCP_CHECKED_MARKER);
+  try {
+    if (fs.existsSync(marker)) return { ok: true, changed: false, cached: true };
+  } catch (_) {}
+  const result = (options.removeLegacyCrgMcp || removeLegacyCrgMcp)(options);
+  // A skipped check (no CLI found yet) and a failed removal must both be retried later.
+  if (result.ok && !result.skipped) writeMarker(LEGACY_MCP_CHECKED_MARKER);
+  return result;
+}
+
 const CONTEXT = GUIDANCE;
 
 function promptLooksStructural(text) {
@@ -1082,9 +1150,11 @@ module.exports = {
   AGENTS_BLOCK,
   CONTEXT,
   ENABLED_MARKER,
+  LEGACY_MCP_CHECKED_MARKER,
   BOOTSTRAP_FAILED_MARKER,
   agentsPath,
   ensureAgentsBlock,
+  removeAgentsBlock,
   ensureGitignore,
   ensureGitInfoExclude,
   crgCommand,
@@ -1106,6 +1176,7 @@ module.exports = {
   resolveCodexCommand,
   runCodexMcp,
   removeLegacyCrgMcp,
+  removeLegacyCrgMcpOnce,
   readBootstrapFailure,
   cleanLegacyCrgHooks,
   cleanLegacyCrgGitHook,

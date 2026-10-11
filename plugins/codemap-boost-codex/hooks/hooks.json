@@ -62,7 +62,7 @@
     ],
     "SubagentStart": [
       {
-        "matcher": "*",
+        "matcher": ".*",
         "hooks": [
           {
             "type": "command",

@@ -8,7 +8,10 @@ const { spawnSync } = require('child_process');
 
 const pluginRoot = path.join(__dirname, '..', '..', '..');
 const entry = path.join(pluginRoot, 'scripts', 'run-hook.cjs');
-const { AGENTS_BLOCK, BLOCK_START, BLOCK_END, CONTEXT, ensureAgentsBlock } = require('../lib/codemap');
+const {
+  AGENTS_BLOCK, BLOCK_START, BLOCK_END, CONTEXT, LEGACY_MCP_CHECKED_MARKER,
+  ensureAgentsBlock, removeAgentsBlock, removeLegacyCrgMcpOnce,
+} = require('../lib/codemap');
 
 function runSession(cwd, codexHome, extraEnv = {}) {
   return spawnSync(process.execPath, [entry, 'session_start'], {
@@ -74,8 +77,12 @@ try {
   assert.ok(fs.existsSync(agents), 'SessionStart creates CODEX_HOME/AGENTS.md');
   const content = fs.readFileSync(agents, 'utf8');
   assert.ok(content.includes('codemap-boost-codex:start'), 'managed block is inserted');
-  assert.strictEqual(AGENTS_BLOCK, `${BLOCK_START}\n## CodeMap Boost\n\n${CONTEXT}\n\n${BLOCK_END}\n`,
+  assert.ok(AGENTS_BLOCK.startsWith(`${BLOCK_START}\n## CodeMap Boost\n\n`), 'managed block keeps its heading');
+  assert.ok(AGENTS_BLOCK.endsWith(`\n\n${CONTEXT}\n\n${BLOCK_END}\n`),
     'managed block and hook injection share one authority text');
+  assert.ok(content.includes('If that plugin is no longer installed, ignore this section'),
+    'a block left behind after removal tells the agent to ignore it');
+  assert.ok(content.includes('--uninstall'), 'the block names its removal command');
   assert.deepStrictEqual(CONTEXT.split('\n').map((line) => line.slice(0, 2)), ['1.', '2.', '3.'],
     'shared guidance remains exactly three numbered points');
   assert.ok(content.includes('code-review-graph'), 'first point keeps graph-first structural retrieval');
@@ -118,6 +125,42 @@ try {
     fs.writeFileSync(agents, original);
     assert.strictEqual(ensureAgentsBlock(home), false, 'ambiguous managed boundaries must be rejected');
     assert.strictEqual(fs.readFileSync(agents, 'utf8'), original, 'invalid markers must not overwrite user rules');
+  }
+
+  // Removal restores user text outside the block and never touches ambiguous markers.
+  fs.writeFileSync(agents, `${prefix}${BLOCK_START}\nold\n${BLOCK_END}${suffix}`);
+  assert.strictEqual(ensureAgentsBlock(home), true);
+  assert.strictEqual(removeAgentsBlock(home), true);
+  const removed = fs.readFileSync(agents, 'utf8');
+  assert.ok(!removed.includes(BLOCK_START) && !removed.includes(BLOCK_END), 'managed block is removed');
+  assert.strictEqual(removed, '\ufeffcustom rules  \r\n\r\nuser suffix  \r\n', 'user text and CRLF endings survive removal');
+  assert.strictEqual(removeAgentsBlock(home), true, 'removal is idempotent');
+  fs.writeFileSync(agents, '');
+  assert.strictEqual(ensureAgentsBlock(home), true);
+  assert.strictEqual(removeAgentsBlock(home), true);
+  assert.ok(!fs.existsSync(agents), 'a file that only held the managed block is deleted');
+  fs.writeFileSync(agents, `${BLOCK_START}\n${BLOCK_START}\n${BLOCK_END}`);
+  assert.strictEqual(removeAgentsBlock(home), false, 'ambiguous markers block removal');
+  assert.ok(!fs.readdirSync(home).some((name) => name.endsWith('.tmp')), 'atomic writes leave no temporary files');
+
+  // The legacy MCP migration runs until a real CLI check succeeds, then never again.
+  const previousData = process.env.PLUGIN_DATA;
+  process.env.PLUGIN_DATA = path.join(tmp, 'once-data');
+  try {
+    let calls = 0;
+    const skipped = () => { calls += 1; return { ok: true, changed: false, skipped: true }; };
+    const checked = () => { calls += 1; return { ok: true, changed: false }; };
+    removeLegacyCrgMcpOnce({ removeLegacyCrgMcp: skipped });
+    removeLegacyCrgMcpOnce({ removeLegacyCrgMcp: () => { calls += 1; return { ok: false, diagnostic: 'x' }; } });
+    assert.strictEqual(calls, 2, 'skipped or failed checks are retried');
+    removeLegacyCrgMcpOnce({ removeLegacyCrgMcp: checked });
+    assert.ok(fs.existsSync(path.join(process.env.PLUGIN_DATA, LEGACY_MCP_CHECKED_MARKER)));
+    const cached = removeLegacyCrgMcpOnce({ removeLegacyCrgMcp: checked });
+    assert.strictEqual(calls, 3, 'a completed check is not repeated');
+    assert.strictEqual(cached.ok, true);
+  } finally {
+    if (previousData === undefined) delete process.env.PLUGIN_DATA;
+    else process.env.PLUGIN_DATA = previousData;
   }
 
   console.log('agents.test.js PASS');
