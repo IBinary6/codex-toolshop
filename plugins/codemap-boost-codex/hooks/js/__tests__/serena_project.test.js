@@ -16,9 +16,8 @@ async function waitForTreeFixture(pidFile, parent) {
       const pids = JSON.parse(fs.readFileSync(pidFile, 'utf8').replace(/^\uFEFF/, ''));
       if (Number.isInteger(pids.parent) && pids.parent > 0 && Number.isInteger(pids.child) && pids.child > 0) return pids;
     } catch (error) {
-      // PowerShell writes the file in place, so on Windows it can be briefly locked (EBUSY/EPERM/EACCES)
-      // or half written (SyntaxError); all of these mean "not ready yet".
-      if (!['ENOENT', 'EBUSY', 'EPERM', 'EACCES'].includes(error.code) && !(error instanceof SyntaxError)) throw error;
+      // The fixture publishes the file atomically (write, then rename), so only "not there yet" is expected.
+      if (error.code !== 'ENOENT') throw error;
     }
     if (parent.spawnError) throw parent.spawnError;
     if (parent.exitCode != null || parent.signalCode != null) throw new Error('PowerShell tree fixture exited before ready');
@@ -259,7 +258,7 @@ async function main() {
       for (const mode of ['timeout', 'output']) {
         const pidFile = path.join(temp, `tree-${mode}.json`);
         const childCode = Buffer.from('Start-Sleep -Seconds 120', 'utf16le').toString('base64');
-        const parentCode = `$child=Start-Process -FilePath (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-NonInteractive','-EncodedCommand','${childCode}');@{parent=$PID;child=$child.Id}|ConvertTo-Json -Compress|Set-Content -LiteralPath '${pidFile.replace(/'/g, "''")}' -Encoding UTF8;$go=[Console]::ReadLine();if($go -ne 'GO'){exit 3};${mode === 'output' ? "[Console]::WriteLine(('x'*100000))" : ''};Start-Sleep -Seconds 120`;
+        const parentCode = `$child=Start-Process -FilePath (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-NonInteractive','-EncodedCommand','${childCode}');@{parent=$PID;child=$child.Id}|ConvertTo-Json -Compress|Set-Content -LiteralPath '${pidFile.replace(/'/g, "''")}.tmp' -Encoding UTF8;Move-Item -LiteralPath '${pidFile.replace(/'/g, "''")}.tmp' -Destination '${pidFile.replace(/'/g, "''")}' -Force;$go=[Console]::ReadLine();if($go -ne 'GO'){exit 3};${mode === 'output' ? "[Console]::WriteLine(('x'*100000))" : ''};Start-Sleep -Seconds 120`;
         const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
         const parent = spawn(powershell, ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(parentCode, 'utf16le').toString('base64')],
           { cwd: root, env: process.env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
