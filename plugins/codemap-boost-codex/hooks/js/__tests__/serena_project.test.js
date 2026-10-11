@@ -16,7 +16,9 @@ async function waitForTreeFixture(pidFile, parent) {
       const pids = JSON.parse(fs.readFileSync(pidFile, 'utf8').replace(/^\uFEFF/, ''));
       if (Number.isInteger(pids.parent) && pids.parent > 0 && Number.isInteger(pids.child) && pids.child > 0) return pids;
     } catch (error) {
-      if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
+      // PowerShell writes the file in place, so on Windows it can be briefly locked (EBUSY/EPERM/EACCES)
+      // or half written (SyntaxError); all of these mean "not ready yet".
+      if (!['ENOENT', 'EBUSY', 'EPERM', 'EACCES'].includes(error.code) && !(error instanceof SyntaxError)) throw error;
     }
     if (parent.spawnError) throw parent.spawnError;
     if (parent.exitCode != null || parent.signalCode != null) throw new Error('PowerShell tree fixture exited before ready');
