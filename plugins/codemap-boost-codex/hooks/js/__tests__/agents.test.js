@@ -143,21 +143,63 @@ try {
   assert.strictEqual(removeAgentsBlock(home), false, 'ambiguous markers block removal');
   assert.ok(!fs.readdirSync(home).some((name) => name.endsWith('.tmp')), 'atomic writes leave no temporary files');
 
-  // The legacy MCP migration runs until a real CLI check succeeds, then never again.
+  // Atomic writes keep a symlinked AGENTS.md linked and keep its permissions.
+  if (process.platform !== 'win32') {
+    const dotfiles = path.join(tmp, 'dotfiles');
+    const linkedHome = path.join(tmp, 'linked-home');
+    fs.mkdirSync(dotfiles, { recursive: true });
+    fs.mkdirSync(linkedHome, { recursive: true });
+    const real = path.join(dotfiles, 'AGENTS.md');
+    fs.writeFileSync(real, 'my rules\n', { mode: 0o600 });
+    fs.symlinkSync(real, path.join(linkedHome, 'AGENTS.md'));
+    assert.strictEqual(ensureAgentsBlock(linkedHome), true);
+    assert.ok(fs.lstatSync(path.join(linkedHome, 'AGENTS.md')).isSymbolicLink(), 'the symlink survives the update');
+    assert.ok(fs.readFileSync(real, 'utf8').startsWith('my rules\n') && fs.readFileSync(real, 'utf8').includes(BLOCK_START));
+    assert.strictEqual(fs.statSync(real).mode & 0o777, 0o600, 'permissions are preserved');
+    assert.strictEqual(removeAgentsBlock(linkedHome), true);
+    assert.strictEqual(fs.readFileSync(real, 'utf8'), 'my rules\n', 'removal restores the original content through the link');
+    assert.ok(fs.lstatSync(path.join(linkedHome, 'AGENTS.md')).isSymbolicLink());
+    assert.ok(!fs.readdirSync(dotfiles).some((name) => name.endsWith('.tmp')));
+  }
+
+  // The legacy MCP migration runs until a real CLI check succeeds, then never again; a skipped check is
+  // retried at most once a day.
   const previousData = process.env.PLUGIN_DATA;
   process.env.PLUGIN_DATA = path.join(tmp, 'once-data');
   try {
     let calls = 0;
     const skipped = () => { calls += 1; return { ok: true, changed: false, skipped: true }; };
     const checked = () => { calls += 1; return { ok: true, changed: false }; };
-    removeLegacyCrgMcpOnce({ removeLegacyCrgMcp: skipped });
-    removeLegacyCrgMcpOnce({ removeLegacyCrgMcp: () => { calls += 1; return { ok: false, diagnostic: 'x' }; } });
-    assert.strictEqual(calls, 2, 'skipped or failed checks are retried');
-    removeLegacyCrgMcpOnce({ removeLegacyCrgMcp: checked });
-    assert.ok(fs.existsSync(path.join(process.env.PLUGIN_DATA, LEGACY_MCP_CHECKED_MARKER)));
-    const cached = removeLegacyCrgMcpOnce({ removeLegacyCrgMcp: checked });
-    assert.strictEqual(calls, 3, 'a completed check is not repeated');
+    const failed = () => { calls += 1; return { ok: false, diagnostic: 'x' }; };
+    const marker = path.join(process.env.PLUGIN_DATA, LEGACY_MCP_CHECKED_MARKER);
+    const hour = 60 * 60 * 1000;
+    let clock = Date.parse('2026-01-01T00:00:00Z');
+
+    removeLegacyCrgMcpOnce({ removeLegacyCrgMcp: failed, now: () => clock });
+    removeLegacyCrgMcpOnce({ removeLegacyCrgMcp: failed, now: () => clock });
+    assert.strictEqual(calls, 2, 'a failed removal is retried every time');
+    assert.ok(!fs.existsSync(marker), 'a failed removal leaves no marker');
+
+    removeLegacyCrgMcpOnce({ removeLegacyCrgMcp: skipped, now: () => clock });
+    assert.strictEqual(JSON.parse(fs.readFileSync(marker, 'utf8')).status, 'skipped');
+    clock += hour;
+    const withinDay = removeLegacyCrgMcpOnce({ removeLegacyCrgMcp: skipped, now: () => clock });
+    assert.strictEqual(calls, 3, 'a skipped check is not repeated within a day');
+    assert.strictEqual(withinDay.cached, true);
+    clock += 24 * hour;
+    removeLegacyCrgMcpOnce({ removeLegacyCrgMcp: checked, now: () => clock });
+    assert.strictEqual(calls, 4, 'a skipped check is retried after a day');
+    assert.strictEqual(JSON.parse(fs.readFileSync(marker, 'utf8')).status, 'checked');
+
+    clock += 1000 * hour;
+    const cached = removeLegacyCrgMcpOnce({ removeLegacyCrgMcp: checked, now: () => clock });
+    assert.strictEqual(calls, 4, 'a completed check is never repeated');
     assert.strictEqual(cached.ok, true);
+
+    fs.writeFileSync(marker, '1'); // marker format written by the first release of this feature
+    removeLegacyCrgMcpOnce({ removeLegacyCrgMcp: checked, now: () => clock });
+    assert.strictEqual(calls, 5, 'an unrecognized marker triggers one fresh check');
+    assert.strictEqual(JSON.parse(fs.readFileSync(marker, 'utf8')).status, 'checked');
   } finally {
     if (previousData === undefined) delete process.env.PLUGIN_DATA;
     else process.env.PLUGIN_DATA = previousData;

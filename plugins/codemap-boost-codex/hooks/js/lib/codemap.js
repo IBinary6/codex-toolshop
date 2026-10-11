@@ -18,6 +18,7 @@ const {
 
 const ENABLED_MARKER = '.codemap-boost-enabled';
 const LEGACY_MCP_CHECKED_MARKER = '.legacy-crg-mcp-checked';
+const LEGACY_MCP_RETRY_MS = 24 * 60 * 60 * 1000;
 const BOOTSTRAP_FAILED_MARKER = '.codemap-bootstrap-failed';
 const LOCK_BOOT_MS = 5000;
 const LOCK_STALE_MS = 4 * 60 * 60 * 1000;
@@ -65,13 +66,20 @@ function managedBlockSpan(existing) {
   return { start, end: endMarker + BLOCK_END.length };
 }
 
-/** Replace a file through a sibling temporary file so concurrent sessions never observe a partial write. */
+/**
+ * Replace a file through a sibling temporary file so concurrent sessions never observe a partial write.
+ * A symlinked file (dotfile managers) is updated at its real location so the link survives, and the
+ * existing permissions are kept.
+ */
 function writeFileAtomic(target, content) {
-  ensureDir(path.dirname(target));
-  const temporary = `${target}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  let real = target;
+  try { real = fs.realpathSync(target); } catch (_) {}
+  ensureDir(path.dirname(real));
+  const temporary = `${real}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
   try {
     fs.writeFileSync(temporary, content, 'utf8');
-    fs.renameSync(temporary, target);
+    try { fs.chmodSync(temporary, fs.statSync(real).mode & 0o777); } catch (_) {}
+    fs.renameSync(temporary, real);
   } finally {
     try { fs.rmSync(temporary, { force: true }); } catch (_) {}
   }
@@ -119,7 +127,9 @@ function removeAgentsBlock(home = codexHome()) {
   const eol = existing.includes('\r\n') ? '\r\n' : '\n';
   const next = before && after ? `${before}${eol}${after}` : before ? `${before}${eol}` : after;
   if (next.trim() === '') {
-    fs.rmSync(target, { force: true });
+    // A file that only held the managed block goes away; a symlink is emptied so the linked file is not orphaned.
+    if (fs.lstatSync(target).isSymbolicLink()) writeFileAtomic(target, '');
+    else fs.rmSync(target, { force: true });
     return true;
   }
   writeFileAtomic(target, next);
@@ -1026,16 +1036,28 @@ function removeLegacyCrgMcp(options = {}) {
 /**
  * Run the legacy MCP migration until it has checked a real Codex CLI once, then never again.
  * SessionStart fires on startup, resume, clear and compact; repeating CLI probes there only adds latency.
+ * When no usable CLI exists the check is skipped and retried at most once a day, so an unrunnable desktop-app
+ * entry on PATH does not cost a failed `codex --version` probe at every session start.
  * @example removeLegacyCrgMcpOnce({ cwd: process.cwd() })
  */
 function removeLegacyCrgMcpOnce(options = {}) {
   const marker = markerPath(LEGACY_MCP_CHECKED_MARKER);
+  const now = (options.now || Date.now)();
   try {
-    if (fs.existsSync(marker)) return { ok: true, changed: false, cached: true };
-  } catch (_) {}
+    const recorded = JSON.parse(fs.readFileSync(marker, 'utf8'));
+    if (recorded && (recorded.status === 'checked'
+        || (recorded.status === 'skipped' && now - recorded.at < LEGACY_MCP_RETRY_MS))) {
+      return { ok: true, changed: false, cached: true };
+    }
+  } catch (_) {} // missing or unreadable marker: run the check
   const result = (options.removeLegacyCrgMcp || removeLegacyCrgMcp)(options);
-  // A skipped check (no CLI found yet) and a failed removal must both be retried later.
-  if (result.ok && !result.skipped) writeMarker(LEGACY_MCP_CHECKED_MARKER);
+  if (result.ok) {
+    // A failed removal (ok: false) is never recorded, so it is retried at the next session start.
+    try {
+      ensureDir(path.dirname(marker));
+      fs.writeFileSync(marker, JSON.stringify({ status: result.skipped ? 'skipped' : 'checked', at: now }));
+    } catch (_) {}
+  }
   return result;
 }
 
