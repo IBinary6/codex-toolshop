@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { spawn } = require('node:child_process');
-const { findPython, dataDir, runMcp } = require('../scripts/launch.cjs');
+const { findPython, pythonCandidates, dataDir, runMcp, runHook, withBootstrapLock } = require('../scripts/launch.cjs');
 
 test('an obsolete Python does not shadow a compatible interpreter', () => {
   const candidate = findPython({ platform: 'linux', env: {}, run(command) {
@@ -16,6 +16,44 @@ test('an obsolete Python does not shadow a compatible interpreter', () => {
 
 test('a missing interpreter is reported rather than assuming Python exists', () => {
   assert.equal(findPython({ platform: 'win32', env: {}, run: () => ({ status: 1 }) }), null);
+});
+
+test('versioned and Homebrew interpreters are searched when python3 is the stock 3.9', () => {
+  const names = pythonCandidates({}, 'darwin').map((c) => c[0]);
+  assert.ok(names.includes('python3.12'));
+  assert.ok(names.includes('/opt/homebrew/bin/python3'));
+  const candidate = findPython({ platform: 'darwin', env: {}, run(command) {
+    return command === 'python3.13' ? { status: 0, stdout: '3.13\n' } : { status: 0, stdout: '3.9\n' };
+  } });
+  assert.deepEqual(candidate, ['python3.13']);
+  assert.deepEqual(pythonCandidates({}, 'win32').map((c) => c[0]), ['python3', 'python', 'py']);
+});
+
+test('bootstrap lock serializes concurrent preparation and releases on failure', () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dbg-lock-'));
+  const lock = path.join(temp, 'bootstrap', 'install.lock');
+  try {
+    assert.equal(withBootstrapLock(lock, () => fs.existsSync(lock)), true);
+    assert.equal(fs.existsSync(lock), false);
+    assert.throws(() => withBootstrapLock(lock, () => { throw new Error('boom'); }), /boom/);
+    assert.equal(fs.existsSync(lock), false);
+    fs.mkdirSync(lock);
+    assert.throws(() => withBootstrapLock(lock, () => 1, { waitMs: 300 }), /still preparing/);
+    const old = new Date(Date.now() - 60 * 60 * 1000);
+    fs.utimesSync(lock, old, old);
+    assert.equal(withBootstrapLock(lock, () => 'stale lock reclaimed'), 'stale lock reclaimed');
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('hook reports bootstrap failure as a systemMessage instead of throwing', () => {
+  let written = '';
+  assert.doesNotThrow(() => runHook({ ensurePython() { throw new Error('offline'); }, write(text) { written += text; } }));
+  assert.match(JSON.parse(written).systemMessage, /dbg doctor/);
+  written = '';
+  runHook({ ensurePython: () => ['python3'], doctor: () => ({ status: 0 }), write(text) { written += text; } });
+  assert.equal(written, '');
 });
 
 test('CLI and plugin can share an explicitly chosen data directory', () => {
