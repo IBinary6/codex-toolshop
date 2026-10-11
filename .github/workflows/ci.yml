@@ -28,6 +28,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Check that the hook runner copies stay identical
+        run: node scripts/check-runner-sync.cjs
+
       - name: Validate agent-dispatch-codex
         working-directory: plugins/agent-dispatch-codex
         run: npm test
