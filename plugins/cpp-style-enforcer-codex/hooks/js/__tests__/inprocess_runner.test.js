@@ -8,6 +8,8 @@ const { spawnSync } = require('child_process');
 
 const runner = path.resolve(__dirname, '..', '..', '..', 'scripts', 'run-hook.cjs');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cpp-style-inprocess-'));
+// Every behavior below must hold in both execution models.
+const MODELS = [{}, { TOOLSHOP_HOOKS_CHILD_PROCESS: '1' }];
 const data = path.join(root, 'data');
 fs.mkdirSync(path.join(root, 'hooks', 'js'), { recursive: true });
 
@@ -47,7 +49,7 @@ try {
   assert.strictEqual(JSON.parse(child.stdout).stdin, '{"a":1}');
 
   // The hook's own exit status is kept in both models: exit 2 blocks the action being checked.
-  for (const env of [{}, { TOOLSHOP_HOOKS_CHILD_PROCESS: '1' }]) {
+  for (const env of MODELS) {
     assert.strictEqual(invoke('pre_commit', 'process.stdout.write("denied"); process.exit(2);', { env }).status, 2);
     assert.strictEqual(invoke('pre_commit', 'process.exitCode = 3;', { env }).status, 3);
     const crashed = invoke('pre_commit', 'throw new Error("boom");', { env });
@@ -55,13 +57,13 @@ try {
     assert.match(crashed.stderr, /boom/);
   }
   // A hook that never reads its input must not leave the host writing into a closed pipe.
-  for (const env of [{}, { TOOLSHOP_HOOKS_CHILD_PROCESS: '1' }]) {
+  for (const env of MODELS) {
     const ignoring = invoke('session_start', 'process.stdout.write("ok");', { input: 'x'.repeat(1 << 20), env });
     assert.strictEqual(ignoring.error, undefined, `host write must not fail: ${ignoring.error && ignoring.error.code}`);
     assert.strictEqual(ignoring.status, 0);
     assert.strictEqual(ignoring.stdout, 'ok');
   }
-  const unknown = spawnSync(process.execPath, [runner, 'no_such_hook'], { encoding: 'utf8', env: { ...process.env, PLUGIN_ROOT: root, PLUGIN_DATA: data } });
+  const unknown = invoke('no_such_hook', '');
   assert.strictEqual(unknown.status, 0);
   assert.match(unknown.stderr, /unknown hook: no_such_hook/);
 } finally {

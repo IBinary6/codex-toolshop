@@ -23,14 +23,12 @@ function pluginRoot() {
 /**
  * Run `script` as this process's entry point, as `node script` would, instead of starting a second Node
  * process (about 40 ms per hook). Hooks that guard on `require.main === module` still run.
- * A failing or slow hook must never fail the task: report on stderr and exit 0, as this runner always has.
- * Returns false when in-process mode is unavailable or switched off with TOOLSHOP_HOOKS_CHILD_PROCESS=1.
- * The same block is used by the other hook runners in this marketplace; keep them in sync.
- * @example runInProcess('/plugin/hooks/js/local_knowledge_session.js', { label: 'my-plugin', timeoutMs: 9000 })
+ * A failing hook must never fail the task: report on stderr and exit 0, as this runner always has.
+ * The same block is used by the other fail-open hook runners in this marketplace;
+ * scripts/check-runner-sync.cjs fails CI if the copies drift apart.
+ * @example runInProcess('/plugin/hooks/js/session_start.js', { label: 'my-plugin', env: { PLUGIN_ROOT: '/plugin' } })
  */
-function runInProcess(script, { label, env = {}, timeoutMs = 0 } = {}) {
-  const Module = require('module');
-  if (process.env.TOOLSHOP_HOOKS_CHILD_PROCESS === '1' || typeof Module._load !== 'function') return false;
+function runInProcess(script, { label, env }) {
   Object.assign(process.env, env);
   process.argv[1] = script;
   process.on('uncaughtException', (error) => {
@@ -41,9 +39,7 @@ function runInProcess(script, { label, env = {}, timeoutMs = 0 } = {}) {
     if (code) process.stderr.write(`[${label}] hook exited with status ${code}\n`);
     process.exitCode = 0;
   });
-  if (timeoutMs > 0) setTimeout(() => process.exit(0), timeoutMs).unref();
-  Module._load(script, null, true);
-  return true;
+  require('module')._load(script, null, true);
 }
 
 /** Fallback: run the hook in a child process with the same timeout; hook failures never block the main flow. */
@@ -69,9 +65,15 @@ function main() {
   const script = path.join(root, relative);
   const env = { PLUGIN_ROOT: root };
   const timeoutMs = HOOK_TIMEOUT_MS[hook];
-  if (!runInProcess(script, { label: 'local-knowledge-codex', env, timeoutMs })) runInChild(script, env, timeoutMs);
+  if (process.env.TOOLSHOP_HOOKS_CHILD_PROCESS === '1') {
+    runInChild(script, env, timeoutMs);
+    return;
+  }
+  // A hook that never finishes is cut off before the host's own timeout, without failing the task.
+  setTimeout(() => process.exit(0), timeoutMs).unref();
+  runInProcess(script, { label: 'local-knowledge-codex', env });
 }
 
 if (require.main === module) main();
 
-module.exports = { HOOK_TIMEOUT_MS, runInProcess };
+module.exports = { HOOK_TIMEOUT_MS };

@@ -46,23 +46,21 @@ try {
   assert.equal(childSeen.stdin, '{"a":1}');
   assert.equal(childSeen.main, true);
 
-  // A failing hook must never fail the task, in either model.
-  for (const env of [{}, { TOOLSHOP_HOOKS_CHILD_PROCESS: '1' }]) {
-    for (const [label, source, message] of [
-      ['throw at load', 'throw new Error("boom");', /boom/],
-      ['async rejection', 'Promise.reject(new Error("late boom"));', /late boom/],
-      ['non-zero exit code', 'process.exitCode = 3;', null],
-      ['explicit exit', 'process.exit(4);', null],
-    ]) {
-      const failed = invoke(source, { env });
-      assert.equal(failed.status, 0, `${label}: ${failed.stderr}`);
-      if (message && !env.TOOLSHOP_HOOKS_CHILD_PROCESS) assert.match(failed.stderr, message, label);
-    }
+  // A failing hook must never fail the task. In-process runs also say why on stderr.
+  for (const [label, source, message] of [
+    ['throw at load', 'throw new Error("boom");', /hook failed: boom/],
+    ['async rejection', 'Promise.reject(new Error("late boom"));', /hook failed: late boom/],
+    ['non-zero exit code', 'process.exitCode = 3;', /hook exited with status 3/],
+    ['explicit exit', 'process.exit(4);', /hook exited with status 4/],
+  ]) {
+    const failed = invoke(source);
+    assert.equal(failed.status, 0, `${label}: ${failed.stderr}`);
+    assert.match(failed.stderr, message, label);
+    const viaChild = invoke(source, { env: { TOOLSHOP_HOOKS_CHILD_PROCESS: '1' } });
+    assert.equal(viaChild.status, 0, `${label} (child process): ${viaChild.stderr}`);
   }
-  const exited = invoke('process.exit(4);');
-  assert.match(exited.stderr, /hook exited with status 4/);
 
-  const missing = spawnSync(process.execPath, [runner, 'no_such_hook'], { encoding: 'utf8', env: { ...process.env, PLUGIN_ROOT: root, PLUGIN_DATA: data } });
+  const missing = invoke('', { name: 'no_such_hook' });
   assert.equal(missing.status, 0);
   assert.match(missing.stderr, /unknown hook: no_such_hook/);
 } finally {

@@ -46,29 +46,24 @@ try {
   assert.notEqual(JSON.parse(child.stdout).pid, child.pid, 'kill switch runs the hook in a child process');
   assert.equal(JSON.parse(child.stdout).stdin, '{"a":1}');
 
-  // A failing hook must never fail the task, in either model.
-  for (const env of [{}, { TOOLSHOP_HOOKS_CHILD_PROCESS: '1' }]) {
-    for (const [label, source, message] of [
-      ['throw at load', 'throw new Error("boom");', /boom/],
-      ['async rejection', 'Promise.reject(new Error("late boom"));', /late boom/],
-      ['non-zero exit code', 'process.exitCode = 3;', null],
-      ['explicit exit', 'process.exit(4);', null],
-    ]) {
-      const failed = invoke('session_start', source, { env });
-      assert.equal(failed.status, 0, `${label}: ${failed.stderr}`);
-      if (message && !env.TOOLSHOP_HOOKS_CHILD_PROCESS) assert.match(failed.stderr, message, label);
-    }
+  // A failing hook must never fail the task. In-process runs also say why on stderr.
+  for (const [label, source, message] of [
+    ['throw at load', 'throw new Error("boom");', /hook failed: boom/],
+    ['async rejection', 'Promise.reject(new Error("late boom"));', /hook failed: late boom/],
+    ['non-zero exit code', 'process.exitCode = 3;', /hook exited with status 3/],
+    ['explicit exit', 'process.exit(4);', /hook exited with status 4/],
+  ]) {
+    const failed = invoke('session_start', source);
+    assert.equal(failed.status, 0, `${label}: ${failed.stderr}`);
+    assert.match(failed.stderr, message, label);
+    const viaChild = invoke('session_start', source, { env: { TOOLSHOP_HOOKS_CHILD_PROCESS: '1' } });
+    assert.equal(viaChild.status, 0, `${label} (child process): ${viaChild.stderr}`);
   }
 
   // A hook that never finishes is cut off at its own timeout, before the host timeout, without failing the task.
   const { HOOK_TIMEOUT_MS } = require(runner);
-  const hanging = 'setInterval(() => {}, 1000);';
-  fs.writeFileSync(path.join(root, 'hooks', 'js', HOOK_FILES.post_tool_use), hanging);
   const started = Date.now();
-  const cut = spawnSync(process.execPath, [runner, 'post_tool_use'], {
-    cwd: root, input: '{}', encoding: 'utf8', windowsHide: process.platform === 'win32',
-    env: { ...process.env, PLUGIN_ROOT: root },
-  });
+  const cut = invoke('post_tool_use', 'setInterval(() => {}, 1000);');
   assert.equal(cut.status, 0);
   const elapsed = Date.now() - started;
   assert.ok(elapsed >= HOOK_TIMEOUT_MS.post_tool_use - 100 && elapsed < HOOK_TIMEOUT_MS.post_tool_use + 3000,

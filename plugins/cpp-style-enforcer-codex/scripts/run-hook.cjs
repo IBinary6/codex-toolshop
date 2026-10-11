@@ -11,9 +11,6 @@ const HOOKS = {
   stop_check: path.join('hooks', 'js', 'stop_check.js'),
   pre_commit: path.join('hooks', 'js', 'pre_commit.js'),
 };
-// These hooks never read their input. The runner consumes it first, as it always did, so the host's write
-// to the pipe cannot fail with EPIPE because the process already exited.
-const IGNORES_STDIN = new Set(['session_start']);
 
 function pluginRoot() {
   const fromEnv = process.env.PLUGIN_ROOT;
@@ -43,16 +40,12 @@ function readStdin() {
  * process (about 40 ms per hook). Hooks that guard on `require.main === module` still run.
  * Unlike the other hook runners in this marketplace the hook's own exit status is kept, because a
  * hook that exits with 2 blocks the action it was checking.
- * Returns false when in-process mode is unavailable or switched off with TOOLSHOP_HOOKS_CHILD_PROCESS=1.
- * @example runInProcess('/plugin/hooks/js/post_edit.js', { env: { PLUGIN_ROOT: '/plugin' } })
+ * @example runInProcess('/plugin/hooks/js/post_edit.js', { PLUGIN_ROOT: '/plugin' })
  */
-function runInProcess(script, { env = {} } = {}) {
-  const Module = require('module');
-  if (process.env.TOOLSHOP_HOOKS_CHILD_PROCESS === '1' || typeof Module._load !== 'function') return false;
+function runInProcess(script, env) {
   Object.assign(process.env, env);
   process.argv[1] = script;
-  Module._load(script, null, true);
-  return true;
+  require('module')._load(script, null, true);
 }
 
 /** Fallback: run the hook in a child process and pass its exit status through. */
@@ -88,10 +81,11 @@ function main() {
   } catch (_) {}
 
   const env = { PLUGIN_ROOT: root, PLUGIN_DATA: dataDir };
-  if (IGNORES_STDIN.has(hookName)) readStdin();
-  if (!runInProcess(script, { env })) runInChild(script, env);
+  // session_start never reads its input. Consume it first, as this runner always did, so the host's write to
+  // the pipe cannot fail with EPIPE because the process already exited.
+  if (hookName === 'session_start') readStdin();
+  if (process.env.TOOLSHOP_HOOKS_CHILD_PROCESS === '1') runInChild(script, env);
+  else runInProcess(script, env);
 }
 
-if (require.main === module) main();
-
-module.exports = { runInProcess };
+main();

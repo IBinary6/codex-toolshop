@@ -50,20 +50,23 @@ try {
   assert.notEqual(JSON.parse(child.stdout).pid, child.pid, 'kill switch runs the hook in a child process');
   assert.equal(JSON.parse(child.stdout).stdin, '{"a":1}');
 
-  // A failing ordinary hook must never fail the task, in either model.
-  for (const env of [{}, { TOOLSHOP_HOOKS_CHILD_PROCESS: '1' }]) {
-    for (const [label, source, message] of [
-      ['throw at load', 'throw new Error("boom");', /boom/],
-      ['async rejection', 'Promise.reject(new Error("late boom"));', /late boom/],
-      ['non-zero exit code', 'process.exitCode = 3;', null],
-      ['explicit exit', 'process.exit(4);', null],
-    ]) {
-      const failed = invoke('session_start', source, { env });
-      assert.equal(failed.status, 0, `${label}: ${failed.stderr}`);
-      if (message && !env.TOOLSHOP_HOOKS_CHILD_PROCESS) assert.match(failed.stderr, message, label);
-    }
+  // A failing ordinary hook must never fail the task. In-process runs also say why on stderr.
+  for (const [label, source, message] of [
+    ['throw at load', 'throw new Error("boom");', /hook failed: boom/],
+    ['async rejection', 'Promise.reject(new Error("late boom"));', /hook failed: late boom/],
+    ['non-zero exit code', 'process.exitCode = 3;', /hook exited with status 3/],
+    ['explicit exit', 'process.exit(4);', /hook exited with status 4/],
+  ]) {
+    const failed = invoke('session_start', source);
+    assert.equal(failed.status, 0, `${label}: ${failed.stderr}`);
+    assert.match(failed.stderr, message, label);
+    const viaChild = invoke('session_start', source, { env: { TOOLSHOP_HOOKS_CHILD_PROCESS: '1' } });
+    assert.equal(viaChild.status, 0, `${label} (child process): ${viaChild.stderr}`);
   }
-  assert.match(invoke('session_start', 'process.exit(4);').stderr, /hook exited with status 4/);
+
+  const missing = invoke('no_such_hook', '');
+  assert.equal(missing.status, 0);
+  assert.match(missing.stderr, /unknown hook: no_such_hook/);
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
 }
