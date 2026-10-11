@@ -13,6 +13,7 @@ const {
 const {
   ENABLED_MARKER,
   enableCodeMap,
+  agentsPath,
   ensureAgentsBlock,
   ensureGitignore,
   removeAgentsBlock,
@@ -293,7 +294,7 @@ function main() {
 
   if (args.has('--uninstall')) {
     // Codex runs no hook on plugin removal, so global rules written by SessionStart must be removed explicitly.
-    if (removeAgentsBlock()) log(`[codemap-boost-codex] removed the managed block from ${path.join(codexHome(), 'AGENTS.md')}`);
+    if (removeAgentsBlock()) log(`[codemap-boost-codex] removed the managed block from ${agentsPath()}`);
     else {
       warn('[codemap-boost-codex] AGENTS.md has incomplete or duplicated CodeMap Boost markers; edit it manually.');
       process.exitCode = 1;
