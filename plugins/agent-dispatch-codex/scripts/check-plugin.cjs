@@ -56,8 +56,11 @@ const hooks = readJson('hooks/hooks.json').hooks;
 for (const event of ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'SubagentStart']) {
   assert.ok(Array.isArray(hooks[event]), `missing ${event}`);
 }
+// Codex may compile matchers as regular expressions, so a bare "*" would fail to parse.
+assert.equal(hooks.SubagentStart[0].matcher, '.*', 'SubagentStart must match every agent type');
 for (const groups of Object.values(hooks)) {
   for (const group of groups) {
+    if (group.matcher !== undefined) assert.doesNotThrow(() => new RegExp(group.matcher), `invalid matcher: ${group.matcher}`);
     for (const hook of group.hooks || []) {
       assert.equal(hook.type, 'command');
       assert.equal(hook.async, undefined, 'Codex skips async command hooks');

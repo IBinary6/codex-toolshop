@@ -28,6 +28,21 @@ function pluginData() {
 const VERSIONED_NAMES = ['python3.14', 'python3.13', 'python3.12', 'python3.11', 'python3.10'];
 
 /**
+ * Order uv interpreter folder names such as `cpython-3.12.4-...` by version, newest first.
+ * @example ['cpython-3.9.1-x', 'cpython-3.12.4-x'].sort(newestFirst) // 3.12.4 first
+ */
+function newestFirst(left, right) {
+  const version = (name) => (name.match(/^cpython-(\d+)\.(\d+)(?:\.(\d+))?/) || []).slice(1).map(Number);
+  const a = version(left);
+  const b = version(right);
+  for (let index = 0; index < 3; index += 1) {
+    const delta = (b[index] || 0) - (a[index] || 0);
+    if (delta) return delta;
+  }
+  return 0;
+}
+
+/**
  * List uv-managed interpreters newest first without starting uv.
  * @example uvManagedPythons({}, 'linux')
  */
@@ -41,8 +56,7 @@ function uvManagedPythons(environment, platform) {
   for (const root of roots) {
     let entries = [];
     try { entries = fs.readdirSync(root); } catch (_) { continue; }
-    for (const entry of entries.filter((name) => /^cpython-3\.\d+/.test(name))
-      .sort((a, b) => b.localeCompare(a, 'en', { numeric: true }))) {
+    for (const entry of entries.filter((name) => /^cpython-3\.\d+/.test(name)).sort(newestFirst)) {
       found.push(platform === 'win32'
         ? path.join(root, entry, 'python.exe')
         : path.join(root, entry, 'bin', 'python3'));
@@ -73,16 +87,11 @@ function pythonCandidates(options = {}) {
     const directories = platform === 'darwin'
       ? ['/opt/homebrew/bin', '/usr/local/bin', '/Library/Frameworks/Python.framework/Versions/Current/bin']
       : ['/usr/local/bin', '/usr/bin'];
-// These directories are always POSIX paths, so join with path.posix even when the platform is simulated on Windows.
     for (const directory of directories) {
-      for (const name of ['python3', ...VERSIONED_NAMES]) {
-        candidates.push({ command: path.posix.join(directory, name), prefix: [], optional: true });
-      }
+      for (const name of ['python3', ...VERSIONED_NAMES]) candidates.push({ command: `${directory}/${name}`, prefix: [] });
     }
   }
-  for (const command of uvManagedPythons(environment, platform)) {
-    candidates.push({ command, prefix: [], optional: true });
-  }
+  for (const command of uvManagedPythons(environment, platform)) candidates.push({ command, prefix: [] });
   return candidates;
 }
 
@@ -94,8 +103,6 @@ function findPython(options = {}) {
   const candidates = options.candidates || pythonCandidates(options);
   const spawn = options.spawnSync || spawnSync;
   for (const candidate of candidates) {
-    // Absolute fallbacks that do not exist cost nothing; bare names still go through PATH lookup.
-    if (candidate.optional && !options.spawnSync && !fs.existsSync(candidate.command)) continue;
     const probe = spawn(candidate.command, [...candidate.prefix, '--version'], {
       encoding: 'utf8',
       windowsHide: (options.platform || process.platform) === 'win32',

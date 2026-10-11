@@ -156,11 +156,11 @@ function markerExists(name) {
   }
 }
 
-function writeMarker(name) {
+function writeMarker(name, content = '1') {
   try {
     const target = markerPath(name);
     ensureDir(path.dirname(target));
-    fs.writeFileSync(target, '1');
+    fs.writeFileSync(target, content);
   } catch (_) {}
 }
 

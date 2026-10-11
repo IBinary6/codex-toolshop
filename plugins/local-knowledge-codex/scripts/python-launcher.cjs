@@ -16,6 +16,18 @@ const VERSIONED_NAMES = ['python3.14', 'python3.13', 'python3.12', 'python3.11']
 const RUNTIME_ENV_NAMES = ['LOCAL_KNOWLEDGE_PYTHON', 'BUGDB_PYTHON'];
 const VERSION_SCRIPT = 'import sys; print("%d.%d.%d" % sys.version_info[:3])';
 
+function newestFirst(left, right) {
+  /** Order uv interpreter folder names such as `cpython-3.12.4-...` by version, newest first. */
+  const version = (name) => (name.match(/^cpython-(\d+)\.(\d+)(?:\.(\d+))?/) || []).slice(1).map(Number);
+  const a = version(left);
+  const b = version(right);
+  for (let index = 0; index < 3; index += 1) {
+    const delta = (b[index] || 0) - (a[index] || 0);
+    if (delta) return delta;
+  }
+  return 0;
+}
+
 function uvManagedPythons(environment, platform) {
   /** List uv-managed interpreters newest first without starting uv; return [] when none exist. */
   const roots = [];
@@ -29,8 +41,7 @@ function uvManagedPythons(environment, platform) {
   for (const root of roots) {
     let entries = [];
     try { entries = fs.readdirSync(root); } catch (_) { continue; }
-    for (const entry of entries.filter((name) => /^cpython-3\.\d+/.test(name))
-      .sort((a, b) => b.localeCompare(a, 'en', { numeric: true }))) {
+    for (const entry of entries.filter((name) => /^cpython-3\.\d+/.test(name)).sort(newestFirst)) {
       found.push(platform === 'win32'
         ? path.join(root, entry, 'python.exe')
         : path.join(root, entry, 'bin', 'python3'));
@@ -58,10 +69,9 @@ function pythonCandidates(environment = process.env, platform = process.platform
   const directories = platform === 'darwin'
     ? ['/opt/homebrew/bin', '/usr/local/bin', '/Library/Frameworks/Python.framework/Versions/Current/bin']
     : platform === 'win32' ? [] : ['/usr/local/bin', '/usr/bin'];
-// These directories are always POSIX paths, so join with path.posix even when the platform is simulated on Windows.
   const absolute = [];
   for (const directory of directories) {
-    for (const name of ['python3', ...VERSIONED_NAMES]) absolute.push(path.posix.join(directory, name));
+    for (const name of ['python3', ...VERSIONED_NAMES]) absolute.push(`${directory}/${name}`);
   }
   absolute.push(...uvManagedPythons(environment, platform));
   return [...names, ...absolute.map((command) => ({ command, args: [] }))];
@@ -69,8 +79,8 @@ function pythonCandidates(environment = process.env, platform = process.platform
 
 function cachePath(environment = process.env) {
   /**
-   * Persist the verified interpreter in the plugin data directory the host injects, so later hooks need one probe.
-   * Without PLUGIN_DATA (tests, manual runs) nothing is cached and nothing is written outside the caller's control.
+   * Remember the interpreter that was verified last time in the plugin data directory the host injects, so the
+   * next hook can try it first. Without PLUGIN_DATA (tests, manual runs) nothing is cached or written.
    */
   return environment.PLUGIN_DATA ? path.join(environment.PLUGIN_DATA, CACHE_FILE_NAME) : null;
 }
@@ -78,35 +88,17 @@ function cachePath(environment = process.env) {
 function readCache(file) {
   try {
     const cached = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (cached && typeof cached.command === 'string' && path.isAbsolute(cached.command)
-      && Array.isArray(cached.args) && fs.existsSync(cached.command)) return cached;
+    if (typeof cached.command === 'string' && Array.isArray(cached.args)) return cached;
   } catch (_) {}
   return null;
 }
 
-function writeCache(file, runtime) {
+function writeCache(file, candidate) {
+  // A torn write only means the next hook reads invalid JSON and searches again, so no temporary file is needed.
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    const temporary = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(temporary, JSON.stringify({ command: runtime.command, args: runtime.args }));
-    fs.renameSync(temporary, file);
+    fs.writeFileSync(file, JSON.stringify({ command: candidate.command, args: candidate.args }));
   } catch (_) {}
-}
-
-function locate(command, environment, platform) {
-  /** Resolve a bare command on PATH to an absolute file without spawning; return null when absent. */
-  if (path.isAbsolute(command)) return fs.existsSync(command) ? command : null;
-  const extensions = platform === 'win32'
-    ? String(environment.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
-    : [''];
-  const searchPath = environment.PATH ?? environment.Path ?? '';
-  for (const directory of String(searchPath).split(path.delimiter).filter(Boolean)) {
-    for (const extension of extensions) {
-      const file = path.join(directory.replace(/^"|"$/g, ''), command + extension);
-      try { if (fs.statSync(file).isFile()) return file; } catch (_) {}
-    }
-  }
-  return null;
 }
 
 function parseVersion(output) {
@@ -149,7 +141,7 @@ function isNewer(left, right) {
 function resolvePython(options = {}) {
   /**
    * Probe candidates in order and return the first Python 3.11+; older versions do not stop further probing.
-   * A previously verified interpreter is tried first; injected spawnSyncImpl disables the cache unless cacheFile is given.
+   * The interpreter verified last time, when the host provides a plugin data directory, is probed first.
    *
    * Example: `resolvePython()` returns command and args suitable for `spawnSync`.
    */
@@ -162,25 +154,20 @@ function resolvePython(options = {}) {
   const configured = envNames.some((name) => String(environment[name] || '').trim());
   // cacheFile: undefined = default policy, null = disabled, string = explicit file (tests).
   const cacheFile = options.cacheFile !== undefined ? options.cacheFile
-    : (options.spawnSyncImpl || configured ? null : cachePath(environment));
+    : (configured ? null : cachePath(environment));
+  const cached = cacheFile ? readCache(cacheFile) : null;
   const startedAt = Date.now();
   let newestUnsupported = null;
-  const seen = new Set();
 
-  const candidates = pythonCandidates(environment, platform, envNames);
-  const cached = cacheFile ? readCache(cacheFile) : null;
-  if (cached) candidates.unshift({ command: cached.command, args: cached.args, cached: true });
+  function* candidates() {
+    // The full list is built only if the remembered interpreter does not answer first.
+    if (cached) yield cached;
+    yield* pythonCandidates(environment, platform, envNames);
+  }
 
-  for (const candidate of candidates) {
+  for (const candidate of candidates()) {
     const remaining = timeout - (Date.now() - startedAt);
     if (remaining <= 0) break;
-    // Fallback locations are absolute paths and usually absent: skip those without spawning. Bare names go
-    // straight to spawn, which also resolves Windows launchers such as the Store alias.
-    if (!options.spawnSyncImpl && path.isAbsolute(candidate.command) && !configured
-        && !fs.existsSync(candidate.command)) continue;
-    const key = `${platform === 'win32' ? candidate.command.toLowerCase() : candidate.command}\0${candidate.args.join('\0')}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
     const result = spawnSyncImpl(candidate.command,
       [...candidate.args, '-c', VERSION_SCRIPT], {
         encoding: 'utf8',
@@ -192,13 +179,9 @@ function resolvePython(options = {}) {
     const parsed = parseVersion(result.stdout);
     if (!parsed) continue;
     if (isSupported(parsed)) {
-      const runtime = { ok: true, command: candidate.command, args: [...candidate.args],
+      if (cacheFile && candidate !== cached) writeCache(cacheFile, candidate);
+      return { ok: true, command: candidate.command, args: [...candidate.args],
         version: parsed.version, elapsedMs: Date.now() - startedAt };
-      if (cacheFile && !candidate.cached) {
-        const absolute = locate(candidate.command, environment, platform);
-        if (absolute) writeCache(cacheFile, { command: absolute, args: runtime.args });
-      }
-      return runtime;
     }
     if (isNewer(parsed, newestUnsupported)) newestUnsupported = parsed;
   }

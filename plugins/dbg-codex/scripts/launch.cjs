@@ -24,15 +24,12 @@ function pythonCandidates(env = process.env, platform = process.platform) {
   const candidates = [];
   if (env.DBG_PYTHON) candidates.push([env.DBG_PYTHON]);
   candidates.push(['python3'], ['python']);
-  if (platform === 'win32') candidates.push(['py', '-3']);
-  else {
-    for (const name of VERSIONED_PYTHONS) candidates.push([name]);
-// These directories are always POSIX paths, so join with path.posix even when the platform is simulated on Windows.
-    const dirs = platform === 'darwin'
-      ? ['/opt/homebrew/bin', '/usr/local/bin', '/Library/Frameworks/Python.framework/Versions/Current/bin']
-      : ['/usr/local/bin', '/usr/bin'];
-    for (const dir of dirs) for (const name of ['python3', ...VERSIONED_PYTHONS]) candidates.push([path.posix.join(dir, name)]);
-  }
+  if (platform === 'win32') return [...candidates, ['py', '-3']];
+  for (const name of VERSIONED_PYTHONS) candidates.push([name]);
+  const dirs = platform === 'darwin'
+    ? ['/opt/homebrew/bin', '/usr/local/bin', '/Library/Frameworks/Python.framework/Versions/Current/bin']
+    : ['/usr/local/bin', '/usr/bin'];
+  for (const dir of dirs) for (const name of ['python3', ...VERSIONED_PYTHONS]) candidates.push([`${dir}/${name}`]);
   return candidates;
 }
 
@@ -40,13 +37,7 @@ function findPython(options = {}) {
   const env = options.env || process.env;
   const platform = options.platform || process.platform;
   const run = options.run || spawnSync;
-  const seen = new Set();
   for (const candidate of [...pythonCandidates(env, platform), ...(options.extra || [])]) {
-    const key = candidate.join('\0');
-    if (seen.has(key)) continue;
-    seen.add(key);
-    // Skip absolute candidates that do not exist instead of paying a spawn per missing path.
-    if (path.isAbsolute(candidate[0]) && !options.run && !fs.existsSync(candidate[0])) continue;
     const result = run(candidate[0], [...candidate.slice(1), '-c', 'import sys; print(str(sys.version_info.major)+"."+str(sys.version_info.minor))'], {
       encoding: 'utf8', timeout: 5000, windowsHide: true, env,
     });
@@ -97,7 +88,8 @@ function reclaimAbandonedLock(lockDir, staleMs) {
     }
     let owner = 0;
     try { owner = Number(fs.readFileSync(path.join(lockDir, 'pid'), 'utf8')); } catch (_) {}
-    if (!(owner > 0 && !pidAlive(owner)) && ageMs <= staleMs) return false;
+    const ownerGone = owner > 0 && !pidAlive(owner);
+    if (!ownerGone && ageMs <= staleMs) return false;
     fs.rmSync(lockDir, { recursive: true, force: true });
     return true;
   } finally {
@@ -152,14 +144,9 @@ function checked(command, args, options = {}) {
 }
 
 function ensurePython() {
-  const existing = findPython({ extra: recordedPython() });
-  if (existing) return existing;
-  return withBootstrapLock(path.join(dataDir(), 'bootstrap', 'install.lock'), () => {
-    // Another process may have finished the bootstrap while this one waited for the lock.
-    const prepared = findPython({ extra: recordedPython() });
-    if (prepared) return prepared;
-    return installManagedPython();
-  });
+  const find = () => findPython({ extra: recordedPython() });
+  // Another process may have finished the bootstrap while this one waited for the lock.
+  return find() || withBootstrapLock(path.join(dataDir(), 'bootstrap', 'install.lock'), () => find() || installManagedPython());
 }
 
 function installManagedPython() {

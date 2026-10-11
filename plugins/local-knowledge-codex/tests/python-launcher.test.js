@@ -30,18 +30,16 @@ assert.deepEqual(windowsCandidates, [
   { command: 'py', args: ['-3'] },
 ]);
 
-// uv-managed interpreters are found newest first without starting uv.
+// uv-managed interpreters are found newest first (numerically: 3.12 before 3.9) without starting uv.
 const uvRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lk-uv-'));
 try {
-  for (const name of ['cpython-3.11.9-linux-x86_64-gnu', 'cpython-3.13.1-linux-x86_64-gnu', 'pypy-3.10']) {
-    fs.mkdirSync(path.join(uvRoot, name, 'bin'), { recursive: true });
-  }
+  const names = ['cpython-3.9.18-linux-x86_64-gnu', 'cpython-3.11.9-linux-x86_64-gnu',
+    'cpython-3.13.1-linux-x86_64-gnu', 'cpython-3.12-linux-x86_64-gnu', 'pypy-3.10'];
+  for (const name of names) fs.mkdirSync(path.join(uvRoot, name, 'bin'), { recursive: true });
   const uvCommands = pythonCandidates({ UV_PYTHON_INSTALL_DIR: uvRoot, XDG_DATA_HOME: uvRoot }, 'linux')
     .map((candidate) => candidate.command).filter((command) => command.startsWith(uvRoot));
-  assert.deepEqual(uvCommands.slice(0, 2), [
-    path.join(uvRoot, 'cpython-3.13.1-linux-x86_64-gnu', 'bin', 'python3'),
-    path.join(uvRoot, 'cpython-3.11.9-linux-x86_64-gnu', 'bin', 'python3'),
-  ]);
+  assert.deepEqual(uvCommands, ['cpython-3.13.1', 'cpython-3.12', 'cpython-3.11.9', 'cpython-3.9.18']
+    .map((entry) => path.join(uvRoot, `${entry}-linux-x86_64-gnu`, 'bin', 'python3')));
 } finally {
   fs.rmSync(uvRoot, { recursive: true, force: true });
 }
@@ -92,22 +90,25 @@ const unsupported = resolvePython({
 assert.equal(unsupported.ok, false);
 assert.equal(unsupported.version, '3.10.13');
 
-// A verified interpreter is cached so later hooks pay for one probe instead of a full search.
+// A verified interpreter is remembered so later hooks pay for one probe instead of a full search.
 const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lk-cache-'));
 try {
   const cacheFile = path.join(cacheDir, 'python-runtime.json');
   const first = resolvePython({ cacheFile, environment: process.env });
-  if (first.ok) {
-    // Bare commands are returned as typed; the cache stores the absolute path they resolved to.
-    const cachedEntry = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-    assert.ok(path.isAbsolute(cachedEntry.command), 'the cache stores an absolute interpreter path');
-    assert.deepEqual(cachedEntry.args, first.args);
-    const probes = [];
-    const second = resolvePython({ cacheFile, environment: {}, platform: process.platform,
-      spawnSyncImpl(command) { probes.push(command); return result(first.version); } });
-    assert.equal(second.command, cachedEntry.command);
-    assert.deepEqual(probes, [cachedEntry.command], 'cached interpreter is probed first and alone');
-  }
+  assert.ok(first.ok, 'the test suite needs a Python 3.11+');
+  const entry = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+  assert.equal(entry.command, first.command, 'the verified command is stored exactly as it was probed');
+  assert.deepEqual(entry.args, first.args);
+  const probes = [];
+  const second = resolvePython({ cacheFile, environment: {}, platform: process.platform,
+    spawnSyncImpl(command) { probes.push(command); return result(first.version); } });
+  assert.equal(second.command, entry.command);
+  assert.deepEqual(probes, [entry.command], 'the remembered interpreter is probed first and alone');
+
+  // A damaged cache file is ignored and replaced by a fresh search.
+  fs.writeFileSync(cacheFile, '{"command":');
+  assert.equal(resolvePython({ cacheFile, environment: process.env }).command, first.command);
+  assert.equal(JSON.parse(fs.readFileSync(cacheFile, 'utf8')).command, first.command);
 } finally {
   fs.rmSync(cacheDir, { recursive: true, force: true });
 }
@@ -115,20 +116,18 @@ try {
 // The cache lives in the host-injected plugin data directory only; without it nothing is ever written.
 assert.equal(cachePath({}), null, 'no PLUGIN_DATA: caching is off');
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lk-data-'));
+const quietDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lk-quiet-'));
 try {
   assert.equal(cachePath({ PLUGIN_DATA: dataDir }), path.join(dataDir, 'python-runtime.json'));
-  const withData = resolvePython({ environment: { ...process.env, PLUGIN_DATA: dataDir } });
-  if (withData.ok) {
-    assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'python-runtime.json'), 'utf8')).command.length > 0, true,
-      'a verified interpreter is cached in PLUGIN_DATA');
-  }
-  const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lk-nodata-'));
-  const noData = { ...process.env }; delete noData.PLUGIN_DATA;
-  resolvePython({ environment: noData, cacheFile: null });
-  assert.deepEqual(fs.readdirSync(emptyDir), [], 'a disabled cache writes nothing');
-  fs.rmSync(emptyDir, { recursive: true, force: true });
+  assert.ok(resolvePython({ environment: { ...process.env, PLUGIN_DATA: dataDir } }).ok);
+  assert.ok(fs.existsSync(path.join(dataDir, 'python-runtime.json')), 'a verified interpreter is cached in PLUGIN_DATA');
+
+  const quiet = resolvePython({ environment: { ...process.env, PLUGIN_DATA: quietDir }, cacheFile: null });
+  assert.ok(quiet.ok);
+  assert.deepEqual(fs.readdirSync(quietDir), [], 'cacheFile: null writes nothing even when PLUGIN_DATA is set');
 } finally {
   fs.rmSync(dataDir, { recursive: true, force: true });
+  fs.rmSync(quietDir, { recursive: true, force: true });
 }
 
 const probeTimeouts = [];

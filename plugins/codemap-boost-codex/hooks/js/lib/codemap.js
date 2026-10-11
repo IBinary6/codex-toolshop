@@ -125,7 +125,7 @@ function removeAgentsBlock(home = codexHome()) {
   const before = existing.slice(0, span.start).replace(/(?:\r?\n){1,2}$/, '');
   const after = existing.slice(span.end).replace(/^\r?\n/, '');
   const eol = existing.includes('\r\n') ? '\r\n' : '\n';
-  const next = before && after ? `${before}${eol}${after}` : before ? `${before}${eol}` : after;
+  const next = before ? `${before}${eol}${after}` : after;
   if (next.trim() === '') {
     // A file that only held the managed block goes away; a symlink is emptied so the linked file is not orphaned.
     if (fs.lstatSync(target).isSymbolicLink()) writeFileAtomic(target, '');
@@ -1051,13 +1051,8 @@ function removeLegacyCrgMcpOnce(options = {}) {
     }
   } catch (_) {} // missing or unreadable marker: run the check
   const result = (options.removeLegacyCrgMcp || removeLegacyCrgMcp)(options);
-  if (result.ok) {
-    // A failed removal (ok: false) is never recorded, so it is retried at the next session start.
-    try {
-      ensureDir(path.dirname(marker));
-      fs.writeFileSync(marker, JSON.stringify({ status: result.skipped ? 'skipped' : 'checked', at: now }));
-    } catch (_) {}
-  }
+  // A failed removal (ok: false) is never recorded, so it is retried at the next session start.
+  if (result.ok) writeMarker(LEGACY_MCP_CHECKED_MARKER, JSON.stringify({ status: result.skipped ? 'skipped' : 'checked', at: now }));
   return result;
 }
 

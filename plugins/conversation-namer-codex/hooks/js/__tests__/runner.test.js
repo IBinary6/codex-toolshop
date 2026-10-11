@@ -5,7 +5,6 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { armSession, writeState } = require('../lib/state');
 
 const runner = path.resolve(__dirname, '..', '..', '..', 'scripts', 'run-hook.cjs');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'namer-runner-'));
@@ -28,8 +27,9 @@ try {
     process.stdout.write(JSON.stringify({ pid: process.pid, main: require.main === module,
       root: process.env.PLUGIN_ROOT, stdin: fs.readFileSync(0, 'utf8') }));`;
 
-  // Hooks that do not inspect stdin run as the runner's own entry point: no second Node.
-  for (const name of ['session_start', 'user_prompt_submit']) {
+  // Every hook, including desktop_delivery on PostToolUse and Stop, runs as the runner's own entry point:
+  // no second Node, require.main guards still fire, and the hook reads the original stdin.
+  for (const name of ['session_start', 'user_prompt_submit', 'desktop_delivery']) {
     const ran = invoke(name, probe, { input: '{"hello":"world"}' });
     assert.equal(ran.status, 0, `${name}: ${ran.stderr}`);
     const seen = JSON.parse(ran.stdout);
@@ -45,35 +45,24 @@ try {
   assert.notEqual(JSON.parse(child.stdout).pid, child.pid);
   assert.equal(JSON.parse(child.stdout).stdin, '{"a":1}');
 
-  // A failing hook must never fail the task, in either model.
-  for (const extra of [{}, { TOOLSHOP_HOOKS_CHILD_PROCESS: '1' }]) {
-    for (const [label, source] of [
-      ['throw at load', 'throw new Error("boom");'],
-      ['async rejection', 'Promise.reject(new Error("late boom"));'],
-      ['non-zero exit code', 'process.exitCode = 3;'],
-      ['explicit exit', 'process.exit(4);'],
-    ]) {
-      const failed = invoke('user_prompt_submit', source, { extra });
-      assert.equal(failed.status, 0, `${label}: ${failed.stderr}`);
-    }
+  // A failing hook must never fail the task. In-process runs also say why on stderr.
+  for (const [label, source, message] of [
+    ['throw at load', 'throw new Error("boom");', /hook failed: boom/],
+    ['async rejection', 'Promise.reject(new Error("late boom"));', /hook failed: late boom/],
+    ['non-zero exit code', 'process.exitCode = 3;', /hook exited with status 3/],
+    ['explicit exit', 'process.exit(4);', /hook exited with status 4/],
+  ]) {
+    const failed = invoke('user_prompt_submit', source);
+    assert.equal(failed.status, 0, `${label}: ${failed.stderr}`);
+    assert.match(failed.stderr, message, label);
+    const viaChild = invoke('user_prompt_submit', source, { extra: { TOOLSHOP_HOOKS_CHILD_PROCESS: '1' } });
+    assert.equal(viaChild.status, 0, `${label} (child process): ${viaChild.stderr}`);
+    if (label.startsWith('non-zero') || label.startsWith('explicit')) assert.match(viaChild.stderr, message, `${label} (child process)`);
   }
-  assert.match(invoke('user_prompt_submit', 'throw new Error("boom");').stderr, /hook failed: boom/);
 
-  // desktop_delivery stays out of the way on PostToolUse until a title is ready, then runs in a child process
-  // that receives the original input.
-  const postTool = (session) => JSON.stringify({ hook_event_name: 'PostToolUse', session_id: session, tool_name: 'Bash' });
-  const idle = invoke('desktop_delivery', probe, { input: postTool('never-armed') });
-  assert.equal(idle.status, 0, idle.stderr);
-  assert.equal(idle.stdout, '', 'no state: the hook is not started');
-  armSession({ source: 'startup', session_id: 'ready-session' }, env);
-  writeState('ready-session', { status: 'ready', delivery: 'desktop', title: 'A title', model: 'test' }, env);
-  const active = invoke('desktop_delivery', probe, { input: postTool('ready-session') });
-  assert.equal(active.status, 0, active.stderr);
-  const activeSeen = JSON.parse(active.stdout);
-  assert.notEqual(activeSeen.pid, active.pid);
-  assert.equal(JSON.parse(activeSeen.stdin).session_id, 'ready-session');
-  const stop = invoke('desktop_delivery', probe, { input: JSON.stringify({ hook_event_name: 'Stop', session_id: 'never-armed' }) });
-  assert.ok(stop.stdout.includes('"pid"'), 'Stop always runs the hook');
+  const missing = invoke('no_such_hook', '');
+  assert.equal(missing.status, 0);
+  assert.match(missing.stderr, /unknown hook: no_such_hook/);
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
 }
