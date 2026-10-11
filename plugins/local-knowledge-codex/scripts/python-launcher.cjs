@@ -58,9 +58,10 @@ function pythonCandidates(environment = process.env, platform = process.platform
   const directories = platform === 'darwin'
     ? ['/opt/homebrew/bin', '/usr/local/bin', '/Library/Frameworks/Python.framework/Versions/Current/bin']
     : platform === 'win32' ? [] : ['/usr/local/bin', '/usr/bin'];
+// These directories are always POSIX paths, so join with path.posix even when the platform is simulated on Windows.
   const absolute = [];
   for (const directory of directories) {
-    for (const name of ['python3', ...VERSIONED_NAMES]) absolute.push(path.join(directory, name));
+    for (const name of ['python3', ...VERSIONED_NAMES]) absolute.push(path.posix.join(directory, name));
   }
   absolute.push(...uvManagedPythons(environment, platform));
   return [...names, ...absolute.map((command) => ({ command, args: [] }))];

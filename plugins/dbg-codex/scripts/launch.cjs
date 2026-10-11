@@ -27,10 +27,11 @@ function pythonCandidates(env = process.env, platform = process.platform) {
   if (platform === 'win32') candidates.push(['py', '-3']);
   else {
     for (const name of VERSIONED_PYTHONS) candidates.push([name]);
+// These directories are always POSIX paths, so join with path.posix even when the platform is simulated on Windows.
     const dirs = platform === 'darwin'
       ? ['/opt/homebrew/bin', '/usr/local/bin', '/Library/Frameworks/Python.framework/Versions/Current/bin']
       : ['/usr/local/bin', '/usr/bin'];
-    for (const dir of dirs) for (const name of ['python3', ...VERSIONED_PYTHONS]) candidates.push([path.join(dir, name)]);
+    for (const dir of dirs) for (const name of ['python3', ...VERSIONED_PYTHONS]) candidates.push([path.posix.join(dir, name)]);
   }
   return candidates;
 }

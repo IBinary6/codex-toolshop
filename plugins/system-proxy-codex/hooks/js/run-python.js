@@ -73,9 +73,10 @@ function pythonCandidates(options = {}) {
     const directories = platform === 'darwin'
       ? ['/opt/homebrew/bin', '/usr/local/bin', '/Library/Frameworks/Python.framework/Versions/Current/bin']
       : ['/usr/local/bin', '/usr/bin'];
+// These directories are always POSIX paths, so join with path.posix even when the platform is simulated on Windows.
     for (const directory of directories) {
       for (const name of ['python3', ...VERSIONED_NAMES]) {
-        candidates.push({ command: path.join(directory, name), prefix: [], optional: true });
+        candidates.push({ command: path.posix.join(directory, name), prefix: [], optional: true });
       }
     }
   }
