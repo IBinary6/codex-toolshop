@@ -9,6 +9,7 @@ const {
   ensureClangFormat,
   detectClangFormat,
   markerPath,
+  npmInvocation,
   spawnPrewarm,
 } = require('../lib/ensure_deps.js');
 
@@ -213,6 +214,29 @@ const pluginRoot = path.join(__dirname, '..', '..', '..');
   assert.ok(path.isAbsolute(p), 'markerPath returns an absolute path');
   assert.ok(p.endsWith('.iconv-install-failed'), 'markerPath retains the filename');
   console.log('ensure_deps: markerPath PASS');
+}
+
+// ---- npmInvocation: never spawn npm.cmd directly (Node rejects .cmd without a shell). ----
+{
+  const args = ['install', 'iconv-lite@0.6.3', '--prefix', 'C:\\Users\\A B\\data & more'];
+  const posix = npmInvocation(args, { platform: 'darwin', env: {} });
+  assert.strictEqual(posix.cmd, 'npm', 'POSIX runs npm directly');
+  assert.deepStrictEqual(posix.args, args, 'POSIX keeps arguments unchanged');
+
+  const nodeExe = 'C:\\Program Files\\nodejs\\node.exe';
+  const direct = npmInvocation(args, { platform: 'win32', env: {}, execPath: nodeExe, exists: () => true });
+  assert.strictEqual(direct.cmd, nodeExe, 'Windows prefers node + npm-cli.js');
+  assert.ok(/npm-cli\.js$/.test(direct.args[0]), 'Windows passes npm-cli.js as the first argument');
+  assert.deepStrictEqual(direct.args.slice(1), args, 'Windows forwards npm arguments');
+  assert.strictEqual(direct.windowsVerbatimArguments, false);
+
+  const shim = npmInvocation(args, { platform: 'win32', env: { ComSpec: 'C:\\Windows\\cmd.exe' }, execPath: nodeExe, exists: () => false });
+  assert.strictEqual(shim.cmd, 'C:\\Windows\\cmd.exe', 'Fallback launches through cmd.exe, never npm.cmd');
+  assert.ok(!/\.cmd$/i.test(shim.cmd), 'Fallback command is not a batch file');
+  assert.strictEqual(shim.windowsVerbatimArguments, true);
+  assert.strictEqual(shim.env.CPP_STYLE_NPM_ARG_3, args[3], 'Paths travel through environment variables');
+  assert.ok(!shim.args.join(' ').includes('A B'), 'Raw paths never reach the cmd.exe command line');
+  console.log('ensure_deps: npmInvocation cross-platform PASS');
 }
 
 // ---- spawnPrewarm: detached background launch does not block or throw. ----
