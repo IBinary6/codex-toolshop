@@ -41,6 +41,8 @@ The marketplace primarily targets Windows and macOS. Dbg and tgrep also provide 
 | macOS | zsh, bash, `python3`, common Apple Silicon toolchains | GitHub Actions `macos-latest` |
 | Linux (Dbg, tgrep) | bash; Dbg requires Python and applicable debugging tools, while tgrep uses a pinned release | Plugin-specific GitHub Actions `ubuntu-latest` |
 
+Plugins that need Python locate it themselves, so a system Python that is too old (stock macOS ships 3.9) does not block them. Local Knowledge (3.11+) and System Proxy (3.10+) try `python3` and `python`, versioned names such as `python3.12`, Homebrew and python.org locations, and uv-managed interpreters, plus `py -3` on Windows. Choose one explicitly with `LOCAL_KNOWLEDGE_PYTHON` or `SYSTEM_PROXY_PYTHON`. Dbg falls back to an isolated uv-managed Python 3.12.
+
 `codemap-boost-codex` also requires Git and either `uv` or Python with `venv` support. For `cpp-style-enforcer-codex`, `clang-format` and `iconv-lite` are optional. Research plugins require Node.js 20 or later; Fetch also needs `uvx` on first actual use. Other research tools do not start Python services.
 
 ## Plugin catalog
@@ -259,6 +261,9 @@ codex plugin list
 - CodeMap does not run: check `CODEMAP_BOOST_DISABLE_GRAPH=1` and `CODEMAP_BOOST_DISABLE_BOOTSTRAP=1`.
 - tgrep is unready or misses a new file: use `--fresh` and inspect wrapper `status`/`doctor`. Initial download, indexing, and change reconciliation are different phases. Trust hooks through the host UI; the plugin does not grant itself trust.
 - C++ formatting does not run: check `clang-format`. Missing formatters skip formatting while cpplint and other checks continue.
+- A hook misbehaves or you want to compare behavior: hooks run inside their runner process, which saves one Node start-up (about 40 ms) per hook. Set `TOOLSHOP_HOOKS_CHILD_PROCESS=1` to run every hook in its own Node process, as earlier versions did.
+- CodeMap Boost leaves its section in `~/.codex/AGENTS.md` after removal: Codex runs no hook when a plugin is removed, so run `node "<plugin-root>/scripts/setup.cjs" --uninstall` before removing it, or delete the text between `<!-- codemap-boost-codex:start -->` and `<!-- codemap-boost-codex:end -->`. A block left behind tells the agent to ignore it.
 - Agent Dispatch is inactive: open a new task, inspect `/hooks`, and trust the current hook hash.
 - Automatic naming does not run: enable `conversation-namer-codex`, open a new task, inspect `/hooks`, and trust the current hook hash. Hook upgrades require another new task.
+- Local Knowledge reports that Python 3.11+ is missing: install one (for example `brew install python@3.12` or `uv python install 3.12`) or point `LOCAL_KNOWLEDGE_PYTHON` at it. Detection allows each candidate 3 seconds and remembers the interpreter it verified.
 - Local Knowledge cannot find history: run `local-knowledge-setup`, check `~/.bugdb/bugs.db` and overrides from `LOCAL_KNOWLEDGE_HOME` or legacy `BUGDB_HOME`. Use `local-knowledge-migrate` for data still stored elsewhere.
