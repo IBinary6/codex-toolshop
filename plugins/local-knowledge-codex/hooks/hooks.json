@@ -1,0 +1,42 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" session_start",
+            "timeout": 10,
+            "statusMessage": "Loading local knowledge"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" post_tool_use",
+            "timeout": 5,
+            "statusMessage": "Checking local knowledge for a known solution"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" user_prompt_submit",
+            "timeout": 5,
+            "statusMessage": "Recalling relevant local knowledge"
+          }
+        ]
+      }
+    ]
+  }
+}

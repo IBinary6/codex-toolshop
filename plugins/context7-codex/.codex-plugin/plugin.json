@@ -1,0 +1,27 @@
+{
+  "name": "context7-codex",
+  "version": "0.1.2",
+  "description": "Look up Context7 library documentation and code examples on demand.",
+  "author": {
+    "name": "IBinary6"
+  },
+  "keywords": [
+    "context7",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Context7",
+    "shortDescription": "Look up Context7 library documentation and code examples on demand.",
+    "longDescription": "Skill and per-call command entry points, with no persistent MCP; enable independently on the plugin page.",
+    "developerName": "IBinary6",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Use Context7."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

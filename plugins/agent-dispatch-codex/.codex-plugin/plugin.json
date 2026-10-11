@@ -1,0 +1,40 @@
+{
+  "name": "agent-dispatch-codex",
+  "version": "0.1.26",
+  "description": "General-purpose Codex task routing across product, design, QA, research, operations, and software development, with configurable execution and independent review.",
+  "author": {
+    "name": "IBinary6"
+  },
+  "homepage": "https://github.com/IBinary6/codex-toolshop/tree/main/plugins/agent-dispatch-codex",
+  "repository": "https://github.com/IBinary6/codex-toolshop",
+  "keywords": [
+    "agent",
+    "dispatch",
+    "subagent",
+    "delegation",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Agent Dispatch",
+    "shortDescription": "Coordinate research, creation, verification, and review.",
+    "longDescription": "Routes bounded work by its purpose and acceptance criteria across product, design, QA, research, operations, and software development. Prefers host-supported GPT-6.1 Sol high for code and ordinary review, with compatible Sol fallbacks, Astra reserved for critical work, and Luna max for exploration, logs, evidence, and established test execution. Generates custom agents in Git projects; elsewhere uses host-available roles or the primary agent. Selects by ambiguity, constraints, and total completion cost, validates the actual deliverable, and independently reviews substantive work. Preserves user authorization, explicit settings, serial primary-agent Git, quiet tool hooks, and bounded concurrency.",
+    "developerName": "IBinary6",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Show the effective Agent Dispatch policy for this project.",
+      "Configure which commands Agent Dispatch treats as lightweight.",
+      "Explain how Agent Dispatch separates Sol code implementation from Luna evidence work and keeps review independent.",
+      "Configure execution candidates, QA verification, and independent review for product, design, research, or development work.",
+      "Explain the primary-agent-only serial Git policy."
+    ],
+    "brandColor": "#7C3AED",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/logo.png",
+    "logoDark": "./assets/logo.png"
+  }
+}

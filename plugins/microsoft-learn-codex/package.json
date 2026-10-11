@@ -1,0 +1,14 @@
+{
+  "name": "microsoft-learn-codex",
+  "version": "0.1.2",
+  "private": true,
+  "description": "Look up official Microsoft Learn documentation and code examples on demand.",
+  "researchToolsProvider": "microsoft",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.cjs",
+    "doctor": "node scripts/setup.cjs --doctor"
+  }
+}

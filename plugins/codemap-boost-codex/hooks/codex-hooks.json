@@ -1,0 +1,76 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" session_start",
+            "timeout": 600,
+            "statusMessage": "Preparing CodeMap guidance"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|apply_patch|Bash|mcp__.*(?:write|edit|create|replace|insert)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" post_tool_use",
+            "timeout": 600,
+            "statusMessage": "Deferring CodeMap refresh until graph access"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" pre_code_search",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__(?:code_review_graph|code-review-graph|codegraph|graphify)__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" pre_graph_tool",
+            "timeout": 600,
+            "statusMessage": "Waiting for CodeMap refresh before graph access"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" user_prompt_submit",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" subagent_start",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

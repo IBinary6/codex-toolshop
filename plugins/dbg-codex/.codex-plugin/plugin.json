@@ -1,0 +1,37 @@
+{
+  "name": "dbg-codex",
+  "version": "0.1.4",
+  "description": "Script-driven deployment, update and repair of debugger extensions and their MCP servers.",
+  "author": {
+    "name": "IBinary6",
+    "url": "https://github.com/IBinary6"
+  },
+  "homepage": "https://github.com/IBinary6/codex-toolshop/tree/main/plugins/dbg-codex",
+  "repository": "https://github.com/IBinary6/codex-toolshop",
+  "keywords": [
+    "debugger",
+    "mcp",
+    "x64dbg",
+    "ghidra",
+    "windbg",
+    "ida",
+    "doctor"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Dbg",
+    "shortDescription": "One doctor deploys and maintains debugger extensions and MCP servers.",
+    "longDescription": "Cross-platform scripts discover debugger installations through Windows Scoop, macOS/Linux Homebrew, and manual paths, then download, deploy, update, and repair matching extensions and MCP servers. Incompatible versions are explicitly skipped. First load and explicit doctor use the same workflow without AI installation decisions.",
+    "developerName": "IBinary6",
+    "category": "Coding",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/IBinary6/codex-toolshop",
+    "defaultPrompt": [
+      "Run Dbg doctor to detect, update, and repair my debugger extensions and MCP servers."
+    ]
+  }
+}

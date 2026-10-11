@@ -1,0 +1,88 @@
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const { MCP_STARTUP_TIMEOUT_SEC } = require('../hooks/js/lib/bootstrap');
+const { MINIMUM_NODE_MAJOR } = require('../hooks/js/lib/runtime');
+
+const pluginRoot = path.resolve(__dirname, '..');
+
+function findRepoRoot(start) {
+  let dir = path.resolve(start);
+  let prev = null;
+  while (dir && dir !== prev) {
+    if (fs.existsSync(path.join(dir, '.agents', 'plugins', 'marketplace.json'))) return dir;
+    prev = dir;
+    dir = path.dirname(dir);
+  }
+  return null;
+}
+
+function readJson(file, label) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (error) {
+    throw new Error(`${label} is not valid JSON: ${error.message}`);
+  }
+}
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+function main() {
+  const plugin = readJson(path.join(pluginRoot, '.codex-plugin', 'plugin.json'), 'plugin.json');
+  const packageJson = readJson(path.join(pluginRoot, 'package.json'), 'package.json');
+  assert(plugin.name === 'codemap-boost-codex', 'plugin name is wrong');
+  const releaseVersion = plugin.version.split('+')[0];
+  assert(releaseVersion === packageJson.version, 'package.json must match the plugin release version');
+  assert(/^\d+\.\d+\.\d+(?:\+codex\.[a-z0-9-]+)?$/.test(plugin.version), 'plugin version must be semver with optional Codex cache metadata');
+  assert(packageJson.engines && packageJson.engines.node === `>=${MINIMUM_NODE_MAJOR}.0.0`, 'package must declare the supported Node runtime');
+
+  const repoRoot = findRepoRoot(pluginRoot);
+  if (repoRoot) {
+    const marketplace = readJson(path.join(repoRoot, '.agents', 'plugins', 'marketplace.json'), 'marketplace');
+    assert(marketplace.name === 'codex-toolshop', 'marketplace name must be codex-toolshop');
+    const entry = marketplace.plugins.find((item) => item.name === 'codemap-boost-codex');
+    assert(entry, 'marketplace must include codemap-boost-codex');
+    assert(entry.version === releaseVersion, 'marketplace must match the plugin release version');
+    assert(entry.source && entry.source.path === './plugins/codemap-boost-codex', 'marketplace source path is wrong');
+  }
+
+  assert(!Object.prototype.hasOwnProperty.call(plugin, 'hooks'), 'plugin.json must omit unsupported hooks field');
+  assert(plugin.skills === './skills/', 'plugin must declare skills directory');
+  assert(plugin.mcpServers === './.mcp.json', 'plugin must declare bundled MCP config');
+
+  const mcp = readJson(path.join(pluginRoot, '.mcp.json'), 'MCP manifest');
+  const crgServer = mcp.mcpServers && mcp.mcpServers['code-review-graph'];
+  assert(crgServer, 'MCP manifest must include code-review-graph');
+  assert(crgServer.command === 'node', 'bundled MCP must use the cross-platform Node launcher');
+  assert(JSON.stringify(crgServer.args) === JSON.stringify(['scripts/mcp-server.cjs']), 'bundled MCP launcher path is wrong');
+  assert(crgServer.cwd === '.', 'bundled MCP cwd must resolve from the plugin root');
+  assert(crgServer.startup_timeout_sec === MCP_STARTUP_TIMEOUT_SEC, 'bundled MCP startup timeout must match bootstrap budget');
+  assert(crgServer.tool_timeout_sec === MCP_STARTUP_TIMEOUT_SEC, 'on-demand CRG calls must include the cold-start budget');
+  const serenaServer = mcp.mcpServers.serena;
+  assert(serenaServer && serenaServer.type === 'stdio', 'MCP manifest must include Serena stdio');
+  assert(serenaServer.command === 'node', 'Serena must use the cross-platform Node launcher');
+  assert(JSON.stringify(serenaServer.args) === JSON.stringify(['scripts/serena-server.cjs']), 'Serena launcher path is wrong');
+  assert(serenaServer.cwd === '.', 'Serena cwd must locate the plugin launcher');
+  assert(serenaServer.startup_timeout_sec === MCP_STARTUP_TIMEOUT_SEC, 'Serena startup timeout must match bootstrap budget');
+  assert(serenaServer.tool_timeout_sec === MCP_STARTUP_TIMEOUT_SEC, 'Serena project preparation must have the bootstrap budget');
+
+  const hooks = readJson(path.join(pluginRoot, 'hooks', 'hooks.json'), 'hooks manifest');
+  const legacyHooks = readJson(path.join(pluginRoot, 'hooks', 'codex-hooks.json'), 'legacy hooks manifest');
+  assert(JSON.stringify(legacyHooks) === JSON.stringify(hooks), 'legacy codex-hooks.json must match hooks/hooks.json');
+  assert(Object.keys(hooks).length === 1 && Object.prototype.hasOwnProperty.call(hooks, 'hooks'), 'hooks manifest must only contain top-level hooks key');
+  for (const eventName of ['SessionStart', 'PostToolUse', 'PreToolUse', 'UserPromptSubmit', 'SubagentStart']) {
+    assert(hooks.hooks[eventName], `${eventName} hook missing`);
+  }
+  const text = JSON.stringify(hooks);
+  assert(text.includes('${PLUGIN_ROOT}'), 'hook commands must use ${PLUGIN_ROOT}');
+  assert(!text.includes('async'), 'Codex skips async command hooks; manifest must not contain async');
+  assert(!/[A-Za-z]:[\\/]/.test(text), 'hook commands must not contain absolute Windows paths');
+  assert(!text.includes('/Users/') && !text.includes('/home/'), 'hook commands must not contain user absolute paths');
+
+  console.log('check-plugin PASS');
+}
+
+main();

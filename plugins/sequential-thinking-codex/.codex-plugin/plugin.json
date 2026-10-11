@@ -1,0 +1,28 @@
+{
+  "name": "sequential-thinking-codex",
+  "version": "0.1.2",
+  "description": "Use the official core for stepwise analysis with revisions and branches.",
+  "author": {
+    "name": "IBinary6"
+  },
+  "keywords": [
+    "sequentialthinking",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Sequential Thinking",
+    "shortDescription": "Use the official core for stepwise analysis with revisions and branches.",
+    "longDescription": "Self-contained on-demand MCP plugin; enable independently on the plugin page with entirely local tool discovery.",
+    "developerName": "IBinary6",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Use Sequential Thinking."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

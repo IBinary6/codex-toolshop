@@ -1,0 +1,35 @@
+{
+  "name": "cpp-style-enforcer-codex",
+  "version": "0.1.13",
+  "description": "C++ code style enforcement for Codex with tracked-file encoding preservation and staged-content commit checks.",
+  "author": {
+    "name": "IBinary6"
+  },
+  "keywords": [
+    "cpp",
+    "google-style",
+    "clang-format",
+    "cpplint",
+    "hooks",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "C++ Style Enforcer",
+    "shortDescription": "Enforce team C++ style automatically in Codex.",
+    "longDescription": "Records C++ edits, then batches style checks at turn completion. Enforces CRLF for Visual Studio source projects, supports configurable endings elsewhere, and repairs missing final newlines before cpplint while preserving byte encoding. Commit-time cpplint checks staged Git content without modifying the working tree or index.",
+    "developerName": "IBinary6",
+    "category": "Coding",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Configure C++ style enforcement for this project."
+    ],
+    "brandColor": "#2563EB",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/logo.png",
+    "logoDark": "./assets/logo.png"
+  }
+}

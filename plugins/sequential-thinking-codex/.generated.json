@@ -1,0 +1,31 @@
+{
+  "generator": "research-tools-codex",
+  "engineVersion": "0.1.4",
+  "mode": "mcp",
+  "files": {
+    "scripts/config.cjs": "a0f738d797b1c91053cfe6b524e12d5e3acf22e502a3b375b775a22fb0f12c7f",
+    "scripts/setup.cjs": "c5f1d4d54ace47db64203dd31a66fcfadcb3da40f42df121bc00a4d123a48ab4",
+    "scripts/child-transport.cjs": "97f292afd684d8c2c15be4f98429bdebde4039aa42deeab10990400995ffde40",
+    "scripts/gateway.cjs": "ac23621c00c660a111b161505a81b4e598a78566404846a6cd7394c24dd4d96d",
+    "scripts/server.cjs": "d08680c0476ef10f37de41558b4f0415af865b8c13eef5229683fc81c6e57e2f",
+    "scripts/sequential-core.cjs": "d2c97e70c7c63239dd26eabcfc1f1effdca4ce2b4804e5b60b844db1cf9bbee6",
+    "vendor/sequential-thinking/lib.js": "65f26d6ec6b20924c296198917609180463ec4a1bf1eba9d099c9d2b6d563442",
+    "vendor/sequential-thinking/chalk/package.json": "ef029c254479723c952a24c0d8d758378bd8ddf031f5bd6f027f65e1a3d030f3",
+    "vendor/sequential-thinking/chalk/license": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3",
+    "vendor/sequential-thinking/chalk/source/index.js": "64b22b1c442e6d460069807b521bf0a84e112c00c2b4163bc59deab20a9292db",
+    "vendor/sequential-thinking/chalk/source/utilities.js": "698ce3cb21b00b570631742d3a9e168de31df74b3a88220c4bcf18ac30fd00cd",
+    "vendor/sequential-thinking/chalk/source/vendor/ansi-styles/index.js": "92efdc3e5203d02d1710ff60dea3965066f97a77c0feaaa919b2693c989b7ec1",
+    "vendor/sequential-thinking/chalk/source/vendor/supports-color/index.js": "e82368a5f05d145e33de6ae3464056511664b620735ef58d1800a7bcda6691e5",
+    "vendor/sequential-thinking/chalk/source/vendor/supports-color/browser.js": "af136d242c06422a0004775bdf11d9e25a05b1ec54a6932315dc016d22d8b440",
+    "vendor/sequential-thinking/package.json": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
+    "vendor/sequential-thinking/provenance.json": "ab85044926b98225c758ffa735a17b13bbf48b6f8c515be787ecb849b61d4c41",
+    "vendor/sequential-thinking/LICENSE": "0382b0057770ca05e9c350a50aa3b1c1fea84da0bc81d723bf00b9aa841be58a",
+    "config.example.json": "4b8894d57dfa621e534ef4eb25263e8f00254cbcb4327f1f98796314ac279dde",
+    "scripts/catalog.json": "c63737470657a9ef9894e9aaf06e3dbb95241e1b94279cea88c6a6cb33ec6047",
+    "package.json": "1434cf5721f62e9052f2294bc3265e088835810669e15ca10c1f6daa74d54276",
+    ".mcp.json": "ee21c3ca75070dff6fa62ec410440994f0a9a15917321501580684fd5532abff",
+    ".codex-plugin/plugin.json": "a6852c42e9c82f9f62ea0212429d9151f4f9625b81a69b502cab9d951742c013",
+    "skills/sequential-thinking-codex/SKILL.md": "52862e8bd6c3f761efb1e938f0424ef0e9f685f36a625ddc2f6650379764bb5f",
+    "README.md": "389467ffb50c65965656899b0c02904e1358e07a987616e21b0c4514deb660c3"
+  }
+}

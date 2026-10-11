@@ -1,0 +1,176 @@
+'use strict';
+
+const assert = require('node:assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawnSync } = require('child_process');
+const { crgRuntimePaths } = require('../lib/bootstrap');
+
+const pluginRoot = path.join(__dirname, '..', '..', '..');
+const setup = path.join(pluginRoot, 'scripts', 'setup.cjs');
+
+function mkdirp(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+}
+
+function writeFakeCrg(binDir) {
+  mkdirp(binDir);
+  if (process.platform === 'win32') {
+    const file = path.join(binDir, 'code-review-graph.cmd');
+    fs.writeFileSync(file, [
+      '@echo off',
+      'echo %*>>"%CODEMAP_TEST_LOG%"',
+      'exit /b 0',
+      '',
+    ].join('\r\n'), 'utf8');
+    return file;
+  }
+  const file = path.join(binDir, 'code-review-graph');
+  fs.writeFileSync(file, [
+    '#!/bin/sh',
+    'echo "$@" >> "$CODEMAP_TEST_LOG"',
+    'exit 0',
+    '',
+  ].join('\n'), 'utf8');
+  fs.chmodSync(file, 0o755);
+  return file;
+}
+
+function writeFakeCodex(binDir) {
+  mkdirp(binDir);
+  if (process.platform === 'win32') {
+    const file = path.join(binDir, 'codex.cmd');
+    fs.writeFileSync(file, [
+      '@echo off',
+      'echo %*>>"%CODEMAP_TEST_MCP_LOG%"',
+      'if "%1"=="--version" echo codex-cli test & exit /b 0',
+      'if "%2"=="get" echo {"name":"code-review-graph","enabled":true,"transport":{"type":"stdio","command":"%CODEMAP_TEST_CRG_JSON_COMMAND%","args":["serve"],"cwd":null}} & exit /b 0',
+      'if "%2"=="remove" exit /b 0',
+      'exit /b 1',
+      '',
+    ].join('\r\n'), 'utf8');
+    return file;
+  }
+  const file = path.join(binDir, 'codex');
+  fs.writeFileSync(file, [
+    '#!/bin/sh',
+    'echo "$@" >> "$CODEMAP_TEST_MCP_LOG"',
+    'if [ "$1" = "--version" ]; then echo "codex-cli test"; exit 0; fi',
+    'if [ "$2" = "get" ]; then',
+    '  printf \'{"name":"code-review-graph","enabled":true,"transport":{"type":"stdio","command":"%s","args":["serve"],"cwd":null}}\\n\' "$CODEMAP_TEST_CRG_COMMAND"',
+    '  exit 0',
+    'fi',
+    'if [ "$2" = "remove" ]; then exit 0; fi',
+    'exit 1',
+    '',
+  ].join('\n'), 'utf8');
+  fs.chmodSync(file, 0o755);
+  return file;
+}
+
+function sh(args, cwd) {
+  const result = spawnSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    windowsHide: process.platform === 'win32',
+  });
+  assert.strictEqual(result.status, 0, result.stderr);
+}
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-setup-'));
+try {
+  const repo = path.join(tmp, 'repo');
+  const home = path.join(tmp, 'codex-home');
+  const data = path.join(tmp, 'plugin-data');
+  const bin = path.join(tmp, 'bin');
+  const log = path.join(tmp, 'crg.log');
+  const mcpLog = path.join(tmp, 'mcp.log');
+  mkdirp(repo);
+  sh(['init'], repo);
+  writeFakeCrg(bin);
+  writeFakeCodex(bin);
+  mkdirp(data);
+  const managed = crgRuntimePaths({ runtimeDir: path.join(data, 'crg-runtime') });
+  const legacyManagedCommand = path.join(
+    home,
+    'plugins',
+    'data',
+    'codemap-boost-codex-codex-toolshop',
+    'crg-runtime',
+    process.platform === 'win32' ? 'Scripts' : 'bin',
+    process.platform === 'win32' ? 'code-review-graph.exe' : 'code-review-graph'
+  );
+  mkdirp(path.dirname(managed.command));
+  fs.writeFileSync(managed.command, '', 'utf8');
+  fs.writeFileSync(path.join(data, '.codemap-bootstrap-failed'), 'old-version failure state\n', 'utf8');
+
+  const result = spawnSync(process.execPath, [setup, '--skip-install'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CODEX_HOME: home,
+      PLUGIN_DATA: data,
+      CODEMAP_TEST_LOG: log,
+      CODEMAP_TEST_MCP_LOG: mcpLog,
+      CODEMAP_TEST_CRG_COMMAND: legacyManagedCommand,
+      CODEMAP_TEST_CRG_JSON_COMMAND: legacyManagedCommand.replace(/\\/g, '\\\\'),
+      CODEMAP_BOOST_ASSUME_CRG: '1',
+      PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
+    },
+    windowsHide: process.platform === 'win32',
+  });
+
+  assert.strictEqual(result.status, 0, result.stderr);
+  assert.ok(result.stdout.includes(managed.command), 'setup reports the plugin-owned runtime path');
+  assert.ok(fs.existsSync(path.join(data, '.codemap-boost-enabled')), 'setup writes enable marker');
+  assert.ok(!fs.existsSync(path.join(data, '.codemap-bootstrap-failed')), 'successful setup clears a stale bootstrap failure');
+  assert.ok(fs.readFileSync(path.join(home, 'AGENTS.md'), 'utf8').includes('codemap-boost-codex:start'), 'setup writes AGENTS block');
+  assert.ok(fs.readFileSync(path.join(repo, '.gitignore'), 'utf8').includes('.code-review-graph/'), 'setup updates project gitignore');
+  const mcpCalls = fs.readFileSync(mcpLog, 'utf8');
+  assert.ok(mcpCalls.includes('mcp get code-review-graph --json'), 'setup checks the existing MCP config');
+  const normalizedMcpCalls = mcpCalls.replace(/"/g, '');
+  assert.ok(normalizedMcpCalls.includes('mcp remove code-review-graph'), 'setup removes the legacy global override');
+  assert.doesNotMatch(normalizedMcpCalls, /mcp add code-review-graph/, 'setup relies on the plugin-bundled MCP instead of creating global config');
+  assert.ok(!fs.existsSync(log), 'setup without --build does not start graph build');
+
+  const noCliHome = path.join(tmp, 'no-cli-home');
+  const noCliData = path.join(tmp, 'no-cli-data');
+  const noCli = spawnSync(process.execPath, [setup, '--skip-install'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CODEX_HOME: noCliHome,
+      PLUGIN_DATA: noCliData,
+      CODEMAP_BOOST_ASSUME_CRG: '1',
+      CODEMAP_BOOST_CODEX_CLI: path.join(tmp, 'missing-codex'),
+      PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
+    },
+    windowsHide: process.platform === 'win32',
+  });
+  assert.strictEqual(noCli.status, 0, noCli.stderr);
+  assert.match(noCli.stdout, /legacy global MCP overrides cannot be checked/);
+  assert.ok(fs.existsSync(path.join(noCliData, '.codemap-boost-enabled')), 'setup enables native MCP flow without a standalone Codex CLI');
+  assert.ok(fs.readFileSync(path.join(noCliHome, 'AGENTS.md'), 'utf8').includes('codemap-boost-codex:start'));
+
+  const brokenData = path.join(tmp, 'broken-plugin-data');
+  const broken = spawnSync(process.execPath, [setup, '--skip-install'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CODEX_HOME: home,
+      PLUGIN_DATA: brokenData,
+      PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
+    },
+    windowsHide: process.platform === 'win32',
+  });
+  assert.notStrictEqual(broken.status, 0, 'skip-install rejects a missing managed runtime');
+  assert.ok(fs.existsSync(path.join(brokenData, '.crg-install-failed')), 'skip-install failure writes a diagnostic marker');
+
+  console.log('setup.test.js PASS');
+} finally {
+  fs.rmSync(tmp, { recursive: true, force: true });
+}

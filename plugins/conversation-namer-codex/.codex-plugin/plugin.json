@@ -1,0 +1,34 @@
+{
+  "name": "conversation-namer-codex",
+  "version": "0.1.8",
+  "description": "Automatically name new Codex conversations from the first user message with a lightweight model.",
+  "author": {
+    "name": "IBinary6",
+    "url": "https://github.com/IBinary6"
+  },
+  "homepage": "https://github.com/IBinary6/codex-toolshop/tree/main/plugins/conversation-namer-codex",
+  "repository": "https://github.com/IBinary6/codex-toolshop",
+  "keywords": [
+    "conversation",
+    "title",
+    "naming",
+    "codex"
+  ],
+  "interface": {
+    "displayName": "Conversation Namer",
+    "shortDescription": "Give Codex conversations consistent, date-prefixed titles.",
+    "longDescription": "Automatically writes MMDD\uff5cTYPE\uff5cTopic titles from the first user message using a lightweight background model. Runs through hooks without skills or confirmation and only names the newly started task.",
+    "developerName": "IBinary6",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+        "Explain Conversation Namer's automatic naming rules."
+    ],
+    "brandColor": "#0F766E",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/logo.svg"
+  }
+}

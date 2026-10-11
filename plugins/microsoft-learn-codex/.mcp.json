@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "microsoft": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "scripts/server.cjs",
+        "--provider",
+        "microsoft"
+      ],
+      "cwd": ".",
+      "startup_timeout_sec": 30,
+      "tool_timeout_sec": 240
+    }
+  }
+}

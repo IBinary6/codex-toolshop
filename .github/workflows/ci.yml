@@ -1,0 +1,159 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    name: Validate on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+          - ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate agent-dispatch-codex
+        working-directory: plugins/agent-dispatch-codex
+        run: npm test
+
+      - name: Validate cpp-style-enforcer-codex
+        working-directory: plugins/cpp-style-enforcer-codex
+        run: npm test
+
+      - name: Prepare process ownership regression runtime
+        run: python -m pip install psutil==7.0.0
+
+      - name: Validate codemap-boost-codex
+        working-directory: plugins/codemap-boost-codex
+        timeout-minutes: 5
+        run: npm test
+
+      - name: Validate independent research plugins
+        working-directory: plugins/research-tools-codex
+        run: npm test
+
+      - name: Prepare ripgrep for tgrep CLI tests
+        shell: bash
+        run: |
+          install_ripgrep() {
+            case "$RUNNER_OS" in
+              Windows) choco install ripgrep --yes --no-progress ;;
+              macOS) brew install ripgrep ;;
+              Linux) sudo apt-get update && sudo apt-get install --yes ripgrep ;;
+              *) return 1 ;;
+            esac
+          }
+          if ! command -v rg >/dev/null 2>&1; then
+            for attempt in 1 2 3; do
+              if install_ripgrep && command -v rg >/dev/null 2>&1; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "ripgrep installation failed after 3 attempts" >&2
+                exit 1
+              fi
+              sleep "$((attempt * 5))"
+            done
+          fi
+          rg --version
+
+      - name: Validate tgrep-search-codex
+        working-directory: plugins/tgrep-search-codex
+        run: npm test
+
+      - name: Validate local-knowledge-codex
+        working-directory: plugins/local-knowledge-codex
+        run: npm test
+
+      - name: Validate conversation-namer-codex
+        working-directory: plugins/conversation-namer-codex
+        run: npm test
+
+      - name: Validate system-proxy-codex
+        working-directory: plugins/system-proxy-codex
+        run: npm test
+
+  tgrep-runtime:
+    name: tgrep runtime on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify pinned release and isolated worktree search lifecycle
+        working-directory: plugins/tgrep-search-codex
+        run: npm run test:smoke
+      - name: Verify official release update and candidate service contract
+        working-directory: plugins/tgrep-search-codex
+        env:
+          TGREP_GITHUB_TOKEN: ${{ github.token }}
+        run: npm run test:updates
+
+  serena-runtime:
+    name: Serena runtime on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - name: Validate official Serena session configuration
+        working-directory: plugins/codemap-boost-codex
+        run: npm run test:serena-config
+      - name: Verify isolated Serena MCP, C++ references and parameter refresh
+        working-directory: plugins/codemap-boost-codex
+        run: npm run test:serena-smoke
+
+  codemap-runtime:
+    name: CodeMap CRG ${{ matrix.crg }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        crg: ["2.3.7", "2.3.8", "2.3.9"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install CodeMap integration test runtime
+        run: python -m pip install "code-review-graph[communities,enrichment]==${{ matrix.crg }}"
+      - name: Verify refresh adapter runtime
+        run: python -I -B plugins/codemap-boost-codex/scripts/refresh_graph.py --check-runtime
+      - name: Verify CodeMap against real CRG
+        run: python -I -B plugins/codemap-boost-codex/scripts/test_refresh_graph.py

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Conversation Namer logo</title>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#134E4A"/>
+      <stop offset="1" stop-color="#0D9488"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#background)"/>
+  <path d="M116 124h280c32 0 58 26 58 58v166c0 32-26 58-58 58H250l-106 76v-76h-28c-32 0-58-26-58-58V182c0-32 26-58 58-58Z" fill="#CCFBF1"/>
+  <path d="M148 218h216M148 292h142" fill="none" stroke="#0F766E" stroke-width="38" stroke-linecap="round"/>
+</svg>

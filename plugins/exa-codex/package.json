@@ -1,0 +1,16 @@
+{
+  "name": "exa-codex",
+  "version": "0.1.2",
+  "private": true,
+  "description": "Search for sources and read web pages with Exa on demand.",
+  "researchToolsProvider": "exa",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.cjs",
+    "doctor": "node scripts/setup.cjs --doctor",
+    "list": "node scripts/command.cjs --list",
+    "call": "node scripts/command.cjs"
+  }
+}

@@ -1,0 +1,872 @@
+{
+  "providers": {
+    "context7": [
+      {
+        "name": "resolve-library-id",
+        "title": "Resolve Context7 Library ID",
+        "description": "Resolves a package/product name to a Context7-compatible library ID and returns matching libraries.\n\nYou MUST call this function before 'Query Documentation' tool to obtain a valid Context7-compatible library ID UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.\n\nEach result includes:\n- Library ID: Context7-compatible identifier (format: /org/project)\n- Name: Library or package name\n- Description: Short summary\n- Code Snippets: Number of available code examples\n- Source Reputation: Authority indicator (High, Medium, Low, or Unknown)\n- Benchmark Score: Quality indicator (100 is the highest score)\n- Versions: List of versions if available. Use one of those versions if the user provides a version in their query. The format of the version is /org/project/version.\n\nFor best results, select libraries based on name match, source reputation, snippet coverage, benchmark score, and relevance to your use case.\n\nSelection Process:\n1. Analyze the query to understand what library/package the user is looking for\n2. Return the most relevant match based on:\n- Name similarity to the query (exact matches prioritized)\n- Description relevance to the query's intent\n- Documentation coverage (prioritize libraries with higher Code Snippet counts)\n- Source reputation (consider libraries with High or Medium reputation more authoritative)\n- Benchmark Score: Quality indicator (100 is the highest score)\n\nResponse Format:\n- Return the selected library ID in a clearly marked section\n- Provide a brief explanation for why this library was chosen\n- If multiple good matches exist, acknowledge this but proceed with the most relevant one\n- If no good matches exist, clearly state this and suggest query refinements\n\nFor ambiguous queries, request clarification before proceeding with a best-guess match.\n\nIMPORTANT: Do not call this tool more than 3 times per question. If you cannot find what you need after 3 calls, use the best result you have.",
+        "inputSchema": {
+          "type": "object",
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "What to look up in the library's documentation. This is used to rank library results by relevance to what the user is trying to accomplish. The query is sent to the Context7 API for processing. Do not include any sensitive or confidential information such as API keys, passwords, credentials, personal data, or proprietary code in your query."
+            },
+            "libraryName": {
+              "type": "string",
+              "description": "Library name to search for and retrieve a Context7-compatible library ID. Use the official library name with proper punctuation — e.g., 'Next.js' instead of 'nextjs', 'Customer.io' instead of 'customerio', 'Three.js' instead of 'threejs'."
+            }
+          },
+          "required": [
+            "query",
+            "libraryName"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": true,
+          "idempotentHint": true
+        }
+      },
+      {
+        "name": "query-docs",
+        "title": "Query Documentation",
+        "description": "Retrieves and queries up-to-date documentation and code examples from Context7 for any programming library or framework.\n\nYou must call 'Resolve Context7 Library ID' tool first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.\n\nDo not call this tool more than 3 times per question.\n\nIf you know the programming language the user is working in, pass it as `language` so the results match their setup.",
+        "inputSchema": {
+          "type": "object",
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "libraryId": {
+              "type": "string",
+              "description": "Exact Context7-compatible library ID (e.g., '/mongodb/docs', '/vercel/next.js', '/supabase/supabase', '/vercel/next.js/v14.3.0-canary.87') retrieved from 'resolve-library-id' or directly from user query in the format '/org/project' or '/org/project/version'."
+            },
+            "query": {
+              "type": "string",
+              "description": "What to look up in the library's documentation, scoped to a single concept. Be specific and include relevant details, but keep each query to one topic — if the user's question spans multiple distinct concepts, make a separate call per concept instead of combining them, unless the question is about how the concepts interact. Good: 'How to set up authentication with JWT in Express.js' or 'React useEffect cleanup function examples'. Bad (too vague): 'auth' or 'hooks'. Bad (too broad): 'routing and auth and caching in Next.js'. The query is sent to the Context7 API for processing. Do not include any sensitive or confidential information such as API keys, passwords, credentials, personal data, or proprietary code in your query."
+            },
+            "language": {
+              "description": "Programming language the user is writing code in, such as 'Python', 'TypeScript', 'Go', or 'C#'. Ranks code examples in that language first. Leave it out when the language is unknown or does not apply.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "libraryId",
+            "query"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": true,
+          "idempotentHint": true
+        }
+      }
+    ],
+    "exa": [
+      {
+        "name": "web_search_exa",
+        "description": "Search the web for any topic and get clean, ready-to-use content.\n\n      Best for: Finding current information, news, facts, people, companies, or answering questions about any topic.\n      Returns: Clean text content from top search results.\n\n      Query tips:\n      describe the ideal page, not keywords. \"blog post comparing React and Vue performance\" not \"React vs Vue\".\n      Use category:people / category:company to search through Linkedin profiles / companies respectively.\n      If highlights are insufficient, follow up with web_fetch_exa on the best URLs.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Natural language search query. Should be a semantically rich description of the ideal page, not just keywords. Optionally include category:<type> (company, people) to focus results — e.g. 'category:people John Doe software engineer'."
+            },
+            "numResults": {
+              "type": "number",
+              "description": "Number of search results to return (default: 10)."
+            },
+            "objective": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "description": "Goal for this search turn; say which documents should rank first, which should be excluded, and what specific facts or figures to pull from them."
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": true,
+          "idempotentHint": true
+        },
+        "execution": {
+          "taskSupport": "forbidden"
+        }
+      },
+      {
+        "name": "web_fetch_exa",
+        "description": "Read a webpage's full content as clean markdown. Use after web_search_exa when highlights are insufficient or to read any URL.\n\nBest for: Extracting full content from known URLs. Batch multiple URLs in one call.\nReturns: Clean text content and metadata from the page(s).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "urls": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "URLs to read. Batch multiple URLs in one call."
+            },
+            "maxCharacters": {
+              "type": "number",
+              "minimum": 1,
+              "description": "Maximum characters to extract per page (default: 3000)"
+            }
+          },
+          "required": [
+            "urls"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": true,
+          "idempotentHint": true
+        },
+        "execution": {
+          "taskSupport": "forbidden"
+        }
+      }
+    ],
+    "tavily": [
+      {
+        "_meta": {
+          "fastmcp": {
+            "tags": []
+          }
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": true,
+          "readOnlyHint": true
+        },
+        "description": "Search the web for current information on any topic. Use for news, facts, or data beyond your knowledge cutoff. Returns snippets and source URLs.",
+        "inputSchema": {
+          "properties": {
+            "query": {
+              "description": "Search query",
+              "type": "string"
+            },
+            "max_results": {
+              "default": 5,
+              "description": "The maximum number of search results to return",
+              "type": "integer"
+            },
+            "search_depth": {
+              "default": "basic",
+              "description": "The depth of the search. 'basic' for generic results, 'advanced' for more thorough search, 'fast' for optimized low latency with high relevance, 'ultra-fast' for prioritizing latency above all else",
+              "enum": [
+                "basic",
+                "advanced",
+                "fast",
+                "ultra-fast"
+              ],
+              "type": "string"
+            },
+            "topic": {
+              "const": "general",
+              "default": "general",
+              "description": "The category of the search. This will determine which of our agents will be used for the search",
+              "type": "string"
+            },
+            "time_range": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "day",
+                    "week",
+                    "month",
+                    "year"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The time range back from the current date to include in the search results"
+            },
+            "include_images": {
+              "default": false,
+              "description": "Include a list of query-related images in the response",
+              "type": "boolean"
+            },
+            "include_image_descriptions": {
+              "default": false,
+              "description": "Include a list of query-related images and their descriptions in the response",
+              "type": "boolean"
+            },
+            "include_raw_content": {
+              "default": false,
+              "description": "Include the cleaned and parsed HTML content of each search result",
+              "type": "boolean"
+            },
+            "include_domains": {
+              "default": [],
+              "description": "A list of domains to specifically include in the search results, if the user asks to search on specific sites set this to the domain of the site",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "exclude_domains": {
+              "default": [],
+              "description": "List of domains to specifically exclude, if the user asks to exclude a domain set this to the domain of the site",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "country": {
+              "default": "",
+              "description": "Boost search results from a specific country. Must be a full country name (e.g., 'United States', 'Japan', 'Germany'). ISO country codes (e.g., 'us', 'jp') are not supported. Available only if topic is general. See https://docs.tavily.com/documentation/api-reference/search for the full list of supported countries.",
+              "type": "string"
+            },
+            "include_favicon": {
+              "default": false,
+              "description": "Whether to include the favicon URL for each result",
+              "type": "boolean"
+            },
+            "start_date": {
+              "default": "",
+              "description": "Will return all results after the specified start date. Required to be written in the format YYYY-MM-DD.",
+              "type": "string"
+            },
+            "end_date": {
+              "default": "",
+              "description": "Will return all results before the specified end date. Required to be written in the format YYYY-MM-DD",
+              "type": "string"
+            },
+            "exact_match": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Only return results containing the exact phrase(s) in quotes in your query"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "name": "tavily_search",
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "title": "Tavily Search"
+      },
+      {
+        "_meta": {
+          "fastmcp": {
+            "tags": []
+          }
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": true,
+          "readOnlyHint": true
+        },
+        "description": "Extract content from URLs. Returns raw page content in markdown or text format.",
+        "inputSchema": {
+          "properties": {
+            "urls": {
+              "description": "List of URLs to extract content from",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "extract_depth": {
+              "default": "basic",
+              "description": "Use 'advanced' for LinkedIn, protected sites, or tables/embedded content",
+              "enum": [
+                "basic",
+                "advanced"
+              ],
+              "type": "string"
+            },
+            "include_images": {
+              "default": false,
+              "description": "Include images from pages",
+              "type": "boolean"
+            },
+            "format": {
+              "default": "markdown",
+              "description": "Output format",
+              "enum": [
+                "markdown",
+                "text"
+              ],
+              "type": "string"
+            },
+            "include_favicon": {
+              "default": false,
+              "description": "Include favicon URLs",
+              "type": "boolean"
+            },
+            "query": {
+              "default": "",
+              "description": "Query to rerank content chunks by relevance",
+              "type": "string"
+            }
+          },
+          "required": [
+            "urls"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "name": "tavily_extract",
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "title": "Tavily Extract"
+      },
+      {
+        "_meta": {
+          "fastmcp": {
+            "tags": []
+          }
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": true,
+          "readOnlyHint": true
+        },
+        "description": "Crawl a website starting from a URL. Extracts content from pages with configurable depth and breadth.",
+        "inputSchema": {
+          "properties": {
+            "url": {
+              "description": "The root URL to begin the crawl",
+              "type": "string"
+            },
+            "max_depth": {
+              "default": 1,
+              "description": "Max depth of the crawl. Defines how far from the base URL the crawler can explore.",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "max_breadth": {
+              "default": 20,
+              "description": "Max number of links to follow per level of the tree (i.e., per page)",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "limit": {
+              "default": 50,
+              "description": "Total number of links the crawler will process before stopping",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "instructions": {
+              "default": "",
+              "description": "Natural language instructions for the crawler. Instructions specify which types of pages the crawler should return.",
+              "type": "string"
+            },
+            "select_paths": {
+              "default": [],
+              "description": "Regex patterns to select only URLs with specific path patterns (e.g., /docs/.*, /api/v1.*)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "select_domains": {
+              "default": [],
+              "description": "Regex patterns to restrict crawling to specific domains or subdomains (e.g., ^docs\\.example\\.com$)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "allow_external": {
+              "default": true,
+              "description": "Whether to return external links in the final response",
+              "type": "boolean"
+            },
+            "extract_depth": {
+              "default": "basic",
+              "description": "Advanced extraction retrieves more data, including tables and embedded content, with higher success but may increase latency",
+              "enum": [
+                "basic",
+                "advanced"
+              ],
+              "type": "string"
+            },
+            "format": {
+              "default": "markdown",
+              "description": "The format of the extracted web page content. markdown returns content in markdown format. text returns plain text and may increase latency.",
+              "enum": [
+                "markdown",
+                "text"
+              ],
+              "type": "string"
+            },
+            "include_favicon": {
+              "default": false,
+              "description": "Whether to include the favicon URL for each result",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "name": "tavily_crawl",
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "title": "Tavily Crawl"
+      },
+      {
+        "_meta": {
+          "fastmcp": {
+            "tags": []
+          }
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": true,
+          "readOnlyHint": true
+        },
+        "description": "Map a website's structure. Returns a list of URLs found starting from the base URL.",
+        "inputSchema": {
+          "properties": {
+            "url": {
+              "description": "The root URL to begin the mapping",
+              "type": "string"
+            },
+            "max_depth": {
+              "default": 1,
+              "description": "Max depth of the mapping. Defines how far from the base URL the crawler can explore",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "max_breadth": {
+              "default": 20,
+              "description": "Max number of links to follow per level of the tree (i.e., per page)",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "limit": {
+              "default": 50,
+              "description": "Total number of links the crawler will process before stopping",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "instructions": {
+              "default": "",
+              "description": "Natural language instructions for the crawler",
+              "type": "string"
+            },
+            "select_paths": {
+              "default": [],
+              "description": "Regex patterns to select only URLs with specific path patterns (e.g., /docs/.*, /api/v1.*)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "select_domains": {
+              "default": [],
+              "description": "Regex patterns to restrict crawling to specific domains or subdomains (e.g., ^docs\\.example\\.com$)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "allow_external": {
+              "default": true,
+              "description": "Whether to return external links in the final response",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "name": "tavily_map",
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "title": "Tavily Map"
+      },
+      {
+        "_meta": {
+          "fastmcp": {
+            "tags": []
+          }
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": true,
+          "readOnlyHint": true
+        },
+        "description": "Perform comprehensive research on a given topic or question. Use this tool when you need to gather information from multiple sources, including web pages, documents, and other resources, to answer a question or complete a task. Returns a detailed response based on the research findings. Rate limit: 20 requests per minute.",
+        "inputSchema": {
+          "properties": {
+            "input": {
+              "description": "A comprehensive description of the research task",
+              "type": "string"
+            },
+            "model": {
+              "default": "auto",
+              "description": "Defines the degree of depth of the research. 'mini' is good for narrow tasks with few subtopics. 'pro' is good for broad tasks with many subtopics",
+              "enum": [
+                "mini",
+                "pro",
+                "auto"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "input"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "name": "tavily_research",
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "title": "Tavily Research"
+      }
+    ],
+    "microsoft": [
+      {
+        "name": "microsoft_docs_search",
+        "title": "Microsoft Docs Search",
+        "description": "Search official Microsoft/Azure documentation to find the most relevant and trustworthy content for a user's query. This tool returns up to 10 high-quality content chunks (each max 500 tokens), extracted from Microsoft Learn and other official sources. Each result includes the article title, URL, and a self-contained content excerpt optimized for fast retrieval and reasoning. Always use this tool to quickly ground your answers in accurate, first-party Microsoft/Azure knowledge.\n\n## Follow-up Pattern\nTo ensure completeness, use microsoft_docs_fetch when high-value pages are identified by search. The fetch tool complements search by providing the full detail. This is a required step for comprehensive results.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "description": "a query or topic about Microsoft/Azure products, services, platforms, developer tools, frameworks, or APIs",
+              "type": "string",
+              "default": null
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "results": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "contentUrl": {
+                    "type": "string"
+                  },
+                  "content_omitted": {
+                    "type": "boolean"
+                  },
+                  "extensionData": {
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "annotations": {
+          "title": "Microsoft Docs Search",
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "readOnlyHint": true
+        }
+      },
+      {
+        "name": "microsoft_code_sample_search",
+        "title": "Microsoft Code Sample Search",
+        "description": "Search for code snippets and examples in official Microsoft Learn documentation. This tool retrieves relevant code samples from Microsoft documentation pages providing developers with practical implementation examples and best practices for Microsoft/Azure products and services related coding tasks. This tool will help you use the **LATEST OFFICIAL** code snippets to empower coding capabilities.\n\n## When to Use This Tool\n- When you are going to provide sample Microsoft/Azure related code snippets in your answers.\n- When you are **generating any Microsoft/Azure related code**.\n\n## Usage Pattern\nInput a descriptive query, or SDK/class/method name to retrieve related code samples. The optional parameter `language` can help to filter results.\n\nEligible values for `language` parameter include: csharp javascript typescript python powershell azurecli al sql java kusto cpp go rust ruby php",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "description": "a descriptive query, SDK name, method name or code snippet related to Microsoft/Azure products, services, platforms, developer tools, frameworks, APIs or SDKs",
+              "type": "string"
+            },
+            "language": {
+              "description": "Optional parameter specifying the programming language of code snippets to retrieve. Can significantly improve search quality if provided. Eligible values: csharp javascript typescript python powershell azurecli al sql java kusto cpp go rust ruby php",
+              "type": "string",
+              "default": null
+            }
+          },
+          "required": [
+            "query"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "results": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "description": {
+                    "type": "string"
+                  },
+                  "codeSnippet": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "link": {
+                    "type": "string"
+                  },
+                  "language": {
+                    "type": "string"
+                  },
+                  "content_omitted": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "annotations": {
+          "title": "Microsoft Code Sample Search",
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "readOnlyHint": true
+        }
+      },
+      {
+        "name": "microsoft_docs_fetch",
+        "title": "Microsoft Docs Fetch",
+        "description": "Fetch and convert a Microsoft Learn documentation webpage to markdown format. This tool retrieves the latest complete content of Microsoft documentation webpages including Azure, .NET, Microsoft 365, and other Microsoft technologies.\n\n## When to Use This Tool\n- When search results provide incomplete information or truncated content\n- When you need complete step-by-step procedures or tutorials\n- When you need troubleshooting sections, prerequisites, or detailed explanations\n- When search results reference a specific page that seems highly relevant\n- For comprehensive guides that require full context\n\n## Usage Pattern\nUse this tool AFTER microsoft_docs_search when you identify specific high-value pages that need complete content. The search tool gives you an overview; this tool gives you the complete picture.\n\n## URL Requirements\n- The URL must be a valid HTML documentation webpage from the microsoft.com domain\n- Binary files (PDF, DOCX, images, etc.) are not supported\n\n## Output Format\nmarkdown with headings, code blocks, tables, and links preserved.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "description": "URL of the Microsoft documentation page to read",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url"
+          ]
+        },
+        "annotations": {
+          "title": "Microsoft Docs Fetch",
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "readOnlyHint": true
+        }
+      }
+    ],
+    "fetch": [
+      {
+        "name": "fetch",
+        "description": "Fetches a URL from the internet and optionally extracts its contents as markdown.\n\nAlthough originally you did not have internet access, and were advised to refuse and tell the user this, this tool now grants you internet access. Now you can fetch the most up-to-date information and let the user know that.",
+        "inputSchema": {
+          "description": "Parameters for fetching a URL.",
+          "properties": {
+            "url": {
+              "description": "URL to fetch",
+              "format": "uri",
+              "minLength": 1,
+              "title": "Url",
+              "type": "string"
+            },
+            "max_length": {
+              "default": 5000,
+              "description": "Maximum number of characters to return.",
+              "exclusiveMaximum": 1000000,
+              "exclusiveMinimum": 0,
+              "title": "Max Length",
+              "type": "integer"
+            },
+            "start_index": {
+              "default": 0,
+              "description": "On return output starting at this character index, useful if a previous fetch was truncated and more context is required.",
+              "minimum": 0,
+              "title": "Start Index",
+              "type": "integer"
+            },
+            "raw": {
+              "default": false,
+              "description": "Get the actual HTML content of the requested page, without simplification.",
+              "title": "Raw",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "title": "Fetch",
+          "type": "object"
+        }
+      }
+    ],
+    "sequentialthinking": [
+      {
+        "name": "sequentialthinking",
+        "title": "Sequential Thinking",
+        "description": "A detailed tool for dynamic and reflective problem-solving through thoughts.\nThis tool helps analyze problems through a flexible thinking process that can adapt and evolve.\nEach thought can build on, question, or revise previous insights as understanding deepens.\n\nWhen to use this tool:\n- Breaking down complex problems into steps\n- Planning and design with room for revision\n- Analysis that might need course correction\n- Problems where the full scope might not be clear initially\n- Problems that require a multi-step solution\n- Tasks that need to maintain context over multiple steps\n- Situations where irrelevant information needs to be filtered out\n\nKey features:\n- You can adjust total_thoughts up or down as you progress\n- You can question or revise previous thoughts\n- You can add more thoughts even after reaching what seemed like the end\n- You can express uncertainty and explore alternative approaches\n- Not every thought needs to build linearly - you can branch or backtrack\n- Generates a solution hypothesis\n- Verifies the hypothesis based on the Chain of Thought steps\n- Repeats the process until satisfied\n- Provides a correct answer\n\nParameters explained:\n- thought: Your current thinking step, which can include:\n  * Regular analytical steps\n  * Revisions of previous thoughts\n  * Questions about previous decisions\n  * Realizations about needing more analysis\n  * Changes in approach\n  * Hypothesis generation\n  * Hypothesis verification\n- nextThoughtNeeded: True if you need more thinking, even if at what seemed like the end\n- thoughtNumber: Current number in sequence (can go beyond initial total if needed)\n- totalThoughts: Current estimate of thoughts needed (can be adjusted up/down)\n- isRevision: A boolean indicating if this thought revises previous thinking\n- revisesThought: If is_revision is true, which thought number is being reconsidered\n- branchFromThought: If branching, which thought number is the branching point\n- branchId: Identifier for the current branch (if any)\n- needsMoreThoughts: If reaching end but realizing more thoughts needed\n\nYou should:\n1. Start with an initial estimate of needed thoughts, but be ready to adjust\n2. Feel free to question or revise previous thoughts\n3. Don't hesitate to add more thoughts if needed, even at the \"end\"\n4. Express uncertainty when present\n5. Mark thoughts that revise previous thinking or branch into new paths\n6. Ignore information that is irrelevant to the current step\n7. Generate a solution hypothesis when appropriate\n8. Verify the hypothesis based on the Chain of Thought steps\n9. Repeat the process until satisfied with the solution\n10. Provide a single, ideally correct answer as the final output\n11. Only set nextThoughtNeeded to false when truly done and a satisfactory answer is reached",
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "thought": {
+              "type": "string",
+              "description": "Your current thinking step"
+            },
+            "nextThoughtNeeded": {
+              "description": "Whether another thought step is needed",
+              "type": [
+                "boolean",
+                "string"
+              ]
+            },
+            "thoughtNumber": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991,
+              "description": "Current thought number (numeric value, e.g., 1, 2, 3)"
+            },
+            "totalThoughts": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991,
+              "description": "Estimated total thoughts needed (numeric value, e.g., 5, 10)"
+            },
+            "isRevision": {
+              "description": "Whether this revises previous thinking",
+              "type": [
+                "boolean",
+                "string"
+              ]
+            },
+            "revisesThought": {
+              "description": "Which thought is being reconsidered",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "branchFromThought": {
+              "description": "Branching point thought number",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "branchId": {
+              "description": "Branch identifier",
+              "type": "string"
+            },
+            "needsMoreThoughts": {
+              "description": "If more thoughts are needed",
+              "type": [
+                "boolean",
+                "string"
+              ]
+            }
+          },
+          "required": [
+            "thought",
+            "nextThoughtNeeded",
+            "thoughtNumber",
+            "totalThoughts"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "execution": {
+          "taskSupport": "forbidden"
+        },
+        "outputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "thoughtNumber": {
+              "type": "number"
+            },
+            "totalThoughts": {
+              "type": "number"
+            },
+            "nextThoughtNeeded": {
+              "type": "boolean"
+            },
+            "branches": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "thoughtHistoryLength": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "thoughtNumber",
+            "totalThoughts",
+            "nextThoughtNeeded",
+            "branches",
+            "thoughtHistoryLength"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ]
+  }
+}

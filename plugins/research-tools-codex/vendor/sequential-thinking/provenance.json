@@ -1,0 +1,26 @@
+{
+  "package": "@modelcontextprotocol/server-sequential-thinking",
+  "version": "2026.8.31",
+  "gitHead": "a40bc270fb5ece62673f8a1196f57116d885c5eb",
+  "tarball": "https://registry.npmjs.org/@modelcontextprotocol/server-sequential-thinking/-/server-sequential-thinking-2026.8.31.tgz",
+  "integrity": "sha512-/EMH++1j2e+VmHwpibw1IUPHxA0tcQY09Yo5/OIPwW/8irEKLAufJNGSZQhCK18n8TUvV6WwZyQOuaDKxe/CeQ==",
+  "originalCoreSha256": "816a631fafa89967caa7346969b8c9618ed27ed2fd9b7e3b9835973d5aaf70c5",
+  "adaptation": "Only a comment and the chalk import path are changed; class and algorithm body are byte-identical to official dist/lib.js.",
+  "licenseSource": "https://raw.githubusercontent.com/modelcontextprotocol/servers/a40bc270fb5ece62673f8a1196f57116d885c5eb/LICENSE",
+  "dependency": {
+    "package": "chalk",
+    "version": "5.6.2",
+    "license": "MIT",
+    "source": "https://registry.npmjs.org/chalk/-/chalk-5.6.2.tgz"
+  },
+  "sha256": {
+    "lib.js": "65f26d6ec6b20924c296198917609180463ec4a1bf1eba9d099c9d2b6d563442",
+    "chalk/package.json": "ef029c254479723c952a24c0d8d758378bd8ddf031f5bd6f027f65e1a3d030f3",
+    "chalk/license": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3",
+    "chalk/source/index.js": "64b22b1c442e6d460069807b521bf0a84e112c00c2b4163bc59deab20a9292db",
+    "chalk/source/utilities.js": "698ce3cb21b00b570631742d3a9e168de31df74b3a88220c4bcf18ac30fd00cd",
+    "chalk/source/vendor/ansi-styles/index.js": "92efdc3e5203d02d1710ff60dea3965066f97a77c0feaaa919b2693c989b7ec1",
+    "chalk/source/vendor/supports-color/index.js": "e82368a5f05d145e33de6ae3464056511664b620735ef58d1800a7bcda6691e5",
+    "chalk/source/vendor/supports-color/browser.js": "af136d242c06422a0004775bdf11d9e25a05b1ec54a6932315dc016d22d8b440"
+  }
+}

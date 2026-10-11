@@ -1,0 +1,16 @@
+{
+  "name": "tavily-codex",
+  "version": "0.1.2",
+  "private": true,
+  "description": "Search, extract, crawl, and conduct research with Tavily on demand.",
+  "researchToolsProvider": "tavily",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.cjs",
+    "doctor": "node scripts/setup.cjs --doctor",
+    "list": "node scripts/command.cjs --list",
+    "call": "node scripts/command.cjs"
+  }
+}

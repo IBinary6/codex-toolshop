@@ -1,0 +1,7 @@
+interface:
+  display_name: "Upgrade CodeMap Runtime"
+  short_description: "Safely upgrade the private code-review-graph runtime"
+  default_prompt: "Use $codemap-upgrade-runtime to upgrade only the underlying private code-review-graph runtime."
+
+policy:
+  allow_implicit_invocation: false

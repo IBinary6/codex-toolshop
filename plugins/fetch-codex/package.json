@@ -1,0 +1,14 @@
+{
+  "name": "fetch-codex",
+  "version": "0.1.2",
+  "private": true,
+  "description": "Read web pages on demand through the official Python Fetch MCP server.",
+  "researchToolsProvider": "fetch",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.cjs",
+    "doctor": "node scripts/setup.cjs --doctor"
+  }
+}

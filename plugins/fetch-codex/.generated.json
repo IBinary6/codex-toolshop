@@ -1,0 +1,20 @@
+{
+  "generator": "research-tools-codex",
+  "engineVersion": "0.1.4",
+  "mode": "mcp",
+  "files": {
+    "scripts/config.cjs": "a0f738d797b1c91053cfe6b524e12d5e3acf22e502a3b375b775a22fb0f12c7f",
+    "scripts/setup.cjs": "c5f1d4d54ace47db64203dd31a66fcfadcb3da40f42df121bc00a4d123a48ab4",
+    "scripts/child-transport.cjs": "97f292afd684d8c2c15be4f98429bdebde4039aa42deeab10990400995ffde40",
+    "scripts/gateway.cjs": "ac23621c00c660a111b161505a81b4e598a78566404846a6cd7394c24dd4d96d",
+    "scripts/server.cjs": "d08680c0476ef10f37de41558b4f0415af865b8c13eef5229683fc81c6e57e2f",
+    "scripts/local-backends.cjs": "e6c9f9a8cdc556df777aa36f5517f239e58344f2ab947389add6105c51225ecd",
+    "config.example.json": "4b8894d57dfa621e534ef4eb25263e8f00254cbcb4327f1f98796314ac279dde",
+    "scripts/catalog.json": "36c92d19b391adcab3cbd07de06a0a2bcd8e880fc19abdf80154d1b454940baa",
+    "package.json": "005811fd02bf3cab4ce714bd959b92403b35f448eb1879d3d45716bf022871fe",
+    ".mcp.json": "33aefde353b2d3c30455f0cc1d9cd2c97adeded652e86855f944110c5ed31de6",
+    ".codex-plugin/plugin.json": "b2a0e27fa12ae111e24d8567d509611a411d276f770275d6ace318b77ea6fbee",
+    "skills/fetch-codex/SKILL.md": "1acfc624be6ce6c79a2213505af61649ca42d133d5cd4d8d4d5fd3685370e07d",
+    "README.md": "7e330f0bf450fe8848d02ca1a5fe54c7755af702427b97b48fdef0a13c2edbbd"
+  }
+}

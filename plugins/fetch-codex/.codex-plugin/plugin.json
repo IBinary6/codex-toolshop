@@ -1,0 +1,28 @@
+{
+  "name": "fetch-codex",
+  "version": "0.1.2",
+  "description": "Read web pages on demand through the official Python Fetch MCP server.",
+  "author": {
+    "name": "IBinary6"
+  },
+  "keywords": [
+    "fetch",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Fetch",
+    "shortDescription": "Read web pages on demand through the official Python Fetch MCP server.",
+    "longDescription": "Self-contained on-demand MCP plugin; enable independently on the plugin page with entirely local tool discovery.",
+    "developerName": "IBinary6",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Use Fetch."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

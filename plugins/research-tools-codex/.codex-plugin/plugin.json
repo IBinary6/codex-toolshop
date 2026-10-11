@@ -1,0 +1,34 @@
+{
+  "name": "research-tools-codex",
+  "version": "0.1.4",
+  "description": "Context7, Exa, Tavily, Microsoft Learn, Fetch and Sequential Thinking through one lazy MCP gateway.",
+  "author": {
+    "name": "IBinary6"
+  },
+  "keywords": [
+    "research",
+    "context7",
+    "exa",
+    "tavily",
+    "microsoft-learn",
+    "fetch",
+    "sequentialthinking",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Research Tools",
+    "shortDescription": "14 on-demand tools from six providers.",
+    "longDescription": "One lightweight Node gateway for official remote MCP services and on-demand local backends. Tool discovery is local, and three private keys are stored in user configuration.",
+    "developerName": "IBinary6",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Configure Research Tools and check its private global configuration."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

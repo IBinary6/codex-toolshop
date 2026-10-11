@@ -1,0 +1,16 @@
+{
+  "name": "context7-codex",
+  "version": "0.1.2",
+  "private": true,
+  "description": "Look up Context7 library documentation and code examples on demand.",
+  "researchToolsProvider": "context7",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.cjs",
+    "doctor": "node scripts/setup.cjs --doctor",
+    "list": "node scripts/command.cjs --list",
+    "call": "node scripts/command.cjs"
+  }
+}

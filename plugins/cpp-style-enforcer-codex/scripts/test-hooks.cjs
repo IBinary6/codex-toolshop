@@ -1,0 +1,118 @@
+'use strict';
+
+const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawnSync } = require('child_process');
+const { resolvePython } = require('../hooks/js/lib/python');
+
+const pluginRoot = path.resolve(__dirname, '..');
+const runner = path.join(pluginRoot, 'scripts', 'run-hook.cjs');
+
+function sh(cmd, args, options = {}) {
+  const result = spawnSync(cmd, args, {
+    encoding: 'utf8',
+    windowsHide: process.platform === 'win32',
+    ...options,
+  });
+  if (result.error) throw result.error;
+  return result;
+}
+
+function writeJson(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(value, null, 2), 'utf8');
+}
+
+function runHook(name, payload, cwd, dataDir) {
+  return spawnSync(process.execPath, [runner, name], {
+    cwd,
+    input: payload ? JSON.stringify(payload) : '',
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PLUGIN_ROOT: pluginRoot,
+      PLUGIN_DATA: dataDir,
+    },
+    windowsHide: process.platform === 'win32',
+  });
+}
+
+/**
+ * Require Python 3 in the test environment; skip missing candidates and fail only when all are unavailable.
+ *
+ * @returns {{cmd:string,args:string[]}} Validated Python 3 launch descriptor
+ * @example
+ * requirePython() // Common macOS result: { cmd: 'python3', args: [] }
+ */
+function requirePython() {
+  const python = resolvePython();
+  if (python) return python;
+  throw new Error('Python 3 (python, python3, or Windows py -3) is required for cpplint hook tests');
+}
+
+function initRepo(repo) {
+  const result = sh('git', ['init'], { cwd: repo });
+  assert.strictEqual(result.status, 0, result.stderr);
+}
+
+function main() {
+  requirePython();
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cpp-style-enforcer-codex-'));
+  const dataDir = path.join(tmp, 'data');
+
+  const textFile = path.join(tmp, 'note.txt');
+  fs.writeFileSync(textFile, 'hello\n', 'utf8');
+  const nonCpp = runHook('post_edit', { tool_input: { file_path: textFile } }, tmp, dataDir);
+  assert.strictEqual(nonCpp.status, 0, nonCpp.stderr);
+  assert.strictEqual(nonCpp.stdout, '', 'non-C++ edit should be silent');
+
+  const repo = path.join(tmp, 'repo');
+  fs.mkdirSync(repo);
+  initRepo(repo);
+  writeJson(path.join(repo, '.claude-cpp-style', 'cpp-style.json'), {
+    enabled: true,
+    mode: 'full',
+    checks: { clangFormat: false, copyright: false, cpplint: true, bom: false },
+  });
+
+  const badCpp = path.join(repo, 'bad.cpp');
+  fs.writeFileSync(badCpp, 'int main() { int x = (int)3; return x; }\n', 'utf8');
+
+  const editPayload = {
+    session_id: 'test-hooks-session',
+    turn_id: 'test-hooks-turn',
+    tool_use_id: 'test-hooks-tool',
+    cwd: repo,
+    tool_name: 'apply_patch',
+    tool_input: { file_path: badCpp },
+  };
+  const post = runHook('post_edit', editPayload, repo, dataDir);
+  assert.strictEqual(post.status, 0, post.stderr);
+  assert.strictEqual(post.stdout, '', 'PostToolUse should only record the edited file');
+
+  const stop = runHook('stop_check', {
+    session_id: editPayload.session_id,
+    turn_id: editPayload.turn_id,
+    cwd: repo,
+    hook_event_name: 'Stop',
+    stop_hook_active: false,
+  }, repo, dataDir);
+  assert.strictEqual(stop.status, 0, stop.stderr);
+  const stopPayload = JSON.parse(stop.stdout);
+  assert.strictEqual(stopPayload.decision, 'block');
+  assert.match(stopPayload.reason, /cpplint|C\+\+|violations/);
+
+  sh('git', ['add', 'bad.cpp'], { cwd: repo });
+  const pre = runHook('pre_commit', { tool_input: { command: 'git commit -m test' } }, repo, dataDir);
+  assert.strictEqual(pre.status, 0, pre.stderr);
+  const prePayload = JSON.parse(pre.stdout);
+  assert.strictEqual(prePayload.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(prePayload.hookSpecificOutput.permissionDecisionReason, /Commit blocked|cpplint/);
+
+  console.log('test-hooks PASS');
+}
+
+main();

@@ -1,0 +1,323 @@
+'use strict';
+
+const assert = require('node:assert');
+const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawnSync } = require('child_process');
+
+const {
+  listLinkedWorktrees,
+  refreshCrgSync,
+  refreshLinkedWorktreesSync,
+} = require('../lib/codemap');
+const {
+  ROOT_SCOPED_CRG_TOOLS,
+  refreshFailureReason,
+  repoRootUpdate,
+  shouldInjectRepoRoot,
+} = require('../pre_graph_tool');
+
+
+function git(cwd, args, env = process.env) {
+  const result = spawnSync('git', args, {
+    cwd,
+    env,
+    encoding: 'utf8',
+    windowsHide: process.platform === 'win32',
+  });
+  assert.strictEqual(result.status, 0, result.stderr || result.stdout);
+  return (result.stdout || '').trim();
+}
+
+function canonicalPath(filePath) {
+  const realpath = fs.realpathSync.native || fs.realpathSync;
+  return realpath(filePath);
+}
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-refresh-'));
+const oldDisable = process.env.CODEMAP_BOOST_DISABLE_GRAPH;
+try {
+  assert.ok(ROOT_SCOPED_CRG_TOOLS.has('semantic_search_nodes_tool'));
+  assert.deepStrictEqual(
+    shouldInjectRepoRoot('mcp__code_review_graph__query_graph_tool'),
+    true,
+    'project graph tools receive the task repository root instead of the plugin launcher cwd'
+  );
+  assert.strictEqual(
+    shouldInjectRepoRoot('mcp__code_review_graph__list_repos_tool'),
+    false,
+    'cross-repository registry tools keep their original schema'
+  );
+  assert.strictEqual(
+    shouldInjectRepoRoot('mcp__graphify__query_graph_tool'),
+    false,
+    'unrelated graph MCP schemas are not rewritten'
+  );
+  assert.deepStrictEqual(
+    repoRootUpdate(
+      'mcp__code_review_graph__semantic_search_nodes_tool',
+      { query: 'auth' },
+      'C:/workspace/repo'
+    ),
+    { query: 'auth', repo_root: 'C:/workspace/repo' },
+    'the graph call is rewritten to the active task repository'
+  );
+  assert.strictEqual(
+    repoRootUpdate(
+      'mcp__code_review_graph__semantic_search_nodes_tool',
+      { query: 'auth', repo_root: 'D:/explicit' },
+      'D:/explicit'
+    ),
+    null,
+    'an explicit repository already equal to its resolved Git root is preserved'
+  );
+  assert.deepStrictEqual(repoRootUpdate(
+    'mcp__code_review_graph__query_graph_tool',
+    { target: 'main', repo_root: 'D:/explicit/nested' },
+    'D:/explicit'
+  ), { target: 'main', repo_root: 'D:/explicit' }, 'explicit subdirectories use the same Git root as the refresh barrier');
+
+  delete process.env.CODEMAP_BOOST_DISABLE_GRAPH;
+  const repo = path.join(tmp, 'repo');
+  fs.mkdirSync(repo);
+  git(repo, ['init']);
+  git(repo, ['config', 'user.email', 'test@example.com']);
+  git(repo, ['config', 'user.name', 'CodeMap Test']);
+  fs.writeFileSync(path.join(repo, 'tracked.js'), 'function tracked() {}\n');
+  git(repo, ['add', 'tracked.js']);
+  git(repo, ['commit', '-m', 'init']);
+  fs.mkdirSync(path.join(repo, '.code-review-graph'));
+
+  const registryData = path.join(tmp, 'registry-only-data');
+  const registry = spawnSync(process.execPath, [path.join(__dirname, '..', 'pre_graph_tool.js')], {
+    cwd: repo,
+    input: JSON.stringify({ cwd: repo, tool_name: 'mcp__code_review_graph__list_repos_tool', tool_input: {} }),
+    encoding: 'utf8',
+    env: { ...process.env, PLUGIN_DATA: registryData, CODEMAP_BOOST_DISABLE_BOOTSTRAP: '1' },
+    windowsHide: process.platform === 'win32',
+  });
+  assert.strictEqual(registry.status, 0, registry.stderr);
+  assert.strictEqual(registry.stdout, '', 'registry queries must not be denied by an unrelated project refresh');
+  assert.ok(!fs.existsSync(registryData), 'registry queries must not initialize project graph state');
+
+  const calls = [];
+  const options = {
+    canUseCrg: () => true,
+    runCrg: (args, runOptions) => {
+      const index = runOptions.env && runOptions.env.GIT_INDEX_FILE;
+      calls.push({ args: [...args], index, files: index ? git(repo, ['ls-files'], runOptions.env) : '' });
+      fs.writeFileSync(path.join(repo, '.code-review-graph', 'graph.db'), `graph-${calls.length}\n`);
+      return { status: 0 };
+    },
+  };
+
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(refreshCrgSync(repo, options), true, 'an unchanged source state is already fresh');
+  assert.strictEqual(calls[0].args[0], 'update', 'existing graph performs incremental update');
+  assert.strictEqual(calls.length, 1, 'an unchanged source state does not invoke CRG twice');
+
+  fs.writeFileSync(path.join(repo, 'tracked.js'), 'function trackedChanged() {}\n');
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls[1].args[0], 'update', 'a tracked source edit performs an incremental update');
+
+  fs.writeFileSync(path.join(repo, 'new-source.js'), 'function added() {}\n');
+  assert.strictEqual(git(repo, ['diff', '--cached', '--name-only']), '', 'real index starts clean');
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls[2].args[0], 'build', 'untracked source forces a full build');
+  assert.ok(calls[2].index, 'full build uses a temporary Git index');
+  assert.ok(calls[2].files.split(/\r?\n/).includes('new-source.js'), 'temporary index includes untracked source');
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls.length, 3, 'the same untracked source state does not repeat a full build');
+  assert.strictEqual(git(repo, ['diff', '--cached', '--name-only']), '', 'real index stays untouched');
+
+  const worktree = path.join(tmp, 'worktree');
+  git(repo, ['worktree', 'add', '-b', 'codemap-test-worktree', worktree]);
+  fs.mkdirSync(path.join(worktree, '.code-review-graph'));
+  const roots = listLinkedWorktrees(repo);
+  assert.ok(roots.includes(canonicalPath(repo)), 'main worktree is listed');
+  assert.ok(roots.includes(canonicalPath(worktree)), 'new worktree is listed');
+
+  const linkedCalls = [];
+  assert.strictEqual(refreshLinkedWorktreesSync(repo, {
+    canUseCrg: () => true,
+    runCrg: (args, runOptions) => {
+      linkedCalls.push({ args, cwd: runOptions.cwd });
+      fs.writeFileSync(path.join(runOptions.cwd, '.code-review-graph', 'graph.db'), 'linked graph\n');
+      return { status: 0 };
+    },
+  }), true);
+  assert.ok(!linkedCalls.some((call) => canonicalPath(call.cwd) === canonicalPath(repo)), 'already-fresh main graph is skipped');
+  assert.ok(linkedCalls.some((call) => canonicalPath(call.cwd) === canonicalPath(worktree)), 'new worktree graph refreshed');
+
+  const stateFile = path.join(repo, '.code-review-graph', '.codemap-boost-source-state');
+  fs.writeFileSync(path.join(repo, 'tracked.js'), 'function beforeRefresh() {}\n');
+  assert.strictEqual(refreshCrgSync(repo, {
+    canUseCrg: () => true,
+    runCrg: () => {
+      fs.writeFileSync(path.join(repo, 'tracked.js'), 'function duringRefresh() {}\n');
+      return { status: 0 };
+    },
+  }), false, 'a successful child exit cannot verify a concurrently changed source state');
+  assert.ok(!fs.existsSync(stateFile), 'a concurrent change removes the old success marker');
+  assert.strictEqual(refreshCrgSync(repo, {
+    canUseCrg: () => true,
+    runCrg: () => ({ status: 1 }),
+  }), false, 'adapter failure leaves the graph unverified');
+  assert.ok(!fs.existsSync(stateFile));
+
+  const processDiagnostics = [];
+  const privateValue = 'must-not-leak-from-result-object';
+  assert.strictEqual(refreshCrgSync(repo, {
+    canUseCrg: () => true,
+    diagnostics: processDiagnostics,
+    runCrg: () => ({
+      status: 1,
+      stderr: `CodeMap refresh failed: parser exploded ${'x'.repeat(2000)}`,
+      env: { PRIVATE_VALUE: privateValue },
+    }),
+  }), false, 'adapter failure still uses the compatible boolean API');
+  assert.strictEqual(processDiagnostics.length, 1);
+  assert.strictEqual(processDiagnostics[0].code, 'refresh_process_failed');
+  assert.match(processDiagnostics[0].message, /parser exploded/);
+  assert.ok(processDiagnostics[0].message.length <= 640, 'refresh diagnostics stay bounded');
+  assert.ok(!processDiagnostics[0].message.includes(privateValue), 'diagnostics do not serialize the child result or command environment');
+  const executionReason = refreshFailureReason(processDiagnostics);
+  assert.match(executionReason, /refresh execution failed/i);
+  assert.match(executionReason, /parser exploded/);
+  assert.doesNotMatch(executionReason, /active refresh/i);
+
+  // Git canonicalizes temporary paths and drive letters; locks must use the same repository root as production entry points.
+  const lockRoot = path.resolve(git(repo, ['rev-parse', '--show-toplevel']));
+  const refreshLock = path.join(
+    os.tmpdir(),
+    `codemap-crg-refresh-${crypto.createHash('sha1').update(lockRoot).digest('hex').slice(0, 16)}.lock`
+  );
+  fs.writeFileSync(refreshLock, String(process.pid), 'utf8');
+  const lockDiagnostics = [];
+  try {
+    assert.strictEqual(refreshCrgSync(repo, {
+      canUseCrg: () => true,
+      diagnostics: lockDiagnostics,
+      waitMs: 0,
+      runCrg: () => assert.fail('A held lock must prevent entering the refresh subprocess'),
+    }), false, 'lock wait failure still uses the compatible boolean API');
+  } finally {
+    fs.rmSync(refreshLock, { force: true });
+  }
+  assert.deepStrictEqual(lockDiagnostics.map((entry) => entry.code), ['lock_wait_timeout']);
+  const lockReason = refreshFailureReason(lockDiagnostics);
+  assert.match(lockReason, /active refresh/i);
+  assert.match(lockReason, /lock wait timed out/i);
+  assert.doesNotMatch(lockReason, /refresh execution failed/i);
+
+  assert.strictEqual(refreshCrgSync(repo, options), true, 'the stable next attempt can recover');
+
+  fs.writeFileSync(stateFile, 'legacy-unverified-state\n');
+  const beforeMigration = calls.length;
+  assert.strictEqual(refreshCrgSync(repo, options), true, 'an old marker is revalidated through the new adapter');
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls.length, beforeMigration + 1, 'the migrated stable state is cached again');
+
+  git(repo, ['add', '-A']);
+  git(repo, ['commit', '-m', 'clean migration fixture']);
+  assert.strictEqual(git(repo, ['status', '--porcelain=v1']), '');
+  const legacyVerifiedState = crypto.createHash('sha256')
+    .update('verified-graph-v1\0')
+    .update(git(repo, ['rev-parse', '--verify', 'HEAD']))
+    .update('\0')
+    .update(git(repo, ['rev-parse', '--abbrev-ref', 'HEAD']))
+    .update('\0').digest('hex');
+  fs.writeFileSync(stateFile, `${legacyVerifiedState}\n`);
+  const beforeVerifiedMigration = calls.length;
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls.length, beforeVerifiedMigration + 1,
+    'a valid v1 marker must enter the adapter once to repair legacy path aliases');
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls.length, beforeVerifiedMigration + 1,
+    'the repaired v2 marker must retain the no-change fast path');
+
+  const v2SourceOnlyMarker = JSON.parse(fs.readFileSync(stateFile, 'utf8')).source;
+  fs.writeFileSync(stateFile, `${v2SourceOnlyMarker}\n`);
+  const beforeV2StateMigration = calls.length;
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls.length, beforeV2StateMigration + 1,
+    'a source-only v2 marker must enter the adapter to bind runtime and graph state');
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls.length, beforeV2StateMigration + 1,
+    'the migrated v3 marker retains the no-change fast path');
+
+  git(repo, ['switch', '-c', 'same-head-branch']);
+  const beforeBranch = calls.length;
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls.length, beforeBranch + 1, 'a same-SHA branch switch still refreshes provenance');
+
+  fs.writeFileSync(path.join(repo, 'schema.proto'), 'syntax = "proto3";\nmessage Example {}\n');
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.ok(calls.at(-1).files.split(/\r?\n/).includes('schema.proto'), 'CRG selects languages from all non-ignored untracked files');
+  const beforeUnknownEdit = calls.length;
+  fs.writeFileSync(path.join(repo, 'schema.proto'), 'syntax = "proto3";\nmessage Changed {}\n');
+  assert.strictEqual(refreshCrgSync(repo, options), true);
+  assert.strictEqual(calls.length, beforeUnknownEdit + 1, 'content changes outside the old JS extension list invalidate the marker');
+
+  const runtimeOne = path.join(tmp, 'runtime-one', 'code-review-graph');
+  const runtimeOptions = { ...options, crgCommand: runtimeOne };
+  const beforeRuntimeChange = calls.length;
+  assert.strictEqual(refreshCrgSync(repo, runtimeOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 1,
+    'a changed selected CRG runtime enters the adapter even when sources are stable');
+  assert.strictEqual(refreshCrgSync(repo, runtimeOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 1,
+    'the same runtime and graph state retain the no-change fast path');
+
+  const runtimeTwoOptions = { ...options, crgCommand: path.join(tmp, 'runtime-two', 'code-review-graph') };
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 2,
+    'a versioned runtime directory switch enters the adapter once');
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 2);
+
+  const graphDb = path.join(repo, '.code-review-graph', 'graph.db');
+  const graphWal = `${graphDb}-wal`;
+  fs.writeFileSync(graphWal, '');
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 2,
+    'a zero-byte WAL is equivalent to a missing WAL and keeps the fast path');
+  fs.appendFileSync(graphDb, 'external write\n');
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 3,
+    'an externally modified graph database enters the adapter once');
+  assert.strictEqual(calls.at(-1).args[0], 'verify',
+    'unchanged source/runtime with a changed database requests verified structural comparison');
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 3);
+
+  fs.writeFileSync(graphWal, 'wal state\n');
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 4,
+    'a WAL state change enters the adapter once');
+  assert.strictEqual(calls.at(-1).args[0], 'verify', 'WAL writes do not directly force a full rebuild');
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 4);
+  fs.unlinkSync(graphWal);
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 5,
+    'WAL removal performs one verification but does not cause repeated refreshes');
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 5);
+
+  fs.unlinkSync(graphDb);
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 6,
+    'a deleted graph database re-enters the adapter');
+  assert.strictEqual(calls.at(-1).args[0], 'build', 'a missing database cannot use graph-only verification');
+  assert.strictEqual(refreshCrgSync(repo, runtimeTwoOptions), true);
+  assert.strictEqual(calls.length, beforeRuntimeChange + 6);
+
+  console.log('refresh.test.js PASS');
+} finally {
+  if (oldDisable === undefined) delete process.env.CODEMAP_BOOST_DISABLE_GRAPH;
+  else process.env.CODEMAP_BOOST_DISABLE_GRAPH = oldDisable;
+  fs.rmSync(tmp, { recursive: true, force: true });
+}

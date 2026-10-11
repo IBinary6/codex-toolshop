@@ -1,0 +1,19 @@
+{
+  "generator": "research-tools-codex",
+  "engineVersion": "0.1.4",
+  "mode": "mcp",
+  "files": {
+    "scripts/config.cjs": "a0f738d797b1c91053cfe6b524e12d5e3acf22e502a3b375b775a22fb0f12c7f",
+    "scripts/setup.cjs": "c5f1d4d54ace47db64203dd31a66fcfadcb3da40f42df121bc00a4d123a48ab4",
+    "scripts/child-transport.cjs": "97f292afd684d8c2c15be4f98429bdebde4039aa42deeab10990400995ffde40",
+    "scripts/gateway.cjs": "ac23621c00c660a111b161505a81b4e598a78566404846a6cd7394c24dd4d96d",
+    "scripts/server.cjs": "d08680c0476ef10f37de41558b4f0415af865b8c13eef5229683fc81c6e57e2f",
+    "config.example.json": "4b8894d57dfa621e534ef4eb25263e8f00254cbcb4327f1f98796314ac279dde",
+    "scripts/catalog.json": "6687ad7087c20a7c4e5da09766eff7f71bbc03bf169e0eefc22827c3452d70cb",
+    "package.json": "3c5a571f9f2ae6c37e61b3e193726d35901743c63f5341765f102e83d47939d2",
+    ".mcp.json": "d1b6d50eeea34faee20522a266a1216552e8716af153e0cbb57b19092fb7d594",
+    ".codex-plugin/plugin.json": "fc4ef640ed3a640901054d1521a2df8c62622442409765f5b37159e186e708c4",
+    "skills/microsoft-learn-codex/SKILL.md": "12656930cc702c6fde80b0f8f110b3d03303f8cfe86b488f17f747fe1aa0f3f5",
+    "README.md": "ccfbdd2639dc1bf8bb9044489205654bf4c676de2c9b2b15639580e5b3414e92"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "tgrep-search-codex",
+  "version": "0.1.3",
+  "description": "Automatically prepare tgrep, maintain a background index per Git worktree, and provide text search with live-scan verification.",
+  "author": {
+    "name": "IBinary6",
+    "url": "https://github.com/IBinary6"
+  },
+  "homepage": "https://github.com/IBinary6/codex-toolshop/tree/main/plugins/tgrep-search-codex",
+  "repository": "https://github.com/IBinary6/codex-toolshop",
+  "keywords": [
+    "tgrep",
+    "search",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "tgrep Search",
+    "shortDescription": "Automatically maintain a tgrep text index per Git worktree.",
+    "developerName": "IBinary6",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Check tgrep search status for the current worktree."
+    ],
+    "longDescription": "Automatically install and verify tgrep, maintain a background index per Git worktree, and provide live-scan verification, service recovery, and idle reclamation. Check official stable releases weekly and validate assets and search services before later launches. Existing services retain matching versions and indexes, complementing CodeMap and Serena."
+  }
+}

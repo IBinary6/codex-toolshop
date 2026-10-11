@@ -1,0 +1,28 @@
+{
+  "name": "microsoft-learn-codex",
+  "version": "0.1.2",
+  "description": "Look up official Microsoft Learn documentation and code examples on demand.",
+  "author": {
+    "name": "IBinary6"
+  },
+  "keywords": [
+    "microsoft",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Microsoft Learn",
+    "shortDescription": "Look up official Microsoft Learn documentation and code examples on demand.",
+    "longDescription": "Self-contained on-demand MCP plugin; enable independently on the plugin page with entirely local tool discovery.",
+    "developerName": "IBinary6",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Use Microsoft Learn."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

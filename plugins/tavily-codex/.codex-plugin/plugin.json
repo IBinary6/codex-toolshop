@@ -1,0 +1,27 @@
+{
+  "name": "tavily-codex",
+  "version": "0.1.2",
+  "description": "Search, extract, crawl, and conduct research with Tavily on demand.",
+  "author": {
+    "name": "IBinary6"
+  },
+  "keywords": [
+    "tavily",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Tavily",
+    "shortDescription": "Search, extract, crawl, and conduct research with Tavily on demand.",
+    "longDescription": "Skill and per-call command entry points, with no persistent MCP; enable independently on the plugin page.",
+    "developerName": "IBinary6",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Use Tavily."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

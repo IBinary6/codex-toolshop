@@ -1,0 +1,18 @@
+{
+  "generator": "research-tools-codex",
+  "engineVersion": "0.1.4",
+  "mode": "command",
+  "files": {
+    "scripts/config.cjs": "a0f738d797b1c91053cfe6b524e12d5e3acf22e502a3b375b775a22fb0f12c7f",
+    "scripts/setup.cjs": "c5f1d4d54ace47db64203dd31a66fcfadcb3da40f42df121bc00a4d123a48ab4",
+    "scripts/child-transport.cjs": "97f292afd684d8c2c15be4f98429bdebde4039aa42deeab10990400995ffde40",
+    "scripts/command.cjs": "c495d6d044a7dd84e3eaab0fad584ac73743935f3f8507ccc4b18d803fa2b9ae",
+    "scripts/command-client.cjs": "8aa1f981bc8ac7895c662b81236428377dca0b0aa95a3d5cd5ff44244b9d2b08",
+    "config.example.json": "e03e5918d7897e3326ad41266d28da69b0683df554293a9f3d5661d906c38d3f",
+    "scripts/catalog.json": "b728913da5240d372d20bb24f46fb73d1b048a449d822bb502069448491f7cf9",
+    "package.json": "22e2b0384a823b79c99ab82d86744052068690be4222044fb8da5960884221ef",
+    ".codex-plugin/plugin.json": "205a338153713b82d985546bb2caba2d77d33a2679a79390bb0ad291b16f422c",
+    "skills/tavily-codex/SKILL.md": "bdfaf2a26fe772c22a6ec23878dee2aac029c539e8d04585746636d2f34d5b1d",
+    "README.md": "7f8bbda4ca3091be6af1beee8dc2ae301d3274bf17bddae214acf3e47639e5ef"
+  }
+}

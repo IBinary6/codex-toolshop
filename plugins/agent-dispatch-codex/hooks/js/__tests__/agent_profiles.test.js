@@ -1,0 +1,175 @@
+'use strict';
+
+const assert = require('assert').strict;
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { execFileSync } = require('child_process');
+
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-dispatch-codex-agents-'));
+execFileSync('git', ['init', '-q'], { cwd: root });
+process.env.PLUGIN_ROOT = path.resolve(__dirname, '..', '..', '..');
+
+const {
+  ensureAgentProfiles,
+  MANAGED_HEADER,
+  renderAgentProfile,
+} = require('../lib/agent_profiles');
+const { loadDefaults } = require('../lib/config');
+
+try {
+  const config = loadDefaults();
+  const first = ensureAgentProfiles(root, config);
+  assert.equal(first.written.length, 12);
+
+  const worker = path.join(root, '.codex', 'agents', 'dispatch_worker.toml');
+  const content = fs.readFileSync(worker, 'utf8');
+  assert.ok(content.startsWith(MANAGED_HEADER));
+  assert.doesNotMatch(content, /^model = /m);
+  assert.doesNotMatch(content, /^model_reasoning_effort = /m);
+  assert.match(content, /sandbox_mode = "workspace-write"/);
+  assert.match(content, /Do not run Git commands/);
+  assert.match(content, /complete local commit preparation/);
+  assert.match(content, /stage only assigned files/);
+  assert.match(content, /HEAD\/index tree OIDs/);
+  assert.match(content, /primary validates the snapshot and commits/);
+  assert.equal((content.match(/Do not run Git commands/g) || []).length, 1);
+  const explorer = path.join(root, '.codex', 'agents', 'dispatch_explorer.toml');
+  const explorerContent = fs.readFileSync(explorer, 'utf8');
+  assert.equal((explorerContent.match(/Do not run Git commands/g) || []).length, 1);
+  assert.match(explorerContent, /CodeMap Boost graph tools/);
+  assert.match(explorerContent, /follow its refresh and retrieval rules/);
+  assert.match(explorerContent, /read source to verify relationships/);
+  const mapper = path.join(root, '.codex', 'agents', 'dispatch_mapper.toml');
+  const mapperContent = fs.readFileSync(mapper, 'utf8');
+  assert.match(mapperContent, /CodeMap Boost graph tools/);
+  assert.match(mapperContent, /follow its refresh and retrieval rules/);
+  const lunaWorker = path.join(root, '.codex', 'agents', 'dispatch_luna_worker.toml');
+  const lunaWorkerContent = fs.readFileSync(lunaWorker, 'utf8');
+  assert.match(lunaWorkerContent, /source and log evidence/i);
+  assert.match(lunaWorkerContent, /must not implement or modify product or test code/i);
+  assert.doesNotMatch(lunaWorkerContent, /^role_kind = /m);
+  const expectedProfiles = {
+    dispatch_explorer: ['gpt-6-luna', 'medium', 'read-only'],
+    dispatch_mapper: ['gpt-6-luna', 'medium', 'read-only'],
+    dispatch_planner: ['gpt-6-sol', 'high', 'read-only'],
+    dispatch_worker: ['', '', 'workspace-write'],
+    dispatch_hard_worker: ['', '', 'workspace-write'],
+    dispatch_reviewer: ['gpt-6-sol', 'high', 'read-only'],
+    dispatch_deep_reviewer: ['gpt-6-astra', 'high', 'read-only'],
+    dispatch_luna_worker: ['gpt-6-luna', 'max', 'workspace-write'],
+    dispatch_sol_worker: ['gpt-6-sol', 'medium', 'workspace-write'],
+    dispatch_astra_worker: ['gpt-6-astra', 'medium', 'workspace-write'],
+    dispatch_tester: ['gpt-6-luna', 'medium', 'workspace-write'],
+    dispatch_researcher: ['gpt-6-luna', 'medium', 'read-only'],
+  };
+  for (const [name, [model, effort, sandbox]] of Object.entries(expectedProfiles)) {
+    const profile = fs.readFileSync(path.join(root, '.codex', 'agents', `${name}.toml`), 'utf8');
+    if (model) {
+      assert.match(profile, new RegExp(`model = "${model.replace('.', '\\.')}`));
+    } else {
+      assert.doesNotMatch(profile, /^model = /m);
+    }
+    if (effort) {
+      assert.match(profile, new RegExp(`model_reasoning_effort = "${effort}"`));
+    } else {
+      assert.doesNotMatch(profile, /^model_reasoning_effort = /m);
+    }
+    assert.match(profile, new RegExp(`sandbox_mode = "${sandbox}"`));
+    assert.equal((profile.match(/Do not run Git commands/g) || []).length, 1);
+    assert.match(profile, /complete local commit preparation/);
+    assert.match(profile, /stage only assigned files/);
+    assert.match(profile, /HEAD\/index tree OIDs/);
+    assert.match(profile, /upgrade your model/);
+    assert.match(profile, /spawn or delegate to another agent/);
+  }
+  const custom = renderAgentProfile('custom_worker', {
+    developer_instructions: 'Use the project-specific workflow.',
+  });
+  assert.match(custom, /Use the project-specific workflow/);
+  assert.match(custom, /Do not run Git commands/);
+  assert.match(custom, /complete local commit preparation/);
+  assert.match(renderAgentProfile('invalid_override', {
+    developer_instructions: 42,
+  }), /Do not run Git commands/);
+  const generatedInstructions = JSON.parse(
+    renderAgentProfile('generated_worker', {}).split('\n')
+      .find((line) => line.startsWith('developer_instructions = '))
+      .slice('developer_instructions = '.length)
+  );
+  const repeated = renderAgentProfile('repeated_worker', {
+    developer_instructions: generatedInstructions,
+  });
+  assert.equal(
+    (repeated.match(/Do not run Git commands/g) || []).length,
+    1,
+    'the generated Git handoff must not be duplicated'
+  );
+  assert.equal(
+    (repeated.match(/complete local commit preparation/g) || []).length,
+    1,
+    'the generated Git handoff must remain a single suffix'
+  );
+
+  const exclude = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], {
+    cwd: root,
+    encoding: 'utf8',
+  }).trim();
+  const excludePath = path.isAbsolute(exclude) ? exclude : path.resolve(root, exclude);
+  assert.match(fs.readFileSync(excludePath, 'utf8'), /\.codex\/agents\/dispatch_worker\.toml/);
+
+  const second = ensureAgentProfiles(root, config);
+  assert.deepEqual(second.written, [], 'unchanged profiles are not rewritten');
+
+  const reviewer = path.join(root, '.codex', 'agents', 'dispatch_reviewer.toml');
+  fs.writeFileSync(reviewer, '# user-owned\nname = "dispatch_reviewer"\n', 'utf8');
+  const preserved = ensureAgentProfiles(root, config);
+  assert.ok(preserved.preserved.includes('.codex/agents/dispatch_reviewer.toml'));
+  assert.match(fs.readFileSync(reviewer, 'utf8'), /^# user-owned/);
+
+  config.agent_profiles.profiles.dispatch_worker.enabled = false;
+  const disabled = ensureAgentProfiles(root, config);
+  assert.ok(disabled.removed.includes('.codex/agents/dispatch_worker.toml'));
+  assert.equal(fs.existsSync(worker), false);
+
+  const tracked = path.join(root, '.codex', 'agents', 'dispatch_mapper.toml');
+  const trackedContent = fs.readFileSync(tracked, 'utf8');
+  execFileSync('git', ['add', '-f', '--', '.codex/agents/dispatch_mapper.toml'], { cwd: root });
+  config.agent_profiles.profiles.dispatch_mapper.model = 'user-tracked-model';
+  const trackedResult = ensureAgentProfiles(root, config);
+  assert.ok(trackedResult.preserved.includes('.codex/agents/dispatch_mapper.toml'));
+  assert.equal(fs.readFileSync(tracked, 'utf8'), trackedContent, 'tracked managed files are user-controlled');
+
+  const empty = path.join(root, '.codex', 'agents', 'dispatch_planner.toml');
+  fs.writeFileSync(empty, '');
+  ensureAgentProfiles(root, config);
+  assert.equal(fs.readFileSync(empty, 'utf8'), '', 'an empty user file is not a missing generated file');
+
+  const stale = path.join(root, '.codex', 'agents', 'dispatch_terra_worker.toml');
+  fs.writeFileSync(stale, renderAgentProfile('dispatch_terra_worker', {}));
+  const staleResult = ensureAgentProfiles(root, config);
+  assert.ok(staleResult.removed.includes('.codex/agents/dispatch_terra_worker.toml'));
+  assert.equal(fs.existsSync(stale), false, 'retired managed roles must not remain loadable');
+
+  config.agent_profiles.enabled = false;
+  const allDisabled = ensureAgentProfiles(root, config);
+  assert.ok(allDisabled.removed.includes('.codex/agents/dispatch_explorer.toml'));
+  assert.equal(fs.existsSync(explorer), false);
+  assert.equal(fs.readFileSync(tracked, 'utf8'), trackedContent, 'disabling preserves tracked roles');
+  assert.match(fs.readFileSync(reviewer, 'utf8'), /^# user-owned/);
+  assert.equal(fs.readFileSync(empty, 'utf8'), '');
+
+  const outside = path.join(root, 'user-agents');
+  fs.mkdirSync(outside);
+  fs.writeFileSync(path.join(outside, 'dispatch_worker.toml'), 'user-owned target');
+  const linkedRepo = path.join(root, 'linked-repo');
+  fs.mkdirSync(path.join(linkedRepo, '.codex'), { recursive: true });
+  execFileSync('git', ['init', '-q'], { cwd: linkedRepo });
+  fs.symlinkSync(outside, path.join(linkedRepo, '.codex', 'agents'), process.platform === 'win32' ? 'junction' : 'dir');
+  const linkedResult = ensureAgentProfiles(linkedRepo, loadDefaults());
+  assert.ok(linkedResult.preserved.includes(path.join('.codex', 'agents')));
+  assert.deepEqual(fs.readdirSync(outside), ['dispatch_worker.toml']);
+  assert.equal(fs.readFileSync(path.join(outside, 'dispatch_worker.toml'), 'utf8'), 'user-owned target');
+} finally {
+  fs.rmSync(root, { recursive: true, force: true });
+}

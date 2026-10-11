@@ -1,0 +1,59 @@
+{
+  "mcpServers": {
+    "dbg-x64dbg": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "scripts/launch.cjs",
+        "mcp",
+        "x64dbg"
+      ],
+      "cwd": ".",
+      "startup_timeout_sec": 1200
+    },
+    "dbg-ghidra": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "scripts/launch.cjs",
+        "mcp",
+        "ghidra"
+      ],
+      "cwd": ".",
+      "startup_timeout_sec": 1200
+    },
+    "dbg-windbg": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "scripts/launch.cjs",
+        "mcp",
+        "windbg"
+      ],
+      "cwd": ".",
+      "startup_timeout_sec": 1200
+    },
+    "dbg-ida": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "scripts/launch.cjs",
+        "mcp",
+        "ida-mcp"
+      ],
+      "cwd": ".",
+      "startup_timeout_sec": 1200
+    },
+    "dbg-x32dbg": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "scripts/launch.cjs",
+        "mcp",
+        "x32dbg"
+      ],
+      "cwd": ".",
+      "startup_timeout_sec": 1200
+    }
+  }
+}

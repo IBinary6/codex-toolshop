@@ -1,0 +1,218 @@
+{
+  "name": "codex-toolshop",
+  "interface": {
+    "displayName": "Codex Toolshop"
+  },
+  "plugins": [
+    {
+      "name": "cpp-style-enforcer-codex",
+      "version": "0.1.13",
+      "description": "C++ style enforcement workflow with tracked-file encoding preservation and staged-content cpplint checks.",
+      "source": {
+        "source": "local",
+        "path": "./plugins/cpp-style-enforcer-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Coding"
+    },
+    {
+      "name": "codemap-boost-codex",
+      "version": "0.1.42",
+      "description": "CodeMap semantic graph search with synchronized graph-read barriers and complementary tgrep text-search routing.",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codemap-boost-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Coding"
+    },
+    {
+      "name": "agent-dispatch-codex",
+      "version": "0.1.26",
+      "description": "General-purpose task routing for product, design, QA, research, operations, and development, with code-first staging, configurable low-cost evidence work, and independent review.",
+      "source": {
+        "source": "local",
+        "path": "./plugins/agent-dispatch-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "local-knowledge-codex",
+      "version": "0.2.5",
+      "description": "Local indexed knowledge for Codex with relevant recall of fixes, preferences, facts, decisions, and workflows.",
+      "source": {
+        "source": "local",
+        "path": "./plugins/local-knowledge-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "system-proxy-codex",
+      "version": "0.1.3",
+      "description": "Automatically enables Codex system-proxy support and provides a Python setup command for safe .env proxy configuration.",
+      "source": {
+        "source": "local",
+        "path": "./plugins/system-proxy-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "conversation-namer-codex",
+      "version": "0.1.8",
+      "description": "Automatically names new Codex conversations from the first user message with a lightweight model.",
+      "source": {
+        "source": "local",
+        "path": "./plugins/conversation-namer-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "dbg-codex",
+      "version": "0.1.4",
+      "description": "Script-driven deployment, update and repair of debugger extensions and their MCP servers.",
+      "source": {
+        "source": "local",
+        "path": "./plugins/dbg-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Coding"
+    },
+    {
+      "name": "research-tools-codex",
+      "version": "0.1.4",
+      "description": "Optional combined research tools; install provider plugins for independent toggles and avoid duplicate activation.",
+      "source": {
+        "source": "local",
+        "path": "./plugins/research-tools-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "context7-codex",
+      "version": "0.1.2",
+      "description": "Official Context7 CLI and documentation skills, invoked on demand without a persistent MCP entry.",
+      "source": {
+        "source": "local",
+        "path": "./plugins/context7-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "exa-codex",
+      "version": "0.1.2",
+      "description": "Official Exa REST API search and content retrieval with independent configuration and no persistent MCP entry.",
+      "source": {
+        "source": "local",
+        "path": "./plugins/exa-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "tavily-codex",
+      "version": "0.1.2",
+      "description": "Official Tavily REST API search, extraction, crawling, and research with on-demand calls and independent configuration.",
+      "source": {
+        "source": "local",
+        "path": "./plugins/tavily-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "microsoft-learn-codex",
+      "version": "0.1.2",
+      "description": "Official Microsoft Learn documentation, code samples, and page retrieval; no key required.",
+      "source": {
+        "source": "local",
+        "path": "./plugins/microsoft-learn-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "fetch-codex",
+      "version": "0.1.2",
+      "description": "Official Fetch MCP; starts its Python backend only when actually fetching web content.",
+      "source": {
+        "source": "local",
+        "path": "./plugins/fetch-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "sequential-thinking-codex",
+      "version": "0.1.2",
+      "description": "Official Sequential Thinking core with history, revisions, and branches, without an extra Node backend.",
+      "source": {
+        "source": "local",
+        "path": "./plugins/sequential-thinking-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "tgrep-search-codex",
+      "source": {
+        "source": "local",
+        "path": "./plugins/tgrep-search-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Coding",
+      "version": "0.1.3",
+      "description": "Automatically prepare tgrep, maintain a background index per Git worktree, and provide text search with live-scan verification."
+    }
+  ]
+}

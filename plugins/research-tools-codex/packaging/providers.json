@@ -1,0 +1,50 @@
+[
+  {
+    "provider": "context7",
+    "name": "context7-codex",
+    "displayName": "Context7",
+    "description": "Look up Context7 library documentation and code examples on demand.",
+    "usage": "Use resolve-library-id to locate a library, then query-docs to search it. If the user supplies an exact library ID, query it directly.",
+    "config": "The apiKey in this plugin's private JSON may be empty for anonymous access or set to a key."
+  },
+  {
+    "provider": "exa",
+    "name": "exa-codex",
+    "displayName": "Exa",
+    "description": "Search for sources and read web pages with Exa on demand.",
+    "usage": "Use web_search_exa to find sources and web_fetch_exa to read a specific page. Legacy calls with only query remain supported; the default objective is the first 4096 characters of query.",
+    "config": "Set apiKey in this plugin's private JSON before making a live call."
+  },
+  {
+    "provider": "tavily",
+    "name": "tavily-codex",
+    "displayName": "Tavily",
+    "description": "Search, extract, crawl, and conduct research with Tavily on demand.",
+    "usage": "Use search/extract for finding and extracting pages; map/crawl for a defined site scope; research when the task calls for synthesis across sources. Check the original task and usage before expanding the scope.",
+    "config": "Set apiKey in this plugin's private JSON before making a live call."
+  },
+  {
+    "provider": "microsoft",
+    "name": "microsoft-learn-codex",
+    "displayName": "Microsoft Learn",
+    "description": "Look up official Microsoft Learn documentation and code examples on demand.",
+    "usage": "Use microsoft_docs_search for official documentation, microsoft_code_sample_search for code examples, and microsoft_docs_fetch for a relevant full document. Connects to https://learn.microsoft.com/api/mcp.",
+    "config": "No key is required."
+  },
+  {
+    "provider": "fetch",
+    "name": "fetch-codex",
+    "displayName": "Fetch",
+    "description": "Read web pages on demand through the official Python Fetch MCP server.",
+    "usage": "fetch preserves the official Markdown, robots, raw, max_length, and start_index pagination behavior. Follow the result guidance to continue after truncation; pass raw: true when the original page is needed.",
+    "config": "No key is required. uvx must be on PATH. The first live call runs uvx --from mcp-server-fetch==2026.8.18 mcp-server-fetch and prepares the pinned official package. The Python backend closes with the gateway."
+  },
+  {
+    "provider": "sequentialthinking",
+    "name": "sequential-thinking-codex",
+    "displayName": "Sequential Thinking",
+    "description": "Use the official core for stepwise analysis with revisions and branches.",
+    "usage": "sequentialthinking supports revisions, branches, boolean strings, and history. Call it only when the task needs explicit stepwise analysis; history lasts for the current gateway lifetime.",
+    "config": "No key is required. The first call loads the official 2026.8.31 core and Chalk 5.6.2 into the current Node process, without another Node backend or installer; thought logging is disabled. Pinned sources, adaptation hashes, and licenses are in vendor/sequential-thinking."
+  }
+]

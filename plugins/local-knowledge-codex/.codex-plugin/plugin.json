@@ -1,0 +1,40 @@
+{
+  "name": "local-knowledge-codex",
+  "version": "0.2.5",
+  "description": "A local Codex knowledge base that indexes bug fixes, user preferences, facts, decisions, and workflows and recalls them when relevant.",
+  "author": {
+    "name": "IBinary6"
+  },
+  "homepage": "https://github.com/IBinary6/codex-toolshop/tree/main/plugins/local-knowledge-codex",
+  "repository": "https://github.com/IBinary6/codex-toolshop",
+  "keywords": [
+    "local-knowledge",
+    "preference",
+    "knowledge-base",
+    "sqlite",
+    "fts5",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Local Knowledge for Codex",
+    "shortDescription": "Recall local fixes, user preferences, and project knowledge when needed.",
+    "longDescription": "Explicitly save knowledge in a local SQLite full-text index and recall relevant scoped records at session start, on user questions, or after real tool failures. Supports bug fixes, preferences, facts, decisions, and workflows; data stays on this computer.",
+    "developerName": "IBinary6",
+    "category": "Coding",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Find local knowledge relevant to the current task.",
+      "Remember my preferences and apply them automatically when relevant later.",
+      "Save a verified bug fix, fact, decision, or workflow.",
+      "Migrate legacy local knowledge records and verify the index."
+    ],
+    "brandColor": "#2563EB",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/logo.svg",
+    "logoDark": "./assets/logo.svg"
+  }
+}
