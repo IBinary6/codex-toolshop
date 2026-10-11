@@ -4,7 +4,7 @@ node_modules/
 Thumbs.db
 *.log
 
-.iconv-install-failed
+.iconv-install-failed*
 .clang-format-install-failed
 hooks/js/__tests__/fixtures/
 plugins/*/.plugin-data/

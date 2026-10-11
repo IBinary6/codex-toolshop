@@ -15,6 +15,7 @@ const {
   enableCodeMap,
   ensureAgentsBlock,
   ensureGitignore,
+  removeAgentsBlock,
   isCodeMapEnabled,
   cleanLegacyCrgGitHook,
   cleanLegacyCrgHooks,
@@ -58,12 +59,14 @@ function usage() {
     'Usage:',
     '  node scripts/setup.cjs [--with-graphify] [--build] [--skip-install]',
     '  node scripts/setup.cjs --doctor',
+    '  node scripts/setup.cjs --uninstall',
     '',
     'Options:',
     '  --with-graphify  Also install optional graphifyy package when graphify is missing.',
     '  --build          Start an initial code-review-graph build after setup.',
     '  --skip-install   Do not install packages; require an already healthy managed CRG runtime.',
     '  --doctor         Run read-only diagnostics; do not install, repair, build, or edit files.',
+    '  --uninstall      Remove the CodeMap Boost block from CODEX_HOME/AGENTS.md and the enabled marker before removing the plugin.',
   ].join('\n'));
 }
 
@@ -285,6 +288,17 @@ function runDoctor(cwd) {
 function main() {
   if (args.has('--help') || args.has('-h')) {
     usage();
+    return;
+  }
+
+  if (args.has('--uninstall')) {
+    // Codex runs no hook on plugin removal, so global rules written by SessionStart must be removed explicitly.
+    if (removeAgentsBlock()) log(`[codemap-boost-codex] removed the managed block from ${path.join(codexHome(), 'AGENTS.md')}`);
+    else {
+      warn('[codemap-boost-codex] AGENTS.md has incomplete or duplicated CodeMap Boost markers; edit it manually.');
+      process.exitCode = 1;
+    }
+    removeMarker(ENABLED_MARKER);
     return;
   }
 

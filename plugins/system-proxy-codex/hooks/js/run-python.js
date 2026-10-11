@@ -24,12 +24,40 @@ function pluginData() {
     : path.join(codexHome(), 'plugins', 'data', 'system-proxy-codex');
 }
 
+// Versioned names cover Homebrew/python.org installs that do not own the bare python3 name (stock macOS ships 3.9).
+const VERSIONED_NAMES = ['python3.14', 'python3.13', 'python3.12', 'python3.11', 'python3.10'];
+
+/**
+ * List uv-managed interpreters newest first without starting uv.
+ * @example uvManagedPythons({}, 'linux')
+ */
+function uvManagedPythons(environment, platform) {
+  const roots = [];
+  if (environment.UV_PYTHON_INSTALL_DIR) roots.push(environment.UV_PYTHON_INSTALL_DIR);
+  roots.push(platform === 'win32'
+    ? path.join(environment.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'uv', 'python')
+    : path.join(environment.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'uv', 'python'));
+  const found = [];
+  for (const root of roots) {
+    let entries = [];
+    try { entries = fs.readdirSync(root); } catch (_) { continue; }
+    for (const entry of entries.filter((name) => /^cpython-3\.\d+/.test(name))
+      .sort((a, b) => b.localeCompare(a, 'en', { numeric: true }))) {
+      found.push(platform === 'win32'
+        ? path.join(root, entry, 'python.exe')
+        : path.join(root, entry, 'bin', 'python3'));
+    }
+  }
+  return found;
+}
+
 /**
  * Return Python 3 candidates for this platform, preferring explicit configuration.
  * @example pythonCandidates({ platform: 'darwin', environment: {} })
  */
 function pythonCandidates(options = {}) {
   const environment = options.environment || process.env;
+  const platform = options.platform || process.platform;
   if (environment.SYSTEM_PROXY_PYTHON) {
     const prefix = String(environment.SYSTEM_PROXY_PYTHON_ARGS || '').trim().split(/\s+/).filter(Boolean);
     return [{ command: environment.SYSTEM_PROXY_PYTHON, prefix }];
@@ -38,8 +66,22 @@ function pythonCandidates(options = {}) {
     { command: 'python3', prefix: [] },
     { command: 'python', prefix: [] },
   ];
-  if ((options.platform || process.platform) === 'win32') {
+  if (platform === 'win32') {
     candidates.push({ command: 'py', prefix: ['-3'] });
+  } else {
+    candidates.push(...VERSIONED_NAMES.map((command) => ({ command, prefix: [] })));
+    const directories = platform === 'darwin'
+      ? ['/opt/homebrew/bin', '/usr/local/bin', '/Library/Frameworks/Python.framework/Versions/Current/bin']
+      : ['/usr/local/bin', '/usr/bin'];
+// These directories are always POSIX paths, so join with path.posix even when the platform is simulated on Windows.
+    for (const directory of directories) {
+      for (const name of ['python3', ...VERSIONED_NAMES]) {
+        candidates.push({ command: path.posix.join(directory, name), prefix: [], optional: true });
+      }
+    }
+  }
+  for (const command of uvManagedPythons(environment, platform)) {
+    candidates.push({ command, prefix: [], optional: true });
   }
   return candidates;
 }
@@ -52,6 +94,8 @@ function findPython(options = {}) {
   const candidates = options.candidates || pythonCandidates(options);
   const spawn = options.spawnSync || spawnSync;
   for (const candidate of candidates) {
+    // Absolute fallbacks that do not exist cost nothing; bare names still go through PATH lookup.
+    if (candidate.optional && !options.spawnSync && !fs.existsSync(candidate.command)) continue;
     const probe = spawn(candidate.command, [...candidate.prefix, '--version'], {
       encoding: 'utf8',
       windowsHide: (options.platform || process.platform) === 'win32',
@@ -60,7 +104,7 @@ function findPython(options = {}) {
     if (probe.error || probe.status !== 0) continue;
     const version = `${probe.stdout || ''} ${probe.stderr || ''}`.match(/Python\s+(\d+)\.(\d+)/i);
     if (version && (Number(version[1]) > 3 || (Number(version[1]) === 3 && Number(version[2]) >= 10))) {
-      return candidate;
+      return { command: candidate.command, prefix: candidate.prefix };
     }
   }
   return null;

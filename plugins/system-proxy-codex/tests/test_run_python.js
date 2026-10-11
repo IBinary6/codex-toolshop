@@ -8,17 +8,22 @@ const { spawnSync } = require('node:child_process');
 
 const { findPython, pythonCandidates } = require('../hooks/js/run-python.js');
 
+const macCandidates = pythonCandidates({ platform: 'darwin', environment: {} });
 assert.deepStrictEqual(
-  pythonCandidates({ platform: 'darwin', environment: {} }),
+  macCandidates.slice(0, 2),
   [
     { command: 'python3', prefix: [] },
     { command: 'python', prefix: [] },
   ],
   'macOS should prefer python3'
 );
+assert.ok(macCandidates.some((candidate) => candidate.command === 'python3.12'),
+  'macOS should search versioned interpreters when python3 is the stock 3.9');
+assert.ok(macCandidates.some((candidate) => candidate.command === '/opt/homebrew/bin/python3'),
+  'macOS should search Homebrew outside the GUI PATH');
 
 assert.deepStrictEqual(
-  pythonCandidates({ platform: 'win32', environment: {} }),
+  pythonCandidates({ platform: 'win32', environment: { APPDATA: path.join(os.tmpdir(), 'proxy-missing-appdata') } }),
   [
     { command: 'python3', prefix: [] },
     { command: 'python', prefix: [] },

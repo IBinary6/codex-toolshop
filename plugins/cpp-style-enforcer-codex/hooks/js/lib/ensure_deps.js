@@ -9,6 +9,7 @@ const { pythonCandidates, resolvePythonCandidates } = require('./python');
 const isWindows = process.platform === 'win32';
 const ICONV_LITE_SPEC = 'iconv-lite@0.6.3';
 const CLANG_FORMAT_SPEC = 'clang-format==18.1.8';
+const ICONV_FAILED_MARKER = '.iconv-install-failed-v2';
 // Plugin root: hooks/js/lib -> hooks/js -> hooks -> plugin root.
 // Prefer PLUGIN_ROOT injected by the Codex hook; fall back to relative __dirname when absent (such as direct Node tests).
 const PLUGIN_ROOT = process.env.PLUGIN_ROOT || path.join(__dirname, '..', '..', '..');
@@ -49,6 +50,39 @@ function writeMarker(p) {
 }
 
 /**
+ * Build a spawnSync invocation for npm that works on every platform.
+ * Node 18.20.2+/20.12.2+ refuse to spawn .cmd/.bat files without a shell (EINVAL, CVE-2024-27980),
+ * so on Windows prefer `node npm-cli.js` beside the running Node, then fall back to cmd.exe with
+ * arguments passed through environment variables so paths with spaces or metacharacters stay intact.
+ * @param {string[]} args npm arguments
+ * @param {object} [opts] Injected platform, env, execPath and exists for tests
+ * @returns {{cmd:string, args:string[], env:object, windowsVerbatimArguments:boolean}}
+ */
+function npmInvocation(args, opts) {
+  const o = opts || {};
+  const platform = o.platform || process.platform;
+  const env = o.env || process.env;
+  const execPath = o.execPath || process.execPath;
+  const exists = o.exists || ((p) => { try { return fs.statSync(p).isFile(); } catch (_) { return false; } });
+  if (platform !== 'win32') return { cmd: 'npm', args, env, windowsVerbatimArguments: false };
+
+  const npmCli = path.join(path.dirname(execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  if (exists(npmCli)) return { cmd: execPath, args: [npmCli, ...args], env, windowsVerbatimArguments: false };
+
+  const shimEnv = { ...env };
+  const refs = args.map((arg, index) => {
+    shimEnv[`CPP_STYLE_NPM_ARG_${index}`] = String(arg);
+    return `"%CPP_STYLE_NPM_ARG_${index}%"`;
+  });
+  return {
+    cmd: env.ComSpec || env.COMSPEC || 'cmd.exe',
+    args: ['/d', '/v:off', '/s', '/c', `"npm.cmd ${refs.join(' ')}"`],
+    env: shimEnv,
+    windowsVerbatimArguments: true,
+  };
+}
+
+/**
  * Install iconv-lite in the persistent PLUGIN_DATA directory rather than the plugin root.
  * Marketplace bundles may strip packaged node_modules, and plugin updates replace the installation directory;
  * the installation may be read-only, while PLUGIN_DATA persists and is writable. If absent, skip installation and return false.
@@ -61,11 +95,15 @@ function npmInstall() {
     fs.mkdirSync(dataDir, { recursive: true });
   } catch (_) {}
   try {
-    const r = spawnSync(
-      isWindows ? 'npm.cmd' : 'npm',
-      ['install', ICONV_LITE_SPEC, '--no-audit', '--no-fund', '--no-save', '--prefix', dataDir],
-      { cwd: dataDir, stdio: 'ignore', timeout: 60000, windowsHide: isWindows }
-    );
+    const npm = npmInvocation(['install', ICONV_LITE_SPEC, '--no-audit', '--no-fund', '--no-save', '--prefix', dataDir]);
+    const r = spawnSync(npm.cmd, npm.args, {
+      cwd: dataDir,
+      env: npm.env,
+      stdio: 'ignore',
+      timeout: 60000,
+      windowsHide: isWindows,
+      windowsVerbatimArguments: npm.windowsVerbatimArguments,
+    });
     return !r.error && r.status === 0;
   } catch (_) {
     return false;
@@ -202,14 +240,15 @@ function requireIconv() {
  *
  * @param {object} [opts]
  * @param {string} [opts.moduleName] Injected for tests; default uses requireIconv with both locations
- * @param {string} [opts.marker] Failure marker path, defaulting to .iconv-install-failed in PLUGIN_DATA (or the plugin root)
+ * @param {string} [opts.marker] Failure marker path, defaulting to .iconv-install-failed-v2 in PLUGIN_DATA (or the plugin root)
  * @param {boolean} [opts.allowInstall] Explicitly allow installation; do not enable in ordinary hooks
  * @param {function():boolean} [opts.install] Injected installer; defaults to npmInstall into PLUGIN_DATA
  * @returns {object|null}
  */
 function ensureIconvLite(opts) {
   const o = opts || {};
-  const marker = o.marker || markerPath('.iconv-install-failed');
+  // Versioned name: markers written before the Windows npm.cmd spawn fix must not block a retry.
+  const marker = o.marker || markerPath(ICONV_FAILED_MARKER);
   const allowInstall = o.allowInstall === true;
   const install = o.install || npmInstall;
 
@@ -281,6 +320,7 @@ module.exports = {
   ensureIconvLite,
   ensureClangFormat,
   markerPath,
+  npmInvocation,
   spawnPrewarm,
   detectClangFormat,
   requireIconv,

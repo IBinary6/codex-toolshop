@@ -1,6 +1,9 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const {
   pythonCandidates,
@@ -14,14 +17,33 @@ function result(version) {
 }
 
 const macCandidates = pythonCandidates({}, 'darwin');
-assert.deepEqual(macCandidates.map((candidate) => candidate.command), ['python3', 'python']);
+const macCommands = macCandidates.map((candidate) => candidate.command);
+assert.deepEqual(macCommands.slice(0, 2), ['python3', 'python']);
+assert.ok(macCommands.includes('python3.12'), 'versioned interpreters are searched');
+assert.ok(macCommands.includes('/opt/homebrew/bin/python3'), 'Homebrew is searched outside the GUI PATH');
 
-const windowsCandidates = pythonCandidates({}, 'win32');
+const windowsCandidates = pythonCandidates({ APPDATA: path.join(os.tmpdir(), 'lk-missing-appdata') }, 'win32');
 assert.deepEqual(windowsCandidates, [
   { command: 'python', args: [] },
   { command: 'python3', args: [] },
   { command: 'py', args: ['-3'] },
 ]);
+
+// uv-managed interpreters are found newest first without starting uv.
+const uvRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lk-uv-'));
+try {
+  for (const name of ['cpython-3.11.9-linux-x86_64-gnu', 'cpython-3.13.1-linux-x86_64-gnu', 'pypy-3.10']) {
+    fs.mkdirSync(path.join(uvRoot, name, 'bin'), { recursive: true });
+  }
+  const uvCommands = pythonCandidates({ UV_PYTHON_INSTALL_DIR: uvRoot, XDG_DATA_HOME: uvRoot }, 'linux')
+    .map((candidate) => candidate.command).filter((command) => command.startsWith(uvRoot));
+  assert.deepEqual(uvCommands.slice(0, 2), [
+    path.join(uvRoot, 'cpython-3.13.1-linux-x86_64-gnu', 'bin', 'python3'),
+    path.join(uvRoot, 'cpython-3.11.9-linux-x86_64-gnu', 'bin', 'python3'),
+  ]);
+} finally {
+  fs.rmSync(uvRoot, { recursive: true, force: true });
+}
 
 const configured = pythonCandidates({
   LOCAL_KNOWLEDGE_PYTHON: 'C:\\Program Files\\Python311\\python.exe',
@@ -68,5 +90,30 @@ const unsupported = resolvePython({
 });
 assert.equal(unsupported.ok, false);
 assert.equal(unsupported.version, '3.10.13');
+
+// A verified interpreter is cached so later hooks pay for one probe instead of a full search.
+const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lk-cache-'));
+try {
+  const cacheFile = path.join(cacheDir, 'python-runtime.json');
+  const first = resolvePython({ cacheFile, environment: process.env });
+  if (first.ok) {
+    assert.ok(path.isAbsolute(first.command), 'resolved interpreters are absolute paths');
+    assert.equal(JSON.parse(fs.readFileSync(cacheFile, 'utf8')).command, first.command);
+    const probes = [];
+    const second = resolvePython({ cacheFile, environment: {}, platform: process.platform,
+      spawnSyncImpl(command) { probes.push(command); return result(first.version); } });
+    assert.equal(second.command, first.command);
+    assert.deepEqual(probes, [first.command], 'cached interpreter is probed first and alone');
+  }
+} finally {
+  fs.rmSync(cacheDir, { recursive: true, force: true });
+}
+
+const probeTimeouts = [];
+resolvePython({ environment: {}, platform: 'linux', spawnSyncImpl(command, args, options) {
+  probeTimeouts.push(options.timeout);
+  return { status: 1 };
+} });
+assert.ok(probeTimeouts[0] >= 2500, 'each candidate gets enough time for a cold interpreter start');
 
 console.log('python-launcher.test.js PASS');

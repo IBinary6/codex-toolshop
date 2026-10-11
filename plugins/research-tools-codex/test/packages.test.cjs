@@ -152,6 +152,15 @@ test('generator preflights all targets, refuses manual edits or unknown files an
   fs.writeFileSync(unrelated, 'keep this file');
   assert.throws(() => generate({ outputRoot: directory }), /unknown file/);
   assert.equal(fs.readFileSync(unrelated, 'utf8'), 'keep this file');
+  fs.rmSync(unrelated);
+  // Finder, Explorer and AppleDouble metadata must not stop generation or the consistency check.
+  for (const name of ['.DS_Store', 'Thumbs.db', 'desktop.ini', '._server.cjs']) {
+    fs.writeFileSync(path.join(directory, 'tavily-codex', name), 'os metadata');
+  }
+  fs.writeFileSync(path.join(directory, 'tavily-codex/scripts/.DS_Store'), 'os metadata');
+  assert.equal(generate({ outputRoot: directory, check: true }).length, 6);
+  assert.equal(generate({ outputRoot: directory }).length, 6);
+  assert.equal(fs.existsSync(path.join(directory, 'tavily-codex/.DS_Store')), true, 'metadata files are left alone');
 });
 
 test('six isolated package entry points discover only their own tools with zero HTTP or child runtime startup', async t => {

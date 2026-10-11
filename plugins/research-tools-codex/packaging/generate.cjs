@@ -65,9 +65,13 @@ function plans() {
   });
 }
 
+// File managers drop these into any folder they open; they are never plugin content and git already ignores them.
+const OS_METADATA = /^(?:\.DS_Store|Thumbs\.db|desktop\.ini|\._.*)$/i;
+
 function inventory(directory, prefix = '') {
   const result = [];
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    if (!entry.isDirectory() && OS_METADATA.test(entry.name)) continue;
     const file = prefix + entry.name;
     if (entry.isSymbolicLink()) throw new Error('Generated directory contains a symlink; update stopped.');
     if (entry.isDirectory()) result.push(...inventory(path.join(directory, entry.name), file + '/'));

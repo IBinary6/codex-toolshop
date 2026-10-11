@@ -86,6 +86,13 @@ const legacyHooks = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'hooks', 'c
 assert.deepStrictEqual(legacyHooks, hooks, 'hooks/codex-hooks.json must stay in sync with hooks/hooks.json');
 assert.deepStrictEqual(Object.keys(hooks), ['hooks'], 'Codex hooks manifest must only contain a top-level hooks key');
 assert.ok(hooks.hooks.UserPromptSubmit[0].matcher === undefined, 'UserPromptSubmit must not use matcher');
+for (const [event, groups] of Object.entries(hooks.hooks)) {
+  for (const group of groups) {
+    if (group.matcher !== undefined) {
+      assert.doesNotThrow(() => new RegExp(group.matcher), `${event} matcher ${group.matcher} must be a valid regular expression`);
+    }
+  }
+}
 assert.ok(JSON.stringify(hooks).includes('${PLUGIN_ROOT}'), 'hook commands use PLUGIN_ROOT placeholder');
 assert.ok(!JSON.stringify(hooks).includes('"async"'), 'manifest must not use async hooks');
 assert.ok(
