@@ -148,6 +148,22 @@ async function main() {
   ready('launcher-tool');
   assert.equal(runHook({ session_id: 'launcher-tool', hook_event_name: 'PostToolUse', tool_name: 'Bash' })
     .hookSpecificOutput.hookEventName, 'PostToolUse');
+
+  // The runner skips the second Node process only when delivery is provably a no-op.
+  const { shouldSkipHook } = require('../../../scripts/run-hook.cjs');
+  const post = (input) => Buffer.from(JSON.stringify({ hook_event_name: 'PostToolUse', ...input }));
+  assert.equal(shouldSkipHook('desktop_delivery', post({ session_id: 'never-armed' }), env), true, 'no state: nothing to deliver');
+  armSession({ source: 'startup', session_id: 'skip-pending' }, env);
+  assert.equal(shouldSkipHook('desktop_delivery', post({ session_id: 'skip-pending' }), env), true, 'pending: nothing to deliver');
+  ready('skip-ready');
+  assert.equal(shouldSkipHook('desktop_delivery', post({ session_id: 'skip-ready' }), env), false, 'ready title must reach the hook');
+  writeState('skip-ready', { status: 'done' }, env);
+  assert.equal(shouldSkipHook('desktop_delivery', post({ session_id: 'skip-ready' }), env), true, 'done: naming finished');
+  assert.equal(shouldSkipHook('desktop_delivery', Buffer.from(JSON.stringify({ hook_event_name: 'Stop', session_id: 'never-armed' })), env), false, 'Stop always runs');
+  assert.equal(shouldSkipHook('desktop_delivery', Buffer.from('not json'), env), false, 'unparseable input runs the hook');
+  assert.equal(shouldSkipHook('session_start', post({ session_id: 'never-armed' }), env), false, 'other hooks are untouched');
+  fs.writeFileSync(require('../lib/state').stateFile('corrupt-state', env), '{broken');
+  assert.equal(shouldSkipHook('desktop_delivery', post({ session_id: 'corrupt-state' }), env), false, 'unreadable state runs the hook');
 }
 
 main().finally(() => fs.rmSync(temporary, { recursive: true, force: true }))
