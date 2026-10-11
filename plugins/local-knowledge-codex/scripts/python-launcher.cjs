@@ -68,11 +68,11 @@ function pythonCandidates(environment = process.env, platform = process.platform
 }
 
 function cachePath(environment = process.env) {
-  /** Persist the verified interpreter beside other plugin data so later hooks need a single probe. */
-  const data = environment.PLUGIN_DATA
-    || path.join(environment.CODEX_HOME || path.join(os.homedir(), '.codex'),
-      'plugins', 'data', 'local-knowledge-codex');
-  return path.join(data, CACHE_FILE_NAME);
+  /**
+   * Persist the verified interpreter in the plugin data directory the host injects, so later hooks need one probe.
+   * Without PLUGIN_DATA (tests, manual runs) nothing is cached and nothing is written outside the caller's control.
+   */
+  return environment.PLUGIN_DATA ? path.join(environment.PLUGIN_DATA, CACHE_FILE_NAME) : null;
 }
 
 function readCache(file) {
@@ -85,7 +85,6 @@ function readCache(file) {
 }
 
 function writeCache(file, runtime) {
-  if (!path.isAbsolute(runtime.command)) return;
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const temporary = `${file}.${process.pid}.tmp`;
@@ -161,8 +160,9 @@ function resolvePython(options = {}) {
   const timeout = options.timeout ?? PYTHON_DETECTION_TIMEOUT_MS;
   const candidateTimeout = options.candidateTimeout ?? PYTHON_CANDIDATE_TIMEOUT_MS;
   const configured = envNames.some((name) => String(environment[name] || '').trim());
-  const cacheFile = options.cacheFile
-    || (options.spawnSyncImpl || configured ? null : cachePath(environment));
+  // cacheFile: undefined = default policy, null = disabled, string = explicit file (tests).
+  const cacheFile = options.cacheFile !== undefined ? options.cacheFile
+    : (options.spawnSyncImpl || configured ? null : cachePath(environment));
   const startedAt = Date.now();
   let newestUnsupported = null;
   const seen = new Set();
@@ -174,14 +174,14 @@ function resolvePython(options = {}) {
   for (const candidate of candidates) {
     const remaining = timeout - (Date.now() - startedAt);
     if (remaining <= 0) break;
-    // Injected probes run every candidate; real probes skip names that are not installed.
-    const command = options.spawnSyncImpl || configured
-      ? candidate.command : locate(candidate.command, environment, platform);
-    if (!command) continue;
-    const key = `${platform === 'win32' ? command.toLowerCase() : command}\0${candidate.args.join('\0')}`;
+    // Fallback locations are absolute paths and usually absent: skip those without spawning. Bare names go
+    // straight to spawn, which also resolves Windows launchers such as the Store alias.
+    if (!options.spawnSyncImpl && path.isAbsolute(candidate.command) && !configured
+        && !fs.existsSync(candidate.command)) continue;
+    const key = `${platform === 'win32' ? candidate.command.toLowerCase() : candidate.command}\0${candidate.args.join('\0')}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const result = spawnSyncImpl(command,
+    const result = spawnSyncImpl(candidate.command,
       [...candidate.args, '-c', VERSION_SCRIPT], {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
@@ -192,9 +192,12 @@ function resolvePython(options = {}) {
     const parsed = parseVersion(result.stdout);
     if (!parsed) continue;
     if (isSupported(parsed)) {
-      const runtime = { ok: true, command, args: [...candidate.args],
+      const runtime = { ok: true, command: candidate.command, args: [...candidate.args],
         version: parsed.version, elapsedMs: Date.now() - startedAt };
-      if (cacheFile && !candidate.cached) writeCache(cacheFile, runtime);
+      if (cacheFile && !candidate.cached) {
+        const absolute = locate(candidate.command, environment, platform);
+        if (absolute) writeCache(cacheFile, { command: absolute, args: runtime.args });
+      }
       return runtime;
     }
     if (isNewer(parsed, newestUnsupported)) newestUnsupported = parsed;
@@ -237,6 +240,7 @@ if (require.main === module) main();
 module.exports = {
   PYTHON_DETECTION_TIMEOUT_MS,
   RUNTIME_ENV_NAMES,
+  cachePath,
   pythonCandidates,
   resolvePython,
 };
