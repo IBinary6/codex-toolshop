@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { findPython, pythonCandidates, dataDir, runMcp, runHook, withBootstrapLock } = require('../scripts/launch.cjs');
 
 test('an obsolete Python does not shadow a compatible interpreter', () => {
@@ -42,6 +42,61 @@ test('bootstrap lock serializes concurrent preparation and releases on failure',
     const old = new Date(Date.now() - 60 * 60 * 1000);
     fs.utimesSync(lock, old, old);
     assert.equal(withBootstrapLock(lock, () => 'stale lock reclaimed'), 'stale lock reclaimed');
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('a lock whose owner was killed is reclaimed at once, a live owner is respected', () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dbg-owner-'));
+  const lock = path.join(temp, 'bootstrap', 'install.lock');
+  try {
+    // A pid that is certain to be gone: a child that has already exited.
+    const dead = spawnSync(process.execPath, ['-e', '0']).pid;
+    fs.mkdirSync(lock, { recursive: true });
+    fs.writeFileSync(path.join(lock, 'pid'), String(dead));
+    assert.equal(withBootstrapLock(lock, () => 'dead owner reclaimed', { waitMs: 300 }), 'dead owner reclaimed');
+    assert.equal(fs.existsSync(`${lock}.reclaim`), false, 'the reclaim guard is always released');
+
+    fs.mkdirSync(lock, { recursive: true });
+    fs.writeFileSync(path.join(lock, 'pid'), String(process.pid));
+    assert.throws(() => withBootstrapLock(lock, () => 1, { waitMs: 300 }), /still preparing/);
+    assert.equal(fs.existsSync(lock), true, 'a live owner keeps its lock');
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('concurrent starts over an abandoned lock still run one at a time', async () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dbg-contend-'));
+  const lock = path.join(temp, 'bootstrap', 'install.lock');
+  const counter = path.join(temp, 'counter');
+  const inside = path.join(temp, 'inside');
+  fs.writeFileSync(counter, '0');
+  const worker = `
+    const fs = require('node:fs');
+    const { withBootstrapLock } = require(${JSON.stringify(path.resolve(__dirname, '../scripts/launch.cjs'))});
+    withBootstrapLock(${JSON.stringify(lock)}, () => {
+      // Two holders at once would find the marker already present.
+      try { fs.mkdirSync(${JSON.stringify(inside)}); } catch (e) { process.exitCode = 3; return; }
+      const n = Number(fs.readFileSync(${JSON.stringify(counter)}, 'utf8'));
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 40);
+      fs.writeFileSync(${JSON.stringify(counter)}, String(n + 1));
+      fs.rmSync(${JSON.stringify(inside)}, { recursive: true });
+    }, { waitMs: 60000, staleMs: 1000 });
+  `;
+  try {
+    // Leave a lock behind that is old enough for every worker to judge it stale at the same moment.
+    fs.mkdirSync(lock, { recursive: true });
+    const old = new Date(Date.now() - 60 * 60 * 1000);
+    fs.utimesSync(lock, old, old);
+    const workers = Array.from({ length: 6 }, () => new Promise((resolve) => {
+      const child = spawn(process.execPath, ['-e', worker], { stdio: 'ignore', windowsHide: true });
+      child.on('exit', resolve);
+    }));
+    const codes = await Promise.all(workers);
+    assert.deepEqual(codes, [0, 0, 0, 0, 0, 0], 'no worker ever shared the critical section');
+    assert.equal(fs.readFileSync(counter, 'utf8'), '6', 'every worker ran exactly once');
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }
