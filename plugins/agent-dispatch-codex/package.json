@@ -1,6 +1,6 @@
 {
   "name": "agent-dispatch-codex",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "description": "General-purpose Codex task routing for research, planning, production, verification, and independent review.",
   "private": true,
   "engines": {
