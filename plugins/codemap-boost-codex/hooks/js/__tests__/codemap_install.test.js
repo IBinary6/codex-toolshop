@@ -17,9 +17,7 @@ const {
   removeLegacyCrgMcp,
   resolveCodexCommand,
   runCodexMcp,
-  startAutoBootstrap,
   startCrgBuild,
-  startCrgUpdate,
 } = require('../lib/codemap');
 
 function mkdirp(dir) {
@@ -186,44 +184,10 @@ const healthyManaged = {
       },
     };
     assert.strictEqual(startCrgBuild(repo, options), true);
-    mkdirp(path.join(repo, '.code-review-graph'));
-    assert.strictEqual(startCrgUpdate(repo, options), true);
-    assert.strictEqual(launches.length, 2);
+    assert.strictEqual(launches.length, 1);
     assert.strictEqual(launches[0].command, process.execPath);
     assert.ok(launches[0].args[1].includes(JSON.stringify(managedCommand)), 'initial build embeds the managed absolute CRG path');
-    assert.strictEqual(launches[1].command, process.execPath);
-    assert.ok(launches[1].args[1].includes('refreshCrgUnlocked'), 'background update reuses the managed runtime resolver and refresh logic');
-    assert.ok(launches[1].args[1].includes(JSON.stringify(managedCommand)), 'background update embeds the managed absolute CRG path');
-    assert.ok(!launches[1].args[1].includes("spawnSync('code-review-graph'"), 'background refresh must not use PATH CRG');
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
-  }
-}
-
-{
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-bootstrap-launch-failed-'));
-  const oldPluginData = process.env.PLUGIN_DATA;
-  try {
-    const repo = path.join(tmp, 'repo');
-    const data = path.join(tmp, 'plugin-data');
-    mkdirp(repo);
-    process.env.PLUGIN_DATA = data;
-    const init = require('node:child_process').spawnSync('git', ['init'], {
-      cwd: repo,
-      encoding: 'utf8',
-      windowsHide: process.platform === 'win32',
-    });
-    assert.strictEqual(init.status, 0, init.stderr);
-    assert.strictEqual(startAutoBootstrap(repo, {
-      canUseCrg: () => false,
-      spawnDetached: () => null,
-    }), false);
-    const diagnostic = fs.readFileSync(path.join(data, '.codemap-bootstrap-failed'), 'utf8');
-    assert.match(diagnostic, /could not start background/);
-    assert.match(diagnostic, /setup/);
-  } finally {
-    if (oldPluginData === undefined) delete process.env.PLUGIN_DATA;
-    else process.env.PLUGIN_DATA = oldPluginData;
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }

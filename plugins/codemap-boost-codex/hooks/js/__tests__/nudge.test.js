@@ -45,7 +45,6 @@ function runHook(name, payload, extraEnv = {}, availability = 'available') {
         CODEX_HOME: path.join(tmp, 'codex-home'),
         PLUGIN_ROOT: pluginRoot,
         PLUGIN_DATA: pluginData,
-        CODEMAP_BOOST_DISABLE_BOOTSTRAP: '1',
         ...graphEnv,
         ...extraEnv,
       },
@@ -111,7 +110,7 @@ console.log('nudge.test.js PASS');
   try {
     initRepo(tmp);
     const env = { ...process.env, PLUGIN_ROOT: pluginRoot, PLUGIN_DATA: tmp,
-      CODEX_HOME: tmp, CODEMAP_BOOST_DISABLE_BOOTSTRAP: '1', CODEMAP_BOOST_ASSUME_CRG: '1' };
+      CODEX_HOME: tmp, CODEMAP_BOOST_ASSUME_CRG: '1' };
     delete env.CODEMAP_BOOST_DISABLE_GRAPH;
     fs.writeFileSync(path.join(tmp, '.codemap-boost-enabled'), '1');
     const base = { session_id: 's', turn_id: 't', cwd: tmp };

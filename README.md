@@ -258,7 +258,7 @@ codex plugin list
 - A newly installed debugging tool is missing: run `dbg doctor`, inspect `not_installed`, `unsupported`, or error details, then open a new task after deployment. Ghidra also needs GUI extension activation.
 - `failed to parse plugin hooks config ... unknown field description`: update the plugin and ensure cached `hooks/hooks.json` has only `hooks` at its top level.
 - No CodeMap graph: confirm the target is a Git repository and run `code-review-graph status`. New sessions wait for the initial build before graph use.
-- CodeMap does not run: check `CODEMAP_BOOST_DISABLE_GRAPH=1` and `CODEMAP_BOOST_DISABLE_BOOTSTRAP=1`.
+- CodeMap does not run: check `CODEMAP_BOOST_DISABLE_GRAPH=1`.
 - tgrep is unready or misses a new file: use `--fresh` and inspect wrapper `status`/`doctor`. Initial download, indexing, and change reconciliation are different phases. Trust hooks through the host UI; the plugin does not grant itself trust.
 - C++ formatting does not run: check `clang-format`. Missing formatters skip formatting while cpplint and other checks continue.
 - A hook misbehaves or you want to compare behavior: hooks run inside their runner process, which saves one Node start-up (about 40 ms) per hook. Set `TOOLSHOP_HOOKS_CHILD_PROCESS=1` to run every hook in its own Node process, as earlier versions did.

@@ -30,8 +30,7 @@ try {
 const fs = require('fs');
 const root = process.env.CODEMAP_TEST_PLUGIN;
 const codemap = require(root + '/hooks/js/lib/codemap');
-for (const name of ['isCodeMapEnabled', 'canUseCrg', 'startAutoBootstrap', 'startCrgBuild',
-  'startCrgUpdate', 'refreshLinkedWorktreesSync', 'refreshCrgSync', 'prepareCrgForRead']) {
+for (const name of ['isCodeMapEnabled', 'canUseCrg', 'startCrgBuild', 'refreshCrgSync', 'prepareCrgForRead']) {
   codemap[name] = () => { fs.appendFileSync(process.env.CODEMAP_TEST_EVENTS, name + '\\n'); return true; };
 }
 for (const name of ['cleanLegacyCrgHooks', 'cleanLegacyCrgGitHook', 'ensureAgentsBlock', 'ensureGitInfoExclude']) {
