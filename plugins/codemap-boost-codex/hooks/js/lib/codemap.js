@@ -552,7 +552,7 @@ function prepareCrgForRead(cwd, options = {}) {
   const deadlineMs = Math.min(options.deadlineMs ?? Infinity, now + MCP_BOOTSTRAP_BUDGET_MS);
   if (deadlineMs <= now) return refreshFailed(options, 'prepare_budget_exhausted', 'The graph preparation budget was exhausted before runtime preparation.');
   // The catalog helper only reads the active pointer and installation metadata; it starts neither CRG nor an interpreter.
-  const { recordSelectedCrgRuntime, selectCrgRuntime } = require('../../../scripts/mcp-catalog.cjs');
+  const { recordSelectedCrgRuntime, selectCrgRuntime } = require('./mcp-catalog');
   const runtimeOptions = selectCrgRuntime({ ...options, deadlineMs });
   const paths = crgRuntimePaths(runtimeOptions);
   const diagnostics = [];

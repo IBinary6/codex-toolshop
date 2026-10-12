@@ -7,7 +7,7 @@ const { enableCodeMap, readBootstrapFailure } = require('../hooks/js/lib/codemap
 const { nodeRuntimeStatus } = require('../hooks/js/lib/runtime');
 const { scheduleRuntimeUpdates } = require('../hooks/js/lib/runtime-updates');
 const { enterMcpDataDir } = require('./mcp-cwd.cjs');
-const { loadCatalog, recordSelectedCrgRuntime, selectCrgRuntime } = require('./mcp-catalog.cjs');
+const { loadCatalog, recordSelectedCrgRuntime, selectCrgRuntime } = require('../hooks/js/lib/mcp-catalog');
 const { LazyMcpProxy, killProcessTree } = require('./lazy-mcp.cjs');
 
 /**

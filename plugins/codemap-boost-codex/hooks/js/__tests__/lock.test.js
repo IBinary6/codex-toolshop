@@ -97,18 +97,22 @@ function semantics() {
 // Waiters that all find the same abandoned lock must still take turns. Reading the owner, deciding it is gone and
 // deleting the file without a guard lets one waiter delete the lock another has just taken: the two then hold it
 // at once, in roughly one in five trials with six processes.
+// Overlap is detected without comparing clocks (processes on Windows do not share one to the millisecond): inside the
+// lock each holder creates a marker file exclusively, so a second holder finds it already there.
 const CHILD = `
+const fs = require('fs');
 const { acquireLockSync, releaseLock, sleepSync } = require(${JSON.stringify(lockModule)});
 const [file, startAt] = [process.argv[1], Number(process.argv[2])];
 sleepSync(startAt - Date.now() - 5);
 while (Date.now() < startAt) {}
 const token = acquireLockSync(file, { waitMs: 5000, pollMs: 2, bootMs: 5000 });
-const result = { won: false };
+const result = { won: false, overlapped: false };
 if (token) {
   result.won = true;
-  result.start = Date.now();
+  const marker = file + '.inside';
+  try { fs.writeFileSync(marker, String(process.pid), { flag: 'wx' }); } catch (error) { result.overlapped = error.code === 'EEXIST'; }
   sleepSync(30);
-  result.end = Date.now();
+  if (!result.overlapped) fs.rmSync(marker, { force: true });
   releaseLock(file, token);
 }
 process.stdout.write(JSON.stringify(result));
@@ -122,7 +126,7 @@ function race(trial, processes) {
     const child = spawn(process.execPath, ['-e', CHILD, file, String(startAt)], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true });
     let text = '';
     child.stdout.on('data', (chunk) => { text += chunk; });
-    child.on('close', () => { try { resolve(JSON.parse(text)); } catch (_) { resolve({ won: false }); } });
+    child.on('close', () => { try { resolve(JSON.parse(text)); } catch (_) { resolve({ won: false, overlapped: false }); } });
   })));
 }
 
@@ -131,11 +135,8 @@ async function exclusion() {
   const PROCESSES = 6;
   const trials = await Promise.all(Array.from({ length: TRIALS }, (_, trial) => race(trial, PROCESSES)));
   trials.forEach((results, trial) => {
-    const winners = results.filter((result) => result.won).sort((a, b) => a.start - b.start);
-    assert.equal(winners.length, PROCESSES, `trial ${trial}: every waiter eventually gets its turn`);
-    for (let i = 1; i < winners.length; i += 1) {
-      assert.ok(winners[i].start >= winners[i - 1].end, `trial ${trial}: two processes held the lock at once`);
-    }
+    assert.equal(results.filter((result) => result.won).length, PROCESSES, `trial ${trial}: every waiter eventually gets its turn`);
+    assert.ok(!results.some((result) => result.overlapped), `trial ${trial}: two processes held the lock at once`);
   });
 }
 

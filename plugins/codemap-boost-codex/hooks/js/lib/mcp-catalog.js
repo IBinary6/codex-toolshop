@@ -3,11 +3,14 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { crgRuntimePaths } = require('../hooks/js/lib/bootstrap');
-const { activeRuntimeVersion, isRuntimeVersion, promoteRuntimeVersion } = require('../hooks/js/lib/runtime-versions');
-const { pluginDataDir } = require('../hooks/js/lib/runtime');
+const { crgRuntimePaths } = require('./bootstrap');
+const { activeRuntimeVersion, isRuntimeVersion, promoteRuntimeVersion } = require('./runtime-versions');
+const { pluginDataDir } = require('./runtime');
+const { acquireUpdateLock, releaseUpdateLock } = require('./update-lock');
 
 const BUNDLED_CRG_VERSION = '2.3.9';
+// The Python exporter and the bundled catalogs ship in the plugin's scripts directory.
+const SCRIPTS_DIR = path.join(__dirname, '..', '..', '..', 'scripts');
 
 // Read installation metadata only; do not start interpreters, CLI probes, or models.
 function diskRuntimeVersion(runtimeDir) {
@@ -52,8 +55,7 @@ function recordSelectedCrgRuntime(options = {}) {
   if (!options.runtimeDir || path.resolve(options.runtimeDir) !== path.resolve(expected)
       || diskRuntimeVersion(options.runtimeDir) !== options.version) return false;
   // The updater writes the same Serena/CRG pointer; share its lock so read-check-write cannot lose the other kind.
-  // Require dynamically to avoid circular catalog/runtime-updates loading; retry recording on the next preparation if locked.
-  const { acquireUpdateLock, releaseUpdateLock } = require('../hooks/js/lib/runtime-updates');
+  // If the lock is busy, recording is retried on the next preparation.
   const lockOptions = { pluginDataDir: options.pluginDataDir };
   const lock = acquireUpdateLock(lockOptions);
   if (!lock) return false;
@@ -109,7 +111,7 @@ function exportCatalog(paths, expectedVersion, options = {}) {
     const abort = () => { try { child.kill(); } catch (_) {} finish(new Error('catalog export cancelled')); };
     if (options.signal && options.signal.aborted) return finish(new Error('catalog export cancelled'));
     try {
-      child = (options.catalogSpawn || spawn)(paths.python, ['-I', '-B', path.join(__dirname, 'export-mcp-catalog.py')], {
+      child = (options.catalogSpawn || spawn)(paths.python, ['-I', '-B', path.join(SCRIPTS_DIR, 'export-mcp-catalog.py')], {
         cwd: options.pluginDataDir || process.cwd(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
         env: { ...process.env, ...(options.env || {}), CRG_TOOLS: '' },
       });
@@ -138,7 +140,7 @@ async function loadCatalog(options = {}) {
   // A pointer schema must not hide a mismatch with the actual installed version.
   const installed = diskRuntimeVersion(paths.dir);
   const version = selected.version;
-  const sources = [catalogPath(version, selected), path.join(__dirname, `mcp-catalog-${version}.json`)];
+  const sources = [catalogPath(version, selected), path.join(SCRIPTS_DIR, `mcp-catalog-${version}.json`)];
   for (const source of sources) {
     try { return filteredCatalog(validateCatalog(JSON.parse(fs.readFileSync(source, 'utf8')), version), options); } catch (_) {}
   }
