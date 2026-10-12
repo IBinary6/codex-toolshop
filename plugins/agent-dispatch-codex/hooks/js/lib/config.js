@@ -178,9 +178,17 @@ function gitOutput(cwd, args) {
   }
 }
 
+// A hook looks the same directory up several times (config files, ignore rules, agent profiles); ask git once.
+// Only successes are remembered, so a directory that becomes a repository later is still found.
+const gitRoots = new Map();
+
 function gitRoot(cwd) {
+  if (gitRoots.has(cwd)) return gitRoots.get(cwd);
   const value = gitOutput(cwd, ['rev-parse', '--show-toplevel']);
-  return value ? path.resolve(value) : null;
+  if (!value) return null;
+  const root = path.resolve(value);
+  gitRoots.set(cwd, root);
+  return root;
 }
 
 function globalConfigPath() {
@@ -218,18 +226,24 @@ function writeJsonIfMissing(file, value) {
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
 
-function ensureGitExclude(cwd) {
-  const root = gitRoot(cwd);
-  if (!root) return;
+/** Append the entries that are not yet in the repository's local exclude file, which is never committed. */
+function appendGitExclude(root, entries) {
+  if (!entries.length) return;
   const raw = gitOutput(root, ['rev-parse', '--git-path', 'info/exclude']);
   if (!raw) return;
   const exclude = path.isAbsolute(raw) ? raw : path.resolve(root, raw);
   fs.mkdirSync(path.dirname(exclude), { recursive: true });
-  const entry = `${PROJECT_DIR}/`;
   const content = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : '';
-  if (content.split(/\r?\n/).some((line) => line.trim() === entry)) return;
+  const present = new Set(content.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+  const missing = entries.filter((entry) => !present.has(entry));
+  if (!missing.length) return;
   const prefix = content && !content.endsWith('\n') ? '\n' : '';
-  fs.appendFileSync(exclude, `${prefix}${entry}\n`, 'utf8');
+  fs.appendFileSync(exclude, `${prefix}${missing.join('\n')}\n`, 'utf8');
+}
+
+function ensureGitExclude(cwd) {
+  const root = gitRoot(cwd);
+  if (root) appendGitExclude(root, [`${PROJECT_DIR}/`]);
 }
 
 function ensureConfigFiles(cwd) {
@@ -253,6 +267,7 @@ function loadConfig(cwd) {
 module.exports = {
   PROJECT_DIR,
   addRemove,
+  appendGitExclude,
   ensureConfigFiles,
   ensureGitExclude,
   gitOutput,

@@ -12,6 +12,7 @@ const tests = [
   'guidance.test.js',
   'hooks.integration.test.js',
   'runner.test.js',
+  'git_calls.test.js',
 ];
 const testDir = path.resolve(__dirname, '..', 'hooks', 'js', '__tests__');
 
