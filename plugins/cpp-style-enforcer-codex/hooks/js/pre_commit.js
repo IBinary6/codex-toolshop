@@ -38,6 +38,7 @@ function unquote(token) {
  * @returns {string[]} Command segments in order
  * @example
  * splitCommandSegments('cd repo && git commit') // ['cd repo', 'git commit']
+ * splitCommandSegments('true & (git commit)') // ['true', 'git commit']
  */
 function splitCommandSegments(command) {
   const text = String(command);
@@ -64,8 +65,11 @@ function splitCommandSegments(command) {
       continue;
     }
     const pair = text.slice(index, index + 2);
+    // A single & backgrounds the left side (but `>&` and `<&` are redirections); a newline ends a command like ;
+    // and an unquoted parenthesis opens or closes a subshell, so the command inside it is its own segment.
     const separatorLength = pair === '&&' || pair === '||' ? 2
-      : (char === ';' || char === '|' ? 1 : 0);
+      : (char === ';' || char === '|' || char === '\n' || char === '\r' || char === '(' || char === ')'
+        || (char === '&' && text[index - 1] !== '>' && text[index - 1] !== '<') ? 1 : 0);
     if (!separatorLength) continue;
     const segment = text.slice(start, index).trim();
     if (segment) segments.push(segment);

@@ -63,6 +63,16 @@ try {
     assert.strictEqual(ignoring.status, 0);
     assert.strictEqual(ignoring.stdout, 'ok');
   }
+  // Without PLUGIN_DATA the fallback is stable across upgrades: the plugin root here is named like a cache version folder.
+  const versionRoot = path.join(root, '0.1.14');
+  fs.mkdirSync(path.join(versionRoot, 'hooks', 'js'), { recursive: true });
+  fs.writeFileSync(path.join(versionRoot, 'hooks', 'js', 'session_start.js'), 'process.stdout.write(process.env.PLUGIN_DATA);');
+  const fallbackEnv = { ...process.env, PLUGIN_ROOT: versionRoot, CODEX_HOME: path.join(root, 'codex-home') };
+  delete fallbackEnv.PLUGIN_DATA;
+  const fallback = spawnSync(process.execPath, [runner, 'session_start'], { cwd: root, input: '{}', encoding: 'utf8', env: fallbackEnv });
+  assert.strictEqual(fallback.status, 0, fallback.stderr);
+  assert.strictEqual(fallback.stdout, path.join(root, 'codex-home', 'plugins', 'data', 'cpp-style-enforcer-codex'));
+
   const unknown = invoke('no_such_hook', '');
   assert.strictEqual(unknown.status, 0);
   assert.match(unknown.stderr, /unknown hook: no_such_hook/);
