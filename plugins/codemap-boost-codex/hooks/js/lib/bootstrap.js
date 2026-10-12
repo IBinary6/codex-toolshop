@@ -1,9 +1,9 @@
 'use strict';
 
-const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { acquireLockSync, releaseLock } = require('./lock');
 const { isWindows, markerPath, pluginDataDir, writeMarker } = require('./runtime');
 const { commandExists } = require('./runtime');
 const { activeRuntimeVersion } = require('./runtime-versions');
@@ -245,29 +245,9 @@ function writeFailureMarker(file, diagnostic) {
 }
 
 /**
- * Wait synchronously in short polling intervals without spawning an extra shell.
- * @example sleepSync(100)
- */
-function sleepSync(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-/**
- * Check whether the local process recorded in the lock file is still alive.
- * @example isPidAlive(process.pid)
- */
-function isPidAlive(pid) {
-  if (!pid) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return !!error && error.code === 'EPERM';
-  }
-}
-
-/**
- * Acquire the private-runtime installation lock to prevent concurrent rebuilds of one venv.
+ * Take the runtime installation lock, waiting up to the budget. A live installer is never robbed of the lock merely
+ * because it is slow: two tasks could rebuild the same virtual environment.
+ * @returns {string|false} Owner token to pass to releaseInstallLock, or false when the lock stays busy.
  * @example acquireInstallLock('/tmp/crg-runtime.install.lock')
  */
 function acquireInstallLock(file, options = {}) {
@@ -279,41 +259,15 @@ function acquireInstallLock(file, options = {}) {
     Number.isFinite(options.deadlineMs) ? options.deadlineMs : Number.POSITIVE_INFINITY
   );
   if (deadline <= now) return false;
-  const token = crypto.randomUUID();
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  while (Date.now() <= deadline) {
-    try {
-      fs.writeFileSync(file, JSON.stringify({ pid: process.pid, token }), { flag: 'wx' });
-      return token;
-    } catch (error) {
-      if (error.code !== 'EEXIST') return false;
-    }
-    try {
-      const raw = fs.readFileSync(file, 'utf8').trim();
-      let pid = Number.parseInt(raw, 10) || 0;
-      try { pid = Number(JSON.parse(raw).pid) || 0; } catch (_) {}
-      const age = Date.now() - fs.statSync(file).mtimeMs;
-      // Do not steal an installation lock from a live process merely because it is slow; two tasks could rebuild the same venv.
-      if (!isPidAlive(pid) && age > bootMs) {
-        fs.rmSync(file, { force: true });
-        continue;
-      }
-    } catch (_) {}
-    sleepSync(100);
-  }
-  return false;
+  return acquireLockSync(file, { waitMs: deadline - now, pollMs: 100, bootMs }) || false;
 }
 
 /**
- * Release the private-runtime installation lock held by this task.
+ * Release the installation lock if this token still owns it.
  * @example releaseInstallLock('/tmp/crg-runtime.install.lock', token)
  */
-function releaseInstallLock(file, token) {
-  try {
-    const current = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (current.token === token) fs.rmSync(file, { force: true });
-  } catch (_) {}
-}
+const releaseInstallLock = releaseLock;
 
 function ensureCli(command, pkg, marker, opts = {}) {
   const probe = opts.probe || commandExists;

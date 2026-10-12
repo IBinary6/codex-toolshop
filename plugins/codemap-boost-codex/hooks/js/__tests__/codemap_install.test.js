@@ -171,10 +171,14 @@ const healthyManaged = {
     assert.strictEqual(init.status, 0, init.stderr);
 
     const launches = [];
+    // The same name production derives from the repository root that Git reports.
+    const gitRoot = path.resolve(require('node:child_process').spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: repo, encoding: 'utf8' }).stdout.trim());
+    const lockFile = path.join(os.tmpdir(), `codemap-crg-refresh-${require('node:crypto').createHash('sha1').update(gitRoot).digest('hex').slice(0, 16)}.lock`);
     const options = {
       isCodeMapEnabled: () => true,
       crgCommand: () => managedCommand,
       spawnDetached: (command, args, spawnOptions) => {
+        assert.strictEqual(JSON.parse(fs.readFileSync(lockFile, 'utf8')).pid, process.pid, 'the launcher holds the refresh lock while the build starts');
         launches.push({ command, args, spawnOptions });
         return require('node:child_process').spawnSync(command, args, {
           cwd: spawnOptions.cwd,
@@ -185,6 +189,7 @@ const healthyManaged = {
     };
     assert.strictEqual(startCrgBuild(repo, options), true);
     assert.strictEqual(launches.length, 1);
+    assert.ok(!fs.existsSync(lockFile), 'the background build hands over and then releases the refresh lock');
     assert.strictEqual(launches[0].command, process.execPath);
     assert.ok(launches[0].args[1].includes(JSON.stringify(managedCommand)), 'initial build embeds the managed absolute CRG path');
   } finally {

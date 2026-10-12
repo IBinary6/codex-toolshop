@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
+const { releaseLock, tryAcquireLock } = require('../hooks/js/lib/lock');
 const { pluginDataDir } = require('../hooks/js/lib/runtime');
 const { killProcessTree } = require('./lazy-mcp.cjs');
 
@@ -311,23 +312,12 @@ async function reuseDatabase(root, options, database, directory, diagnostics) {
 
 async function acquireLock(file, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
-  const token = crypto.randomUUID();
-  while (Date.now() <= deadline) {
-    try {
-      const fd = fs.openSync(file, 'wx');
-      fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, token }));
-      fs.closeSync(fd);
-      return () => { try { if (readJson(file).token === token) fs.unlinkSync(file); } catch (_) {} };
-    } catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-      try {
-        const owner = readJson(file);
-        try { process.kill(owner.pid, 0); } catch (probe) { if (probe.code === 'ESRCH') { fs.unlinkSync(file); continue; } }
-      } catch (_) { /* Do not steal a lock that is being written or cannot be identified. */ }
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
+  for (;;) {
+    const token = tryAcquireLock(file, { bootMs: 5000 });
+    if (token) return () => releaseLock(file, token);
+    if (Date.now() >= deadline) return null;
+    await new Promise(resolve => setTimeout(resolve, 50));
   }
-  return null;
 }
 
 /**
