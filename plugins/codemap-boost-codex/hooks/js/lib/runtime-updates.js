@@ -12,9 +12,11 @@ const {
   installManagedCrg,
   probeCrgRuntime,
 } = require('./bootstrap');
-const { releaseLock, transferLock, tryAcquireLock } = require('./lock');
+const {
+  UPDATE_LOCK_FILE, acquireUpdateLock, adoptedUpdateLock, releaseUpdateLock, transferUpdateLock, updateLockPath,
+} = require('./update-lock');
 const { pluginDataDir } = require('./runtime');
-const { exportCatalog } = require('../../../scripts/mcp-catalog.cjs');
+const { exportCatalog } = require('./mcp-catalog');
 const {
   activeRuntimeVersion,
   compareVersions,
@@ -32,8 +34,6 @@ const {
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const UPDATE_STATE_FILE = 'runtime-update-state.json';
-const UPDATE_LOCK_FILE = 'runtime-update.lock';
-const UPDATE_LOCK_STALE_MS = 30 * 60 * 1000;
 
 function updateKinds(options = {}) {
   const kinds = options.kinds || ['crg', 'serena'];
@@ -53,10 +53,6 @@ async function checkCrgCatalog(paths, version, options = {}) {
 
 function updateStatePath(options = {}) {
   return path.join(options.pluginDataDir || pluginDataDir(options), UPDATE_STATE_FILE);
-}
-
-function updateLockPath(options = {}) {
-  return path.join(options.pluginDataDir || pluginDataDir(options), UPDATE_LOCK_FILE);
 }
 
 function readUpdateState(options = {}) {
@@ -79,22 +75,6 @@ function writeUpdateState(value, options = {}) {
 
 function updatesDisabled(options = {}) {
   return String((options.env || process.env).CODEMAP_BOOST_DISABLE_RUNTIME_UPDATES || '') === '1';
-}
-
-function acquireUpdateLock(options = {}) {
-  const file = options.lockPath || updateLockPath(options);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  // The owner is the scheduling process until it hands the lock to the updater child, so a young lock is never taken.
-  const token = tryAcquireLock(file, { token: options.token, bootMs: options.lockStaleMs || UPDATE_LOCK_STALE_MS });
-  return token ? { file, token } : null;
-}
-
-function releaseUpdateLock(lock) {
-  if (lock) releaseLock(lock.file, lock.token);
-}
-
-function transferUpdateLock(lock, pid) {
-  return !!lock && transferLock(lock.file, lock.token, pid);
 }
 
 function recordScheduleError(options, reason) {
@@ -403,15 +383,6 @@ function scheduleRuntimeUpdates(options = {}) {
     releaseUpdateLock(lock);
     return false;
   }
-}
-
-function adoptedUpdateLock(token, options = {}) {
-  if (!token) return null;
-  const file = options.lockPath || updateLockPath(options);
-  try {
-    const record = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return record.token === token && Number(record.pid) === process.pid ? { file, token } : null;
-  } catch (_) { return null; }
 }
 
 module.exports = {

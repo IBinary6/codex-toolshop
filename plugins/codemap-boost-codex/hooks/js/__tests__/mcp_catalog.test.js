@@ -11,7 +11,7 @@ const { prepareMcpServer } = require('../../../scripts/mcp-server.cjs');
 const { crgRuntimePaths } = require('../lib/bootstrap');
 const {
   BUNDLED_CRG_VERSION, catalogPath, diskRuntimeVersion, loadCatalog, recordSelectedCrgRuntime, selectCrgRuntime, validateCatalog,
-} = require('../../../scripts/mcp-catalog.cjs');
+} = require('../lib/mcp-catalog');
 const bundled = require('../../../scripts/mcp-catalog-2.3.9.json');
 
 function metadata(dir, version) {
