@@ -36,28 +36,55 @@ function context(cwd, explicitRoot) {
   const version = selectedRelease().version;
   return { root, dir, version, index: updates.indexForVersion(dir, version), git: git.status === 0 };
 }
+// Windows refuses to create, rename or remove a directory whose deletion is still completing (another process, a
+// virus scanner or the search indexer holds a handle for a moment) with EPERM, EACCES or EBUSY. That is contention.
+const TRANSIENT = new Set(['EPERM', 'EACCES', 'EBUSY']);
+// The reap guard is held for a few milliseconds; one older than this belongs to a process that died inside it.
+const REAP_STALE_MS = 60 * 1000;
+function sleepSync(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
+/** Retry an fs operation for about 200 ms while Windows still holds the directory; returns whether it succeeded. */
+function persistent(operation) {
+  for (let attempt = 0; ; attempt += 1) {
+    try { operation(); return true; } catch (e) {
+      if (attempt >= 10 || !TRANSIENT.has(e.code)) return false;
+      sleepSync(20);
+    }
+  }
+}
+const removeTree = target => persistent(() => fs.rmSync(target, { recursive: true, force: true }));
 // mkdir provides interprocess exclusion; reclaim only confirmed dead owners, never infer live identity from timeouts.
+// Returns the release function, or null when another process holds the lock or the directory is still being deleted.
 function lock(dir) {
   fs.mkdirSync(path.dirname(dir), { recursive: true, mode: 0o700 });
+  const reap = `${dir}.reap`;
   for (let i = 0; i < 2; i++) {
     try {
-      if (fs.existsSync(`${dir}.reap`)) return null;
+      if (fs.existsSync(reap)) {
+        try { if (Date.now() - fs.statSync(reap).mtimeMs > REAP_STALE_MS) removeTree(reap); } catch {}
+        return null;
+      }
       fs.mkdirSync(dir, { mode: 0o700 });
-      fs.writeFileSync(path.join(dir, 'owner.json'), JSON.stringify({ pid: process.pid }), { mode: 0o600 });
-      return () => { const owner = readJSON(path.join(dir, 'owner.json')); if (owner?.pid === process.pid) fs.rmSync(dir, { recursive: true, force: true }); };
+      try {
+        fs.writeFileSync(path.join(dir, 'owner.json'), JSON.stringify({ pid: process.pid }), { mode: 0o600 });
+      } catch (e) {
+        removeTree(dir); // do not leave an ownerless directory that blocks everyone for 30 seconds
+        if (TRANSIENT.has(e.code)) return null;
+        throw e;
+      }
+      return () => { const owner = readJSON(path.join(dir, 'owner.json')); if (owner?.pid === process.pid) removeTree(dir); };
     } catch (e) {
+      if (TRANSIENT.has(e.code)) return null;
       if (e.code !== 'EEXIST') throw e;
-      const reap = `${dir}.reap`;
       try { fs.mkdirSync(reap); } catch { return null; }
       try {
         const owner = readJSON(path.join(dir, 'owner.json'));
         let age; try { age = Date.now() - fs.statSync(dir).mtimeMs; } catch { continue; }
         if ((owner && Number.isInteger(owner.pid) && !alive(owner.pid)) || (!owner && age > 30000)) {
           const stale = `${dir}.stale.${crypto.randomUUID()}`;
-          fs.renameSync(dir, stale);
-          fs.rmSync(stale, { recursive: true, force: true });
+          if (!persistent(() => fs.renameSync(dir, stale))) return null;
+          removeTree(stale);
         } else return null;
-      } finally { fs.rmdirSync(reap); }
+      } finally { removeTree(reap); }
 
     }
   }
