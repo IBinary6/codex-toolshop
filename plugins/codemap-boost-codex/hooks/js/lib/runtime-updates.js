@@ -12,6 +12,7 @@ const {
   installManagedCrg,
   probeCrgRuntime,
 } = require('./bootstrap');
+const { releaseLock, transferLock, tryAcquireLock } = require('./lock');
 const { pluginDataDir } = require('./runtime');
 const { exportCatalog } = require('../../../scripts/mcp-catalog.cjs');
 const {
@@ -80,48 +81,20 @@ function updatesDisabled(options = {}) {
   return String((options.env || process.env).CODEMAP_BOOST_DISABLE_RUNTIME_UPDATES || '') === '1';
 }
 
-function isPidAlive(pid) {
-  if (!pid) return false;
-  try { process.kill(pid, 0); return true; } catch (error) { return !!error && error.code === 'EPERM'; }
-}
-
 function acquireUpdateLock(options = {}) {
   const file = options.lockPath || updateLockPath(options);
-  const token = options.token || require('crypto').randomUUID();
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  try {
-    fs.writeFileSync(file, JSON.stringify({ pid: process.pid, token, startedAt: Date.now() }), { flag: 'wx' });
-    return { file, token };
-  } catch (error) {
-    if (!error || error.code !== 'EEXIST') return null;
-  }
-  try {
-    const record = JSON.parse(fs.readFileSync(file, 'utf8'));
-    const age = Date.now() - fs.statSync(file).mtimeMs;
-    if (!isPidAlive(Number(record.pid)) && age > (options.lockStaleMs || UPDATE_LOCK_STALE_MS)) {
-      fs.rmSync(file, { force: true });
-      return acquireUpdateLock(options);
-    }
-  } catch (_) {}
-  return null;
+  // The owner is the scheduling process until it hands the lock to the updater child, so a young lock is never taken.
+  const token = tryAcquireLock(file, { token: options.token, bootMs: options.lockStaleMs || UPDATE_LOCK_STALE_MS });
+  return token ? { file, token } : null;
 }
 
 function releaseUpdateLock(lock) {
-  if (!lock) return;
-  try {
-    const record = JSON.parse(fs.readFileSync(lock.file, 'utf8'));
-    if (record.token === lock.token) fs.rmSync(lock.file, { force: true });
-  } catch (_) {}
+  if (lock) releaseLock(lock.file, lock.token);
 }
 
 function transferUpdateLock(lock, pid) {
-  if (!lock || !Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    const record = JSON.parse(fs.readFileSync(lock.file, 'utf8'));
-    if (record.token !== lock.token) return false;
-    fs.writeFileSync(lock.file, JSON.stringify({ ...record, pid }), 'utf8');
-    return true;
-  } catch (_) { return false; }
+  return !!lock && transferLock(lock.file, lock.token, pid);
 }
 
 function recordScheduleError(options, reason) {

@@ -16,6 +16,7 @@ const {
   spawnDetached,
   writeMarker,
 } = require('./runtime');
+const { acquireLockSync, releaseLock, tryAcquireLock } = require('./lock');
 const { parseMcpJson, isNativeCrgMcpConfig, resolveCodexCommand, runCodexMcp } = require('./codex-cli');
 const {
   LEGACY_MCP_CHECKED_MARKER,
@@ -216,41 +217,6 @@ function lockName(prefix, cwd) {
   return `${prefix}-${key}.lock`;
 }
 
-function isPidAlive(pid) {
-  if (!pid) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
-
-function isLockActive(file, staleMs = LOCK_STALE_MS) {
-  try {
-    const pid = Number.parseInt(fs.readFileSync(file, 'utf8').trim(), 10) || 0;
-    const stat = fs.statSync(file);
-    const age = Date.now() - stat.mtimeMs;
-    if (age <= LOCK_BOOT_MS) return true;
-    if (age <= staleMs && isPidAlive(pid)) return true;
-    fs.unlinkSync(file);
-  } catch (_) {}
-  return false;
-}
-
-function tryWriteLock(file) {
-  try {
-    fs.writeFileSync(file, String(process.pid), { flag: 'wx' });
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
-
-function sleepSync(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
 function refreshDiagnosticText(value) {
   const text = String(value || '')
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
@@ -288,15 +254,6 @@ function refreshProcessFailure(result) {
   const signal = result && result.signal;
   if (signal) return `Refresh process terminated by signal ${signal}.`;
   return `Refresh process exited with status ${status === null || status === undefined ? 'unknown' : status}.`;
-}
-
-function acquireRefreshLock(lockFile, waitMs = REFRESH_WAIT_MS) {
-  const deadline = Date.now() + waitMs;
-  while (Date.now() <= deadline) {
-    if (!isLockActive(lockFile) && tryWriteLock(lockFile)) return true;
-    sleepSync(50);
-  }
-  return false;
 }
 
 function gitResult(cwd, args, options = {}) {
@@ -563,13 +520,14 @@ function refreshCrgSync(cwd, options = {}) {
   if (remainingRefreshBudget(options) <= 0) {
     return refreshFailed(options, 'prepare_budget_exhausted', 'The graph preparation budget was exhausted before acquiring the refresh lock.');
   }
-  if (!acquireRefreshLock(lockFile, waitMs)) {
+  const lockToken = acquireLockSync(lockFile, { waitMs, pollMs: 50, bootMs: LOCK_BOOT_MS, staleMs: LOCK_STALE_MS });
+  if (!lockToken) {
     return refreshFailed(options, 'lock_wait_timeout', `Refresh lock wait timed out after ${waitMs} ms.`);
   }
   try {
     return refreshCrgUnlocked(root, options);
   } finally {
-    try { fs.unlinkSync(lockFile); } catch (_) {}
+    releaseLock(lockFile, lockToken);
   }
 }
 
@@ -620,23 +578,23 @@ function startCrgBuild(cwd, options = {}) {
   const graphDir = path.join(root, '.code-review-graph');
   if (fs.existsSync(graphDir)) return false;
   const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-refresh', root));
-  if (isLockActive(lockFile)) return false;
-  if (!tryWriteLock(lockFile)) return false;
+  const lockToken = tryAcquireLock(lockFile, { bootMs: LOCK_BOOT_MS, staleMs: LOCK_STALE_MS });
+  if (!lockToken) return false;
   const command = crgCommand(options);
   const code = `
-    const fs = require('fs');
+    const lock = require(${JSON.stringify(path.join(__dirname, 'lock.js'))});
     const codemap = require(${JSON.stringify(__filename)});
     try {
-      try { fs.writeFileSync(${JSON.stringify(lockFile)}, String(process.pid)); } catch (_) {}
+      lock.transferLock(${JSON.stringify(lockFile)}, ${JSON.stringify(lockToken)}, process.pid);
       codemap.refreshCrgUnlocked(${JSON.stringify(root)}, { crgCommand: ${JSON.stringify(command)} });
     } finally {
-      try { fs.unlinkSync(${JSON.stringify(lockFile)}); } catch (_) {}
+      lock.releaseLock(${JSON.stringify(lockFile)}, ${JSON.stringify(lockToken)});
     }
   `;
   const launch = options.spawnDetached || spawnDetached;
   const child = launch(process.execPath, ['-e', code], { cwd: root });
   if (!child) {
-    try { fs.unlinkSync(lockFile); } catch (_) {}
+    releaseLock(lockFile, lockToken);
     return false;
   }
   return true;
