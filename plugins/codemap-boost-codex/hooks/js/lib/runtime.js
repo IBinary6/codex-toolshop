@@ -174,7 +174,8 @@ function gitPath(root, relative) {
   } catch (_) {}
   if (lines.length !== wanted.length) return '';
   wanted.forEach((item, index) => {
-    gitPaths.set(`${root}\0${item}`, path.isAbsolute(lines[index]) ? lines[index] : path.resolve(root, lines[index]));
+    // resolve() also turns the forward slashes git prints on Windows into the platform's separators.
+    gitPaths.set(`${root}\0${item}`, path.resolve(root, lines[index]));
   });
   return gitPaths.get(key);
 }
