@@ -14,7 +14,6 @@ const { resolvePython } = require('../lib/python');
 const postEdit = path.join(__dirname, '..', 'post_edit.js');
 const stopCheck = path.join(__dirname, '..', 'stop_check.js');
 const preCommit = path.join(__dirname, '..', 'pre_commit.js');
-const BOM = Buffer.from([0xEF, 0xBB, 0xBF]);
 
 function sh(args, cwd) { spawnSync('git', args, { cwd, stdio: 'pipe' }); }
 
