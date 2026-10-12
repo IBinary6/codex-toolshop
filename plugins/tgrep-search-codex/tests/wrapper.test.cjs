@@ -39,6 +39,114 @@ test('live lock prevents duplicate owner and releases for a successor', () => {
   assert.equal(typeof release, 'function'); assert.equal(lock(dir), null);
   release(); const next = lock(dir); assert.equal(typeof next, 'function'); next();
 });
+const HOUR = 60 * 60 * 1000;
+function seedLock(dir, owner, ageMs) {
+  fs.mkdirSync(dir, { recursive: true });
+  if (owner !== null) fs.writeFileSync(path.join(dir, 'owner.json'), JSON.stringify(owner));
+  const when = new Date(Date.now() - ageMs);
+  fs.utimesSync(dir, when, when);
+}
+test('an abandoned lock is reclaimed; a live, a fresh or an unidentified one is respected; a dead guard is cleared', () => {
+  const dead = spawnSync(process.execPath, ['-e', '0']).pid; // certain to be gone
+  const reclaimed = path.join(root, 'dead.lock');
+  seedLock(reclaimed, { pid: dead }, 0);
+  const release = lock(reclaimed);
+  assert.equal(typeof release, 'function', 'the dead owner loses the lock at once, however young it is');
+  assert.equal(fs.existsSync(`${reclaimed}.reap`), false, 'the reap guard is released');
+  release();
+
+  const live = path.join(root, 'live.lock');
+  seedLock(live, { pid: process.pid }, 24 * HOUR);
+  assert.equal(lock(live), null, 'a live owner keeps its lock however old');
+
+  const ownerless = path.join(root, 'ownerless.lock');
+  seedLock(ownerless, null, 0);
+  assert.equal(lock(ownerless), null, 'a lock that is still being written is left alone');
+  seedLock(ownerless, null, HOUR);
+  assert.equal(typeof lock(ownerless), 'function', 'an old lock nobody can identify is reclaimed');
+
+  const guarded = path.join(root, 'guarded.lock');
+  seedLock(guarded, { pid: dead }, HOUR);
+  fs.mkdirSync(`${guarded}.reap`);
+  assert.equal(lock(guarded), null, 'a guard held by someone blocks the attempt');
+  assert.equal(fs.existsSync(`${guarded}.reap`), true, 'a fresh guard stays');
+  const when = new Date(Date.now() - HOUR);
+  fs.utimesSync(`${guarded}.reap`, when, when);
+  assert.equal(lock(guarded), null, 'the attempt that finds a dead guard still gives way');
+  assert.equal(fs.existsSync(`${guarded}.reap`), false, 'but removes it');
+  assert.equal(typeof lock(guarded), 'function', 'and the next attempt takes the lock');
+});
+test('Windows refusing a directory that is still being deleted counts as contention, not as a crash', () => {
+  const dead = spawnSync(process.execPath, ['-e', '0']).pid;
+  const refusal = code => Object.assign(new Error(`${code}: operation not permitted`), { code });
+  const real = { mkdirSync: fs.mkdirSync, renameSync: fs.renameSync, rmSync: fs.rmSync, writeFileSync: fs.writeFileSync };
+  const refuse = (name, matches, code, times) => {
+    let left = times;
+    fs[name] = (target, ...rest) => { if (matches(String(target)) && left-- > 0) throw refusal(code); return real[name](target, ...rest); };
+  };
+  const restore = () => Object.assign(fs, real);
+  try {
+    const dir = path.join(root, 'transient.lock');
+    refuse('mkdirSync', target => target === dir, 'EPERM', 1);
+    assert.equal(lock(dir), null, 'the name is still being deleted: busy, not an exception');
+    restore();
+    const acquired = lock(dir);
+    assert.equal(typeof acquired, 'function');
+    acquired();
+
+    refuse('writeFileSync', target => target.endsWith('owner.json'), 'EACCES', 1);
+    assert.equal(lock(dir), null, 'the owner record is refused: busy');
+    assert.equal(fs.existsSync(dir), false, 'and no ownerless directory is left behind');
+    restore();
+
+    seedLock(dir, { pid: dead }, HOUR);
+    refuse('renameSync', target => target === dir, 'EBUSY', 2);
+    const reclaimed = lock(dir);
+    assert.equal(typeof reclaimed, 'function', 'reclaiming retries the move of the abandoned lock');
+    restore();
+    reclaimed();
+
+    seedLock(dir, { pid: dead }, HOUR);
+    refuse('rmSync', target => target.endsWith('.reap'), 'EPERM', 2);
+    const afterGuard = lock(dir);
+    assert.equal(fs.existsSync(`${dir}.reap`), false, 'releasing the guard retries, otherwise every later attempt would find it');
+    restore();
+    afterGuard();
+
+    const held = lock(dir);
+    refuse('rmSync', target => target === dir, 'EBUSY', 2);
+    held();
+    restore();
+    assert.equal(fs.existsSync(dir), false, 'releasing the lock retries');
+
+    refuse('mkdirSync', target => target === dir, 'ENOSPC', Infinity);
+    assert.throws(() => lock(dir), { code: 'ENOSPC' }, 'any other failure is still raised');
+  } finally {
+    restore();
+  }
+});
+test('processes racing for one abandoned lock take turns', async () => {
+  const dir = path.join(root, 'race.lock');
+  const inside = path.join(root, 'race.inside');
+  seedLock(dir, { pid: spawnSync(process.execPath, ['-e', '0']).pid }, HOUR);
+  const worker = `
+    const fs = require('node:fs');
+    const { lock } = require(${JSON.stringify(path.resolve(__dirname, '../scripts/tgrep.cjs'))});
+    const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+    let release = null;
+    for (const deadline = Date.now() + 20000; !release && Date.now() < deadline; ) { release = lock(${JSON.stringify(dir)}); if (!release) sleep(2); }
+    if (!release) process.exit(4);
+    // A second holder finds the marker directory already there.
+    try { fs.mkdirSync(${JSON.stringify(inside)}); } catch (e) { process.exit(e.code === 'EEXIST' ? 3 : 5); }
+    sleep(30);
+    fs.rmSync(${JSON.stringify(inside)}, { recursive: true });
+    release();
+  `;
+  const codes = await Promise.all(Array.from({ length: 6 }, () => new Promise(resolve => {
+    require('node:child_process').spawn(process.execPath, ['-e', worker], { stdio: 'ignore', windowsHide: true }).on('exit', resolve);
+  })));
+  assert.deepEqual(codes, [0, 0, 0, 0, 0, 0], 'every process got a turn and no two held the lock at once');
+});
 test('non-Git discovery does not silently admit arbitrary directories', () => {
   assert.equal(context(root), null); assert.equal(context(root, root).git, false);
 });

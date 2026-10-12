@@ -1,6 +1,6 @@
 {
   "name": "tgrep-search-codex",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Automatically prepare tgrep, maintain a background index per Git worktree, and provide text search with live-scan verification.",
   "author": {
     "name": "IBinary6",
