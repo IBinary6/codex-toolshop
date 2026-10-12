@@ -9,7 +9,6 @@ const LABEL = 'agent-dispatch-codex';
 const HOOKS = {
   session_start: path.join('hooks', 'js', 'session_start.js'),
   user_prompt_submit: path.join('hooks', 'js', 'user_prompt_submit.js'),
-  pre_tool_use: path.join('hooks', 'js', 'pre_tool_use.js'),
   subagent_start: path.join('hooks', 'js', 'subagent_start.js'),
 };
 

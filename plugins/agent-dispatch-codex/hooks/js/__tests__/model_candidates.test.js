@@ -58,7 +58,7 @@ const base = {
       },
     },
   },
-  whitelist: { mcp_prefixes: [], shell_heads: [], prompt_keywords: [] },
+  whitelist: { prompt_keywords: [] },
 };
 
 function resolved(models) {

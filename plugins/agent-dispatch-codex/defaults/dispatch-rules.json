@@ -3,7 +3,6 @@
   "modules": {
     "session_guidance": true,
     "prompt_guidance": true,
-    "pre_tool_nudge": false,
     "subagent_guidance": true
   },
   "policy": {
@@ -150,30 +149,6 @@
     }
   },
   "whitelist": {
-    "mcp_prefixes": [
-      "mcp__code_review_graph__",
-      "mcp__code-review-graph__",
-      "mcp__codegraph__",
-      "mcp__graphify__",
-      "mcp__context-mode__",
-      "mcp__plugin_context-mode_context-mode__",
-      "mcp__serena__",
-      "mcp__serena-cross-platform__"
-    ],
-    "shell_heads": [
-      "ls", "pwd", "cd", "cat", "head", "tail", "wc", "sort", "uniq",
-      "rg", "grep", "fd", "jq", "delta", "gh", "which", "where",
-      "node", "npm", "yarn", "pnpm", "bun",
-      "python", "python3", "py", "pip", "pipenv", "poetry", "pytest",
-      "codegraph", "code-review-graph", "graphify",
-      "rustc", "cargo", "go", "java", "javac", "mvn", "gradle",
-      "dotnet", "ruby", "gem", "bundle",
-      "gcc", "g++", "clang", "clang++", "cmake", "make", "ninja", "meson",
-      "msbuild", "cl",
-      "get-childitem", "get-content", "get-item", "get-location", "get-process", "set-location", "tasklist",
-      "select-string", "where-object", "foreach-object", "test-path",
-      "resolve-path", "write-output", "measure-object", "format-table"
-    ],
     "prompt_keywords": [
       "\u5ba1\u67e5", "review", "audit", "\u6392\u67e5", "debug", "\u8c03\u8bd5", "\u5206\u6790", "analy",
       "\u5b9e\u73b0", "implement", "\u8fc1\u79fb", "migrate", "\u91cd\u6784", "refactor", "\u6784\u5efa", "build",
@@ -181,10 +156,6 @@
     ]
   },
   "overrides": {
-    "mcp_prefixes_add": [],
-    "mcp_prefixes_remove": [],
-    "shell_heads_add": [],
-    "shell_heads_remove": [],
     "prompt_keywords_add": [],
     "prompt_keywords_remove": []
   }

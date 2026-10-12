@@ -12,7 +12,7 @@ const written = [];
 const realWrite = process.stdout.write.bind(process.stdout);
 process.stdout.write = (chunk) => { written.push(String(chunk)); return true; };
 try {
-  const hooks = ['session_start', 'user_prompt_submit', 'pre_tool_use', 'subagent_start']
+  const hooks = ['session_start', 'user_prompt_submit', 'subagent_start']
     .map((name) => [name, require(path.join(__dirname, '..', `${name}.js`))]);
   assert.deepEqual(written, [], 'requiring a hook produces no output');
   assert.ok(!fs.existsSync(process.env.PLUGIN_DATA), 'requiring a hook writes no state');

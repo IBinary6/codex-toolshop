@@ -45,8 +45,8 @@ try {
   project.modules.prompt_guidance = false;
   project.policy.max_parallel_subagents = 2;
   project.agent_profiles.profiles.dispatch_worker = { model: 'gpt-6.1-sol' };
-  project.overrides.shell_heads_add = ['my-tool'];
-  project.overrides.shell_heads_remove = ['rm'];
+  project.overrides.prompt_keywords_add = ['my-keyword'];
+  project.overrides.prompt_keywords_remove = ['audit'];
   fs.writeFileSync(projectFile, `${JSON.stringify(project, null, 2)}\n`, 'utf8');
 
   const effective = loadConfig(repo);
@@ -55,12 +55,18 @@ try {
   assert.deepEqual(effective.policy.low_cost, loadDefaults().policy.low_cost);
   assert.equal(effective.agent_profiles.profiles.dispatch_worker.model, 'gpt-6.1-sol');
   assert.equal(effective.agent_profiles.profiles.dispatch_worker.sandbox_mode, 'workspace-write');
-  assert.ok(effective.whitelist.shell_heads.includes('my-tool'));
+  assert.ok(effective.whitelist.prompt_keywords.includes('my-keyword'));
+  assert.ok(!effective.whitelist.prompt_keywords.includes('audit'), 'a removed default keyword is gone');
+  assert.equal(Object.hasOwn(effective.whitelist, 'shell_heads'), false, 'the shell and MCP allow-lists are gone');
+  assert.equal(Object.hasOwn(effective.whitelist, 'mcp_prefixes'), false);
   assert.equal(Object.hasOwn(effective.whitelist, 'git_readonly'), false);
   assert.equal(Object.hasOwn(effective.whitelist, 'git_safe_write'), false);
 
-  const merged = mergeConfig(effective, { overrides: { shell_heads_add: ['my-tool'] } });
-  assert.equal(merged.whitelist.shell_heads.filter((item) => item === 'my-tool').length, 1);
+  const merged = mergeConfig(effective, { overrides: { prompt_keywords_add: ['my-keyword'] } });
+  assert.equal(merged.whitelist.prompt_keywords.filter((item) => item === 'my-keyword').length, 1);
+  // A configuration written by an earlier version may still carry the removed keys; they are ignored, not an error.
+  const legacy = mergeConfig(loadDefaults(), { overrides: { shell_heads_add: ['my-tool'], mcp_prefixes_add: ['mcp__x__'] }, modules: { pre_tool_nudge: true } });
+  assert.equal(Object.hasOwn(legacy.whitelist, 'shell_heads'), false);
 
   const lowCostOverride = mergeConfig(loadDefaults(), {
     policy: { low_cost: { enabled: false } },

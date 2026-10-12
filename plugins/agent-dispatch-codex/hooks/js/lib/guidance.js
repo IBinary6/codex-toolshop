@@ -1,6 +1,5 @@
 'use strict';
 
-const { analyzeShellCommand } = require('./shell');
 const { GIT_HANDOFF, profileSummary } = require('./agent_profiles');
 const { loadDefaults, modelEffortWarnings } = require('./config');
 
@@ -186,12 +185,58 @@ function normalizedPrompt(prompt) {
   return typeof prompt === 'string' ? prompt.trim().toLowerCase() : '';
 }
 
-function isPureGitCli(prompt, config) {
+/**
+ * Split a command line at unquoted `&&`, `||` and `;`. Returns null when the text holds anything else a shell would act
+ * on: a newline, a pipe, a redirect, a background `&`, a subshell, or a command substitution (also inside double quotes).
+ * @example simpleCommands('git add . && git commit -m "a | b"') // ['git add .', 'git commit -m "a | b"']
+ */
+function simpleCommands(text) {
+  const segments = [];
+  let current = '';
+  let quote = '';
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quote === "'") {
+      if (char === "'") quote = '';
+      current += char;
+      continue;
+    }
+    if (char === '`' || (char === '$' && text[index + 1] === '(')) return null;
+    if (char === '\\') {
+      current += char + (text[index + 1] || '');
+      index += 1;
+      continue;
+    }
+    if (quote === '"') {
+      if (char === '"') quote = '';
+      current += char;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (/[\n\r<>()]/.test(char)) return null;
+    if (char === ';' || ((char === '&' || char === '|') && text[index + 1] === char)) {
+      segments.push(current);
+      current = '';
+      if (char !== ';') index += 1;
+      continue;
+    }
+    if (char === '&' || char === '|') return null;
+    current += char;
+  }
+  if (quote) return null;
+  segments.push(current);
+  return segments.map((segment) => segment.trim()).filter(Boolean);
+}
+
+function isPureGitCli(prompt) {
   const command = typeof prompt === 'string' ? prompt.trim() : '';
-  if (!command) return false;
-  const analysis = analyzeShellCommand(command, config);
-  return analysis.safe && analysis.heads.length > 0
-    && analysis.heads.every((head) => head === 'git');
+  const segments = command ? simpleCommands(command) : null;
+  return Boolean(segments && segments.length > 0
+    && segments.every((segment) => /^(?:"(?:[^"]*[\\/])?git(?:\.exe)?"|(?:\S*[\\/])?git(?:\.exe)?)(?:\s|$)/i.test(segment)));
 }
 
 function configuredKeywordMatch(text, config) {
@@ -491,7 +536,7 @@ function routePrompt(prompt, config) {
   // Git CLI arguments such as "fix", "review", or "architecture" are data,
   // not task intent. Suppress routing only for a safely parsed, all-Git
   // command; a non-Git natural-language prefix or mixed shell stays routable.
-  if (isPureGitCli(prompt, config)) {
+  if (isPureGitCli(prompt)) {
     return {
       category: 'generic',
       route: 'generic',
@@ -792,33 +837,10 @@ function promptNeedsDispatch(prompt, config) {
   return routePrompt(prompt, config).shouldDispatch;
 }
 
-function toolNudge(input, config) {
-  const toolName = input && typeof input.tool_name === 'string' ? input.tool_name : '';
-  if (!toolName || toolName === 'apply_patch') return '';
-  if (toolName.startsWith('mcp__')) {
-    const allowed = (config.whitelist.mcp_prefixes || []).some((prefix) => toolName.startsWith(prefix));
-    if (allowed) return '';
-    return `Agent Dispatch: ${toolName} is outside the lightweight MCP list. The primary agent decides whether delegation helps for the actual task; a tool name alone does not require it. A subagent should execute its assigned task directly.`;
-  }
-  if (toolName === 'Bash') {
-    const command = input.tool_input && input.tool_input.command;
-    const analysis = analyzeShellCommand(command, config);
-    if (analysis.safe) return '';
-    if (analysis.route === 'primary-risk') {
-      const reviewer = firstEnabled(config, ['dispatch_deep_reviewer', 'dispatch_reviewer']);
-      const acceptance = reviewer ? profileLabel(config, reviewer) : 'the primary agent';
-      return `Agent Dispatch: detected a registry write or state change (${analysis.reason}). The primary agent checks the target, authorization, and rollback scope before executing. The command alone does not require a stronger execution model. Use ${acceptance} for independent high-risk acceptance only when needed.`;
-    }
-    return '';
-  }
-  return '';
-}
-
 module.exports = {
   mainAgentGuidance,
   promptGuidance,
   promptNeedsDispatch,
   routePrompt,
   subagentGuidance,
-  toolNudge,
 };

@@ -53,7 +53,7 @@ if (repoRoot) {
 }
 
 const hooks = readJson('hooks/hooks.json').hooks;
-for (const event of ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'SubagentStart']) {
+for (const event of ['SessionStart', 'UserPromptSubmit', 'SubagentStart']) {
   assert.ok(Array.isArray(hooks[event]), `missing ${event}`);
 }
 // Codex may compile matchers as regular expressions, so a bare "*" would fail to parse.

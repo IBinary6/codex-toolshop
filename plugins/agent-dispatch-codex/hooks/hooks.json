@@ -24,19 +24,6 @@
         ]
       }
     ],
-    "PreToolUse": [
-      {
-        "matcher": "Bash|apply_patch|Edit|Write|mcp__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" pre_tool_use",
-            "timeout": 5,
-            "statusMessage": "Checking Agent Dispatch guidance"
-          }
-        ]
-      }
-    ],
     "SubagentStart": [
       {
         "matcher": ".*",
