@@ -1,9 +1,8 @@
 """Import and migrate BugDB knowledge between databases.
 
-Both command line tools call this module, so the migration logic does not live in either CLI.
+The command line calls this module; the migration logic does not live in the CLI.
 """
 
-import json
 import os
 import sqlite3
 import tempfile
@@ -12,16 +11,6 @@ from pathlib import Path
 from bugdb import paths
 from bugdb.db import BugDB
 from bugdb.records import new_record
-
-
-def load_payload(path: Path) -> list[dict]:
-    """Read Claude v1/v2 export format and validate the records array."""
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict) or not isinstance(payload.get("records"), list):
-        raise ValueError("payload must be an object containing records list")
-    if any(not isinstance(item, dict) for item in payload["records"]):
-        raise ValueError("records must contain objects")
-    return payload["records"]
 
 
 def import_records(records: list[dict], db: BugDB, *, deduplicate: bool = False) -> int:

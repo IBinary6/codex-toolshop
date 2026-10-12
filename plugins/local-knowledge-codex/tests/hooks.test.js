@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { spawnPythonSync } = require('./python-runtime');
+const { legacyFixture, spawnPythonSync } = require('./python-runtime');
 
 const root = path.resolve(__dirname, '..');
 const runner = path.join(root, 'scripts', 'run-hook.cjs');
@@ -161,17 +161,10 @@ try {
     cwd: workspace, prompt: 'workspace scope test uniquevalue',
   }, hookEnv), /uniquevalue/);
 
-  const add = spawnPythonSync([path.join(root, 'bugdb', 'cli.py'), 'add',
-    '--category', 'link', '--context', 'error LNK2019 unresolved external symbol Foo',
-    '--cause', 'missing library', '--content', 'link the required library',
-    '--language', 'c++', '--format', 'json'], {
-    cwd: root,
-    encoding: 'utf8',
-    env: { ...process.env, LOCAL_KNOWLEDGE_HOME: temp },
-    windowsHide: process.platform === 'win32',
-  });
-  assert.equal(add.status, 0, add.stderr);
-  const id = JSON.parse(add.stdout).id;
+  const [id] = legacyFixture(path.join(temp, 'bugs.db'), 'add', [{
+    category: 'link', context: 'error LNK2019 unresolved external symbol Foo',
+    cause: 'missing library', content: 'link the required library', language: 'c++',
+  }]);
   const output = run('post_tool_use', {
     hook_event_name: 'PostToolUse',
     tool_name: 'Bash',

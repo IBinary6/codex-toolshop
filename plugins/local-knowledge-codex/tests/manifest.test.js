@@ -53,7 +53,8 @@ assert.match(packageJson.scripts['check:syntax'], /node scripts\/python-launcher
 assert.match(packageJson.scripts['test:python'], /node scripts\/python-launcher\.cjs/);
 assert.doesNotMatch(JSON.stringify(packageJson.scripts), /(?:^|[&|;]\s*)python(?:3)?\s/);
 assert.match(pyproject, /knowledge-codex\s*=\s*"local_knowledge\.cli:main"/);
-assert.match(pyproject, /bugdb-codex\s*=\s*"bugdb\.cli:main"/);
+assert.doesNotMatch(pyproject, /bugdb-codex|bugdb\.cli/, 'the old command line is gone');
+assert.equal(fs.existsSync(path.join(root, 'bugdb', 'cli.py')), false);
 assert.ok(fs.existsSync(path.join(root, 'local_knowledge', 'cli.py')));
 if (fs.existsSync(marketplacePath)) {
   assert.equal(path.basename(root), plugin.name);

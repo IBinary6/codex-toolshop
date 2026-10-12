@@ -51,12 +51,6 @@ def read_config() -> dict:
     return _config_cache
 
 
-def _clear_config_cache() -> None:
-    """Clear the in-process configuration cache for test isolation."""
-    global _config_cache
-    _config_cache = None
-
-
 def get_db_path(explicit: Path | str | None = None) -> Path:
     """Resolve the SQLite path from explicit arguments, environment, configuration, and defaults."""
     if explicit is not None and str(explicit):
@@ -68,17 +62,6 @@ def get_db_path(explicit: Path | str | None = None) -> Path:
     if configured and str(configured).strip():
         return Path(str(configured)).expanduser()
     return get_bugdb_home() / "bugs.db"
-
-
-def get_log_path() -> Path:
-    """Resolve the operation log path."""
-    override = _home_override()
-    if override:
-        return Path(override).expanduser() / "bugdb.log"
-    configured = read_config().get("log_path")
-    if configured and str(configured).strip():
-        return Path(str(configured)).expanduser()
-    return get_bugdb_home() / "bugdb.log"
 
 
 def get_legacy_claude_db_path() -> Path:

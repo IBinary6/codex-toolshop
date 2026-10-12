@@ -4,11 +4,10 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnPythonSync } = require('./python-runtime');
+const { legacyFixture, spawnPythonSync } = require('./python-runtime');
 
 const root = path.resolve(__dirname, '..');
 const neutralCli = path.join(root, 'local_knowledge', 'cli.py');
-const legacyCli = path.join(root, 'bugdb', 'cli.py');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'local-knowledge-migrate-'));
 const sourceHome = path.join(temp, 'source-home');
 const neutralTarget = path.join(temp, 'neutral-target', 'knowledge.db');
@@ -32,13 +31,10 @@ function run(cli, environment, args, expected = 0) {
 }
 
 try {
-  run(legacyCli, { BUGDB_HOME: sourceHome }, [
-    'add', '--category', 'link',
-    '--context', 'error LNK2001 unresolved external symbol',
-    '--cause', 'the linker input is incomplete',
-    '--content', 'Add ws2_32.lib to linker inputs',
-    '--format', 'json',
-  ]);
+  legacyFixture(path.join(sourceHome, 'bugs.db'), 'add', [{
+    category: 'link', context: 'error LNK2001 unresolved external symbol',
+    cause: 'the linker input is incomplete', content: 'Add ws2_32.lib to linker inputs',
+  }]);
 
   const neutral = run(neutralCli, {
     LOCAL_KNOWLEDGE_HOME: '',
@@ -53,7 +49,8 @@ try {
   assert.doesNotMatch(neutral.stdout, /bugdb/i);
   assert.equal(fs.existsSync(neutralTarget), true);
 
-  const legacy = run(legacyCli, { BUGDB_HOME: legacyTargetHome }, [
+  // The compatibility variable BUGDB_HOME still selects the target data directory when no --db is given.
+  const legacy = run(neutralCli, { BUGDB_HOME: legacyTargetHome, LOCAL_KNOWLEDGE_HOME: '' }, [
     'migrate', '--source', path.join(sourceHome, 'bugs.db'), '--format', 'json',
   ]);
   const legacyPayload = JSON.parse(legacy.stdout);
