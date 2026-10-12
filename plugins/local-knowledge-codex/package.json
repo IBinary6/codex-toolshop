@@ -1,6 +1,6 @@
 {
   "name": "local-knowledge-codex",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Local indexed knowledge for Codex, including fixes, preferences, facts, decisions, and workflows.",
   "private": true,
   "engines": {

@@ -7,27 +7,19 @@ All skills, commands, and hooks access the SQLite core through this entry point.
 import argparse
 import base64
 import json
-import os
 import sqlite3
 import sys
-import tempfile
 from pathlib import Path
 
 _PACKAGE_PARENT = str(Path(__file__).resolve().parent.parent)
 if _PACKAGE_PARENT not in sys.path:
     sys.path.insert(0, _PACKAGE_PARENT)
 
-from bugdb import formatters, normalizer, search as search_mod  # noqa: E402
+from bugdb import formatters, migration, normalizer, records, search as search_mod  # noqa: E402
 from bugdb import paths, utils  # noqa: E402
 from bugdb.db import BugDB  # noqa: E402
 from bugdb.exceptions import BugDBError, RecordNotFound  # noqa: E402
-from bugdb.models import (  # noqa: E402
-    Category,
-    EntryKind,
-    KnowledgeRecord,
-    Status,
-    validate_kind_category,
-)
+from bugdb.models import EntryKind, Status  # noqa: E402
 
 
 def _print(value: str) -> None:
@@ -86,64 +78,13 @@ def _explore(args, db: BugDB) -> int:
     return 0
 
 
-def _parse_steps(raw: str | None) -> list:
-    """Parse an action_steps JSON array; raise ValueError for invalid input."""
-    if raw is None or not str(raw).strip():
-        return []
-    value = utils.safe_json_loads(raw)
-    if not isinstance(value, list):
-        raise ValueError("--action-steps must be a JSON array")
-    return value
-
-
-def _new_record(data: dict) -> KnowledgeRecord:
-    """Convert CLI or imported dictionaries to validated record models."""
-    kind = EntryKind(data.get("entry_kind", "bug"))
-    category = Category(data.get("category") or data.get("error_type", "compile"))
-    error = validate_kind_category(kind, category)
-    if error:
-        raise ValueError(error)
-    context = data.get("context") or data.get("error_message", "")
-    pattern = data.get("key_pattern") or data.get("error_pattern")
-    if not pattern:
-        pattern = normalizer.extract_keywords(normalizer.normalize(context))
-    if not pattern:
-        raise ValueError("key_pattern is empty (provide context or key_pattern)")
-    action_steps = data.get("action_steps")
-    if action_steps is None:
-        action_steps = data.get("solution_steps", [])
-    if isinstance(action_steps, str):
-        action_steps = _parse_steps(action_steps)
-    if not isinstance(action_steps, list):
-        raise ValueError("action_steps must be a JSON array")
-    tags = data.get("tags", [])
-    if isinstance(tags, str):
-        tags = utils.comma_split(tags)
-    return KnowledgeRecord(
-        id=data.get("id"), entry_kind=kind, category=category,
-        key_pattern=str(pattern), context=context,
-        cause=data.get("cause") or data.get("root_cause", ""),
-        content=data.get("content") or data.get("solution", ""),
-        action_steps=list(action_steps), title=data.get("title", ""),
-        language=data.get("language", "any"), project_type=data.get("project_type", "any"),
-        tags=list(tags), confidence=int(data.get("confidence", 100)),
-        usage_count=int(data.get("usage_count", 0)),
-        success_count=int(data.get("success_count", 0)),
-        status=Status(data.get("status", "active")),
-        replaced_by_id=data.get("replaced_by_id") or data.get("replaces_id"),
-        valid_for=data.get("valid_for"), deprecation_note=data.get("deprecation_note"),
-        consecutive_failures=int(data.get("consecutive_failures", 0)),
-        created_at=data.get("created_at", ""), updated_at=data.get("updated_at", ""),
-    )
-
-
 def _add(args, db: BugDB) -> int:
     """Add a new knowledge record."""
-    record = _new_record({
+    record = records.new_record({
         "entry_kind": args.entry_kind, "category": args.category,
         "key_pattern": args.key_pattern, "context": args.context,
         "cause": args.cause, "content": args.content,
-        "action_steps": _parse_steps(args.action_steps), "title": args.title,
+        "action_steps": records.parse_steps(args.action_steps), "title": args.title,
         "language": args.language, "project_type": args.project_type,
         "tags": args.tags, "confidence": args.confidence, "valid_for": args.valid_for,
     })
@@ -159,124 +100,23 @@ def _update(args, db: BugDB) -> int:
         if value is not None:
             setattr(record, name, utils.comma_split(value) if name == "tags" else value)
     if args.action_steps is not None:
-        record.action_steps = _parse_steps(args.action_steps)
+        record.action_steps = records.parse_steps(args.action_steps)
     if args.confidence is not None:
         record.confidence = args.confidence
     _output(db.update(record), "record", args.format)
     return 0
 
 
-def _load_payload(path: Path) -> list[dict]:
-    """Read Claude v1/v2 export format and validate the records array."""
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict) or not isinstance(payload.get("records"), list):
-        raise ValueError("payload must be an object containing records list")
-    if any(not isinstance(item, dict) for item in payload["records"]):
-        raise ValueError("records must contain objects")
-    return payload["records"]
-
-
-def _import_records(records: list[dict], db: BugDB, *, deduplicate: bool = False) -> int:
-    """Validate all records before writing; optionally deduplicate idempotently by pattern/context."""
-    pending = [_new_record(item) for item in records]
-    existing = {(item.key_pattern, item.context) for item in db.list_all(status="all")}
-    imported = 0
-    for record in pending:
-        key = (record.key_pattern, record.context)
-        if deduplicate and key in existing:
-            continue
-        db.add(record)
-        existing.add(key)
-        imported += 1
-    return imported
-
-
 def _import(args, db: BugDB) -> int:
     """Import BugDB from a JSON export."""
-    imported = _import_records(_load_payload(Path(args.input)), db, deduplicate=args.deduplicate)
+    imported = migration.import_records(migration.load_payload(Path(args.input)), db, deduplicate=args.deduplicate)
     _output({"imported": imported, "path": args.input}, "stats", args.format)
     return 0
 
 
-def _external_records(source: Path) -> list[dict]:
-    """Open Claude SQLite read-only, supporting v1 ``bugs`` and v3 ``knowledge`` tables."""
-    if not source.exists():
-        raise ValueError(f"source database does not exist: {source}")
-    uri = f"{source.resolve().as_uri()}?mode=ro"
-    conn = sqlite3.connect(uri, uri=True)
-    conn.row_factory = sqlite3.Row
-    try:
-        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if "knowledge" in tables:
-            rows = conn.execute("SELECT * FROM knowledge").fetchall()
-            result = []
-            for row in rows:
-                result.append(dict(row))
-            return result
-        if "bugs" in tables:
-            rows = conn.execute("SELECT * FROM bugs").fetchall()
-            return [dict(row) for row in rows]
-        raise ValueError("source database has no knowledge or bugs table")
-    finally:
-        conn.close()
-
-
-def _copy_database(source: Path, target: Path) -> int:
-    """Copy the entire legacy database losslessly with SQLite backup and publish it atomically to the shared path."""
-    records = _external_records(source)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    handle = tempfile.NamedTemporaryFile(
-        prefix=f".{target.name}.migrating-", suffix=".tmp",
-        dir=target.parent, delete=False,
-    )
-    temporary = Path(handle.name)
-    handle.close()
-    source_connection = None
-    target_connection = None
-    try:
-        source_uri = f"{source.resolve().as_uri()}?mode=ro"
-        source_connection = sqlite3.connect(source_uri, uri=True)
-        target_connection = sqlite3.connect(str(temporary))
-        source_connection.backup(target_connection)
-        target_connection.close()
-        target_connection = None
-        source_connection.close()
-        source_connection = None
-        if target.exists():
-            temporary.unlink(missing_ok=True)
-            return -1
-        os.replace(temporary, target)
-        return len(records)
-    finally:
-        if target_connection is not None:
-            target_connection.close()
-        if source_connection is not None:
-            source_connection.close()
-        temporary.unlink(missing_ok=True)
-
-
-def _migrate_payload(source: str | Path | None = None,
-                     target: str | Path | None = None) -> dict:
-    """Perform compatibility migration and return structured results without choosing an output format."""
-    source = Path(source).expanduser() if source else paths.get_legacy_claude_db_path()
-    target = paths.get_db_path(target)
-    if source.resolve() == target.resolve():
-        return {"migrated": 0, "source": str(source), "target": str(target), "shared": True}
-    if not target.exists():
-        copied = _copy_database(source, target)
-        if copied >= 0:
-            BugDB(target)
-            return {"migrated": copied, "source": str(source), "target": str(target),
-                    "shared": False, "copied": True}
-    db = BugDB(target)
-    imported = _import_records(_external_records(source), db, deduplicate=True)
-    return {"migrated": imported, "source": str(source), "target": str(target),
-            "shared": False, "copied": False}
-
-
 def _migrate(args) -> int:
     """Migrate a legacy SQLite database to the tool-neutral shared directory."""
-    _output(_migrate_payload(args.source), "stats", args.format)
+    _output(migration.migrate(args.source), "stats", args.format)
     return 0
 
 

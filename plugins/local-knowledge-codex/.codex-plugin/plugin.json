@@ -1,6 +1,6 @@
 {
   "name": "local-knowledge-codex",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "A local Codex knowledge base that indexes bug fixes, user preferences, facts, decisions, and workflows and recalls them when relevant.",
   "author": {
     "name": "IBinary6"

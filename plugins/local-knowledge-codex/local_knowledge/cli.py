@@ -131,9 +131,9 @@ def _db_path(args: argparse.Namespace) -> str | None:
 def _execute(args: argparse.Namespace) -> dict[str, Any]:
     """Execute a parsed command and return a JSON-encodable result."""
     if args.command == "migrate":
-        from bugdb.cli import _migrate_payload
+        from bugdb.migration import migrate
 
-        return _migrate_payload(args.source, _db_path(args))
+        return migrate(args.source, _db_path(args))
     base = KnowledgeBase(_db_path(args), read_only=getattr(args, "read_only", False))
     if args.command == "remember":
         return base.remember(
