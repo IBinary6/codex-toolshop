@@ -17,7 +17,7 @@ Read and merge these sources in order:
 
 The project layer wins. Overrides use add/remove arrays instead of copying the complete defaults.
 
-Ordinary single-command Git CLI stays quiet independently of `pre_tool_nudge` and is run serially by the primary agent. The only semantic exception is an explicitly delegated complete local commit-preparation workflow: when the user request or an explicit skill workflow calls for it, the primary agent may designate one writable agent in the same workspace to inspect status, read the diff, and precisely stage target files, then return a summary, checks, HEAD/index tree OIDs, and a commit message. The preparer never commits, pushes, or rewrites history; the primary agent does not operate Git concurrently, validates the snapshot, and completes the commit. This is orchestration guidance, not a configurable Git whitelist or a replacement for sandbox and authorization checks.
+Ordinary single-command Git CLI stays quiet and is run serially by the primary agent. The only semantic exception is an explicitly delegated complete local commit-preparation workflow: when the user request or an explicit skill workflow calls for it, the primary agent may designate one writable agent in the same workspace to inspect status, read the diff, and precisely stage target files, then return a summary, checks, HEAD/index tree OIDs, and a commit message. The preparer never commits, pushes, or rewrites history; the primary agent does not operate Git concurrently, validates the snapshot, and completes the commit. This is orchestration guidance, not a configurable Git whitelist or a replacement for sandbox and authorization checks.
 
 Agent lifecycle is also an invariant: after the primary agent integrates a subagent result, or the subagent is blocked or no longer needed, stop it promptly so idle agents do not occupy limited runtime slots.
 
@@ -33,7 +33,6 @@ Supported module switches:
 
 - `modules.session_guidance`
 - `modules.prompt_guidance`
-- `modules.pre_tool_nudge` (disabled by default)
 - `modules.subagent_guidance`
 
 Supported policy values:
@@ -103,8 +102,6 @@ When validating routing, include constraints and conflicting intent, not just po
 
 Supported list overrides:
 
-- `mcp_prefixes_add` / `mcp_prefixes_remove`
-- `shell_heads_add` / `shell_heads_remove`
 - `prompt_keywords_add` / `prompt_keywords_remove`
 
 ## Important boundaries
@@ -113,11 +110,11 @@ Supported list overrides:
 
 - For code work only, exclude vendored implementations under directory segments such as `3rd`, `3rdparty`, `third_party`, `third-party`, `thirdpart`, `thridpart`, `thridparty`, `vendor`, `external`, `deps`, and `packages` unless the user explicitly includes them. Review first-party integration and caller contracts; read dependency interfaces only as needed. Do not initiate dependency-wide review, formatting or cpplint. Preserve local clang-format protection for dependency-sensitive includes.
 
-- Codex `PreToolUse` may include `agent_id`; absence is not proof of primary-agent origin. The nudge is disabled by default; when explicitly enabled, keep ordinary Bash calls silent and do not convert the remaining soft nudge into a blanket deny rule.
+- This plugin registers no `PreToolUse` hook; do not add a blanket deny rule. A single tool call cannot establish whether a task should be delegated.
 - Ordinary Git CLI bypasses single-command Agent Dispatch routing, including destructive Git subcommands, so a normal Git command remains quiet. This does not itself grant a subagent Git authority: only the explicit complete local commit-preparation handoff above permits one designated writable agent to prepare the local index. Final commit, remote operations, and history rewrites remain with the primary agent. This is an orchestration rule only; it does not replace the Codex sandbox, user authorization, Hook trust, or Git safety checks.
 - Continue classifying non-Git segments in a compound shell command even when another segment is Git.
 - Nested evaluation or ambiguous shell syntax is not proof of a pure Git operation. It does not itself request delegation or add authorization; keep task routing at the prompt level and preserve ordinary tool checks.
-- Default lightweight MCP prefixes include CodeMap Boost, Context Mode (canonical and plugin-namespaced forms), and Serena (`serena` and `serena-cross-platform`). These integrations remain separately installed and enabled.
+- CodeMap Boost, Context Mode and Serena remain separately installed and enabled; Agent Dispatch only selects agents.
 - When CodeMap Boost is installed, Agent Dispatch owns role selection while CodeMap Boost owns graph refresh, read barriers, and retrieval guidance. Use its graph guidance only for explicit code structure, call relationships, impact, or code-review context; ordinary design reviews and business dependencies stay on their normal evidence route. Code search agents must not start a duplicate build/update. CodeMap MCP tools may be deferred and absent from static or top-level schemas; before claiming they are unavailable, inspect `ALL_TOOLS` for `mcp__code_review_graph__*` when available or make an actual call, rather than relying on the top-level list alone.
 - The integrated terminal can be Git Bash while the Windows Codex agent uses PowerShell. Keep configuration entries as executable heads, not shell-specific command strings.
 - Project configuration is excluded through `.git/info/exclude`; do not edit the project's tracked `.gitignore` unless the user explicitly asks.

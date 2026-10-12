@@ -8,14 +8,13 @@ const {
   promptGuidance,
   routePrompt,
   subagentGuidance,
-  toolNudge,
 } = require('../lib/guidance');
 
 const config = loadDefaults();
 
 assert.equal(config.modules.session_guidance, true);
 assert.equal(config.modules.prompt_guidance, true);
-assert.equal(config.modules.pre_tool_nudge, false);
+assert.equal(Object.hasOwn(config.modules, 'pre_tool_nudge'), false, 'the tool nudge is gone, not merely off');
 assert.equal(config.modules.subagent_guidance, true);
 assert.match(mainAgentGuidance(config), /Keep requirements clarification, key plan and public-contract decisions/);
 assert.match(mainAgentGuidance(config), /keyword routes are fallible suggestions/i);
@@ -178,6 +177,30 @@ for (const command of [
   const route = routePrompt(command, config);
   assert.equal(route.shouldDispatch, false, command);
   assert.equal(route.reason, 'pure Git CLI command', command);
+}
+// Several Git commands in a row are still all Git; anything else a shell would act on is not.
+for (const command of [
+  'git add . && git commit -m "fix: update parser"',
+  'git status; git log --grep=review',
+  'git fetch || git pull',
+  'git commit -m "review | audit && refactor (see $HOME)"',
+  '/usr/bin/git status',
+  '"C:\\Program Files\\Git\\cmd\\git.exe" status',
+]) {
+  assert.equal(routePrompt(command, config).reason, 'pure Git CLI command', command);
+}
+for (const command of [
+  'git status | rg architecture',
+  'git log > out.txt',
+  'git status $(unknown-heavy-tool)',
+  'git status `unknown-heavy-tool`',
+  'git status &',
+  'git status\nrg architecture',
+  'echo ok && git status',
+  'git commit -m "unterminated',
+  '(git status)',
+]) {
+  assert.notEqual(routePrompt(command, config).reason, 'pure Git CLI command', command);
 }
 const mixedGitCommand = routePrompt('git status && rg architecture', config);
 assert.equal(mixedGitCommand.category, 'plan');
@@ -668,34 +691,3 @@ assert.match(
   /No code implementation candidate matches the effective gpt-6-sol\/medium pair. The primary agent handles the work/,
   'labor and verification profiles must not be offered as code writers'
 );
-
-assert.equal(toolNudge({ tool_name: 'apply_patch', tool_input: {} }, config), '');
-assert.equal(toolNudge({ tool_name: 'mcp__code_review_graph__get_minimal_context_tool', tool_input: {} }, config), '');
-assert.equal(toolNudge({ tool_name: 'mcp__context-mode__ctx_execute', tool_input: {} }, config), '');
-assert.equal(toolNudge({ tool_name: 'mcp__plugin_context-mode_context-mode__ctx_search', tool_input: {} }, config), '');
-assert.equal(toolNudge({ tool_name: 'mcp__serena__find_symbol', tool_input: {} }, config), '');
-assert.equal(toolNudge({ tool_name: 'mcp__serena-cross-platform__find_symbol', tool_input: {} }, config), '');
-assert.match(toolNudge({ tool_name: 'mcp__heavy_remote__scan', tool_input: {} }, config), /tool name alone does not require it/);
-assert.equal(toolNudge({ tool_name: 'Bash', tool_input: { command: 'git status' } }, config), '');
-assert.equal(toolNudge({ tool_name: 'Bash', tool_input: { command: 'git branch -D temp' } }, config), '');
-assert.equal(toolNudge({ tool_name: 'Bash', tool_input: { command: 'git push origin --delete temp' } }, config), '');
-assert.equal(toolNudge({ tool_name: 'Bash', tool_input: { command: 'git log > out.txt' } }, config), '');
-assert.equal(toolNudge({ tool_name: 'Bash', tool_input: { command: 'reg query HKCU\\Software\\AgentDispatch' } }, config), '');
-assert.equal(toolNudge({ tool_name: 'Bash', tool_input: { command: "bash -lc 'reg query HKCU\\Software\\AgentDispatch'" } }, config), '');
-assert.match(toolNudge({ tool_name: 'Bash', tool_input: { command: 'reg add HKCU\\Software\\AgentDispatch /v Enabled /t REG_DWORD /d 1 /f' } }, config), /registry write/);
-for (const command of [
-  'printf ok',
-  'echo ok',
-  'sed -n 1,20p file.txt',
-  'for x in a; do echo "$x"; done',
-  'while false; do echo never; done',
-  'if true; then echo ok; fi',
-  'unknown-heavy-tool scan',
-  'git status $(unknown-heavy-tool)',
-  'git status && unknown-heavy-tool scan',
-  'echo ok;rm -rf .',
-  'git log > out.txt',
-  "bash -lc 'echo nested'",
-]) {
-  assert.equal(toolNudge({ tool_name: 'Bash', tool_input: { command } }, config), '');
-}

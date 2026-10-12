@@ -8,22 +8,21 @@ Both versions follow the same division of responsibility: the primary agent keep
 
 | Capability | Codex version | Claude Code version |
 | --- | --- | --- |
-| Primary-agent tool handling | Ordinary calls receive no `PreToolUse` hint by default, avoiding redundant context and false blocks | A `PreToolUse` allowlist blocks other tools and requires `Agent` |
+| Primary-agent tool handling | No `PreToolUse` hook: ordinary calls start no extra process and receive no hint | A `PreToolUse` allowlist blocks other tools and requires `Agent` |
 | Subagent identity | `SubagentStart` defines the role boundary; optional `agent_id` is not used for hard blocking | Hook input carries `agent_id`, which can exempt subagents |
 | Routing hints | `SessionStart` and `UserPromptSubmit` inject concise policy and route suggestions | A blocked call causes dispatcher instructions on the next prompt |
 | Git boundary | Ordinary Git CLI stays quiet and serial in the primary agent; one designated agent may prepare a complete local commit when explicitly requested, while the primary agent performs the final commit, remote operations, and history rewrites | Safe Git runs directly; dangerous Git is blocked |
 | Configuration | `PLUGIN_DATA` plus project `.agent-dispatch-codex`, with Codex agent profiles | `~/.agent-dispatch` plus project `.agent-dispatch` |
 
-Codex has a different hook event model, so this plugin does not copy the Claude version's blanket deny rule. Codex `PreToolUse` reports standard tool events and maps `exec_command`, including Code Mode inner calls, to `Bash`. Its `agent_id` is optional; absence does not prove that a call came from the primary agent. A single tool call also cannot establish whether a task should be delegated.
+Codex has a different hook event model, so this plugin does not copy the Claude version's blanket deny rule. A single tool call cannot establish whether a task should be delegated, so the plugin registers no `PreToolUse` hook (an earlier optional soft hint was disabled by default and has been removed).
 
 | Hook | Behavior |
 | --- | --- |
 | `SessionStart` | Creates missing configuration scaffolding and injects primary-agent policy. |
 | `UserPromptSubmit` | Adds one concise routing hint for a matching substantive prompt. |
-| `PreToolUse` | Disabled by default. If enabled, adds a soft hint for MCP tools outside the lightweight list or recognized registry state changes; it never denies. |
 | `SubagentStart` | Tells subagents to execute assigned work directly without further delegation. |
 
-Ordinary Bash commands and single Git CLI commands do not produce task-routing hints. Git subcommands and arguments are treated as command data; natural-language requests or mixed non-Git commands still route by the whole prompt. `shell_heads` supports optional command analysis but is not a sandbox or authority boundary. The default `pre_tool_nudge` is `false` because one command is insufficient to choose a role or model.
+Ordinary Bash commands and single Git CLI commands do not produce task-routing hints. Git subcommands and arguments are treated as command data; natural-language requests or mixed non-Git commands still route by the whole prompt.
 
 ## Automatic operation after installation
 
@@ -58,19 +57,19 @@ Generated configuration does not prove host role loading or account model access
 
 ## Shell compatibility and Git boundary
 
-Node.js 18 or newer is required on Windows and macOS. Hooks run in Node.js independently of the integrated terminal shell. Command analysis recognizes `&&`, `||`, `;`, pipes, and redirection in macOS `zsh`/`bash` and Git Bash; PowerShell separators, pipes, common read-only cmdlets, and Windows executable suffixes; and forms without spaces such as `npm test&&rm -rf .` and `echo ok>file`. Changing the integrated terminal shell affects newly opened terminals, not hook execution.
+Node.js 18 or newer is required on Windows and macOS. Hooks run in Node.js independently of the integrated terminal shell.
 
 Single Git CLI commands stay quiet and serial in the primary agent. This is an orchestration rule, not a Git permission for subagents. For explicitly requested complete local commit preparation, one designated writable agent in the same workspace may inspect status and diff, stage only target files, and report a summary, checks, HEAD and index-tree OIDs, and a commit message. It cannot commit, perform remote operations, or rewrite history. The primary agent must not run Git concurrently; after handoff it verifies status, diff, staging scope, and OIDs before committing. No extra role or configuration switch is needed.
 
-Compound commands are analyzed by segment. A Git segment does not hide a later non-Git state change: `git status && rg -n TODO src` and `git status && rm -rf .` both continue analysis after Git. Do not put `git` in `shell_heads` as an “authorization” mechanism. Legacy `git_readonly_*` and `git_safe_write_*` keys do not control this version. Nested evaluation such as `git status $(other-command)`, PowerShell script blocks, process substitution, block comments, and ambiguous cross-shell escaping are not classified as pure Git CLI. These rules never bypass the Codex sandbox, user authority, hook trust, or Git protections.
+A prompt counts as a pure Git CLI command when it is one or more `git` commands joined by `&&`, `||` or `;`. A pipe, a redirect, a background `&`, a subshell, a newline, a command substitution (also inside double quotes), an unterminated quote, or any non-Git segment such as `git status && rg -n TODO src` makes it an ordinary prompt that is routed by its whole text. Legacy `git_readonly_*` and `git_safe_write_*` keys do not control this version. These rules never bypass the Codex sandbox, user authority, hook trust, or Git protections.
 
 ## CodeMap Boost, Context Mode, and Serena
 
-The default lightweight MCP prefixes include CodeMap Boost, Context Mode, and Serena, including Codex-native and plugin-namespaced Context Mode names and common Serena server names. Their tools can be used directly without a false “must delegate” hint. Agent Dispatch selects agents; CodeMap Boost owns graph refresh, read barriers, and graph retrieval. Use graph rules only for explicit code structure, call relationships, impact, or code review. Verify relationships against source and never claim an unrun query produced evidence.
+Agent Dispatch selects agents; CodeMap Boost owns graph refresh, read barriers, and graph retrieval. Use graph rules only for explicit code structure, call relationships, impact, or code review. Verify relationships against source and never claim an unrun query produced evidence.
 
 Every dispatched agent receives the same search routing at start: the `tgrep-search-codex` CLI entry (a shell command, not an MCP, so it has no prefix to configure) and CodeMap Boost's rules, which find names and text with tgrep, then Serena, then `rg`, and ask the graph for callers and impact. The role instructions do not repeat it.
 
-Agent Dispatch does not install these MCPs. Context Mode is a separate Codex plugin; Serena needs its own setup. Additional server prefixes can be configured with `mcp_prefixes_add`. CodeMap tools may be deferred and absent from static schemas; inspect `ALL_TOOLS` for `mcp__code_review_graph__*` or make an appropriate call before declaring them unavailable.
+Agent Dispatch does not install these MCPs. Context Mode is a separate Codex plugin; Serena needs its own setup. CodeMap tools may be deferred and absent from static schemas; inspect `ALL_TOOLS` for `mcp__code_review_graph__*` or make an appropriate call before declaring them unavailable.
 
 ## Agent profiles and model selection
 
@@ -117,7 +116,7 @@ Configuration merges three layers in order: `defaults/dispatch-rules.json`, glob
 ```json
 {
   "schema_version": 1,
-  "modules": { "pre_tool_nudge": false },
+  "modules": { "prompt_guidance": true },
   "policy": {
     "max_parallel_subagents": 2,
     "low_cost": { "enabled": true, "model": "gpt-6-luna", "model_reasoning_effort": "max" }
@@ -129,13 +128,12 @@ Configuration merges three layers in order: `defaults/dispatch-rules.json`, glob
     }
   },
   "overrides": {
-    "shell_heads_add": ["my-local-tool"],
-    "mcp_prefixes_add": ["mcp__my_local_"]
+    "prompt_keywords_add": ["my-keyword"]
   }
 }
 ```
 
-Policy fields include `max_parallel_subagents`, `require_changed_file_report`, `require_validation_report`, and `low_cost.{enabled,model,model_reasoning_effort}`. List overrides apply only to `mcp_prefixes_*`, `shell_heads_*`, and `prompt_keywords_*`. Legacy `git_readonly_*` and `git_safe_write_*` keys cannot change the primary agent's serial Git rule.
+Policy fields include `max_parallel_subagents`, `require_changed_file_report`, `require_validation_report`, and `low_cost.{enabled,model,model_reasoning_effort}`. List overrides apply only to `prompt_keywords_*`; keys left by earlier versions (`mcp_prefixes_*`, `shell_heads_*`, `modules.pre_tool_nudge`) are ignored. Legacy `git_readonly_*` and `git_safe_write_*` keys cannot change the primary agent's serial Git rule.
 
 Explicit `model` and `model_reasoning_effort` values in the same layer are preserved, including empty strings. An empty string omits that TOML field so the host inherits it. Clearing only `model` without supplying effort clears both. Switching only to a different known model uses this plugin's conservative `medium` preset rather than inheriting an old or primary `ultra`; for an unknown model, effort is omitted and host support must be checked. Description-only edits or repeating the same model retain inherited effort, while an explicit effort in a closer layer wins. `policy.low_cost` also merges across layers and must resolve to an available pinned role or an explicitly configured unpinned `dispatch_worker`, never silently to the primary model.
 

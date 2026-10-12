@@ -9,8 +9,6 @@ const { readModelCatalog, resolveModelCandidates } = require('./model_candidates
 const PROJECT_DIR = '.agent-dispatch-codex';
 const CONFIG_FILE = 'config.json';
 const OVERRIDE_KEYS = [
-  'mcp_prefixes',
-  'shell_heads',
   'prompt_keywords',
 ];
 
