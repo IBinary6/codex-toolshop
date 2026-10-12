@@ -77,8 +77,15 @@ test('concurrent starts over an abandoned lock still run one at a time', async (
     const fs = require('node:fs');
     const { withBootstrapLock } = require(${JSON.stringify(path.resolve(__dirname, '../scripts/launch.cjs'))});
     withBootstrapLock(${JSON.stringify(lock)}, () => {
-      // Two holders at once would find the marker already present.
-      try { fs.mkdirSync(${JSON.stringify(inside)}); } catch (e) { process.exitCode = 3; return; }
+      // Two holders at once would find the marker already present. Only that counts: on Windows the name can be
+      // refused for a moment while the previous holder's removal completes.
+      for (let attempt = 0; ; attempt += 1) {
+        try { fs.mkdirSync(${JSON.stringify(inside)}); break; } catch (e) {
+          if (e.code === 'EEXIST') { process.exitCode = 3; return; }
+          if (attempt >= 100) throw e;
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+        }
+      }
       const n = Number(fs.readFileSync(${JSON.stringify(counter)}, 'utf8'));
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 40);
       fs.writeFileSync(${JSON.stringify(counter)}, String(n + 1));
@@ -98,6 +105,62 @@ test('concurrent starts over an abandoned lock still run one at a time', async (
     assert.deepEqual(codes, [0, 0, 0, 0, 0, 0], 'no worker ever shared the critical section');
     assert.equal(fs.readFileSync(counter, 'utf8'), '6', 'every worker ran exactly once');
   } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('Windows refusing a directory that is still being deleted is waited out, a lasting refusal is raised', () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dbg-transient-'));
+  const lock = path.join(temp, 'bootstrap', 'install.lock');
+  const realMkdir = fs.mkdirSync;
+  const realRm = fs.rmSync;
+  const refusal = (code) => Object.assign(new Error(`${code}: operation not permitted`), { code });
+  // Refuse the first `times` calls for one path, then behave normally.
+  const refuseMkdir = (target, code, times) => { let left = times; fs.mkdirSync = (candidate, ...rest) => { if (candidate === target && left-- > 0) throw refusal(code); return realMkdir(candidate, ...rest); }; };
+  const refuseRm = (target, code, times) => { let left = times; fs.rmSync = (candidate, ...rest) => { if (candidate === target && left-- > 0) throw refusal(code); return realRm(candidate, ...rest); }; };
+  try {
+    // Taking a free lock whose name was only just deleted.
+    refuseMkdir(lock, 'EPERM', 3);
+    assert.equal(withBootstrapLock(lock, () => 'taken'), 'taken');
+
+    // Reclaiming an abandoned lock: the guard, the stale lock and the guard again are each refused once.
+    fs.mkdirSync = realMkdir;
+    const dead = spawnSync(process.execPath, ['-e', '0']).pid;
+    const abandon = () => {
+      fs.mkdirSync(lock, { recursive: true });
+      fs.writeFileSync(path.join(lock, 'pid'), String(dead));
+    };
+    abandon();
+    refuseMkdir(`${lock}.reclaim`, 'EACCES', 1);
+    assert.equal(withBootstrapLock(lock, () => 'reclaimed after the guard was refused', { waitMs: 5000 }), 'reclaimed after the guard was refused');
+    fs.mkdirSync = realMkdir;
+    abandon();
+    refuseRm(lock, 'EBUSY', 2);
+    assert.equal(withBootstrapLock(lock, () => 'reclaimed after the removal was refused', { waitMs: 5000 }), 'reclaimed after the removal was refused');
+    fs.rmSync = realRm;
+    abandon();
+    refuseRm(`${lock}.reclaim`, 'EPERM', 2);
+    assert.equal(withBootstrapLock(lock, () => 'reclaimed after the guard release was refused', { waitMs: 5000 }), 'reclaimed after the guard release was refused');
+    fs.rmSync = realRm;
+    assert.equal(fs.existsSync(`${lock}.reclaim`), false, 'the guard is always released');
+    assert.equal(fs.existsSync(lock), false);
+
+    // Releasing the lock is retried too: a lock left behind would block the next start for as long as this process lives.
+    refuseRm(lock, 'EPERM', 2);
+    withBootstrapLock(lock, () => 'held');
+    fs.rmSync = realRm;
+    assert.equal(fs.existsSync(lock), false, 'the lock is released after a refused removal');
+
+    // A refusal that lasts is a real error and is raised, as is any other failure, at once.
+    refuseMkdir(lock, 'EPERM', Infinity);
+    assert.throws(() => withBootstrapLock(lock, () => 1, { transientGraceMs: 50 }), { code: 'EPERM' });
+    refuseMkdir(lock, 'ENOSPC', Infinity);
+    const started = Date.now();
+    assert.throws(() => withBootstrapLock(lock, () => 1, { transientGraceMs: 5000 }), { code: 'ENOSPC' });
+    assert.ok(Date.now() - started < 1000, 'a failure that is not contention is not retried');
+  } finally {
+    fs.mkdirSync = realMkdir;
+    fs.rmSync = realRm;
     fs.rmSync(temp, { recursive: true, force: true });
   }
 });

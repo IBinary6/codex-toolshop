@@ -31,6 +31,11 @@ jobs:
       - name: Check that the hook runner copies stay identical
         run: node scripts/check-runner-sync.cjs
 
+      - name: Check that the generated shared copies are current
+        run: |
+          node scripts/sync-shared.cjs --check
+          node scripts/sync-shared.test.cjs
+
       - name: Check that every plugin's version and category agree across its files
         run: |
           node scripts/plugin-manifests.cjs --check

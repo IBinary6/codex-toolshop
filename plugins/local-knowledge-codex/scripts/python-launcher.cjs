@@ -1,9 +1,9 @@
 'use strict';
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { pythonCandidates: sharedCandidates } = require('./_shared/python-candidates.cjs');
 
 const MIN_MAJOR = 3;
 const MIN_MINOR = 11;
@@ -11,44 +11,8 @@ const MIN_MINOR = 11;
 const PYTHON_DETECTION_TIMEOUT_MS = 4000;
 const PYTHON_CANDIDATE_TIMEOUT_MS = 3000;
 const CACHE_FILE_NAME = 'python-runtime.json';
-// Versioned names cover Homebrew/python.org installs that do not own the bare python3 name (stock macOS ships 3.9).
-const VERSIONED_NAMES = ['python3.14', 'python3.13', 'python3.12', 'python3.11'];
 const RUNTIME_ENV_NAMES = ['LOCAL_KNOWLEDGE_PYTHON', 'BUGDB_PYTHON'];
 const VERSION_SCRIPT = 'import sys; print("%d.%d.%d" % sys.version_info[:3])';
-
-function newestFirst(left, right) {
-  /** Order uv interpreter folder names such as `cpython-3.12.4-...` by version, newest first. */
-  const version = (name) => (name.match(/^cpython-(\d+)\.(\d+)(?:\.(\d+))?/) || []).slice(1).map(Number);
-  const a = version(left);
-  const b = version(right);
-  for (let index = 0; index < 3; index += 1) {
-    const delta = (b[index] || 0) - (a[index] || 0);
-    if (delta) return delta;
-  }
-  return 0;
-}
-
-function uvManagedPythons(environment, platform) {
-  /** List uv-managed interpreters newest first without starting uv; return [] when none exist. */
-  const roots = [];
-  if (environment.UV_PYTHON_INSTALL_DIR) roots.push(environment.UV_PYTHON_INSTALL_DIR);
-  if (platform === 'win32') {
-    roots.push(path.join(environment.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'uv', 'python'));
-  } else {
-    roots.push(path.join(environment.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'uv', 'python'));
-  }
-  const found = [];
-  for (const root of roots) {
-    let entries = [];
-    try { entries = fs.readdirSync(root); } catch (_) { continue; }
-    for (const entry of entries.filter((name) => /^cpython-3\.\d+/.test(name)).sort(newestFirst)) {
-      found.push(platform === 'win32'
-        ? path.join(root, entry, 'python.exe')
-        : path.join(root, entry, 'bin', 'python3'));
-    }
-  }
-  return found;
-}
 
 function pythonCandidates(environment = process.env, platform = process.platform,
   envNames = RUNTIME_ENV_NAMES) {
@@ -61,20 +25,7 @@ function pythonCandidates(environment = process.env, platform = process.platform
     const configured = String(environment[name] || '').trim();
     if (configured) return [{ command: configured, args: [] }];
   }
-  const names = platform === 'win32'
-    ? [{ command: 'python', args: [] }, { command: 'python3', args: [] },
-      { command: 'py', args: ['-3'] }]
-    : [{ command: 'python3', args: [] }, { command: 'python', args: [] },
-      ...VERSIONED_NAMES.map((command) => ({ command, args: [] }))];
-  const directories = platform === 'darwin'
-    ? ['/opt/homebrew/bin', '/usr/local/bin', '/Library/Frameworks/Python.framework/Versions/Current/bin']
-    : platform === 'win32' ? [] : ['/usr/local/bin', '/usr/bin'];
-  const absolute = [];
-  for (const directory of directories) {
-    for (const name of ['python3', ...VERSIONED_NAMES]) absolute.push(`${directory}/${name}`);
-  }
-  absolute.push(...uvManagedPythons(environment, platform));
-  return [...names, ...absolute.map((command) => ({ command, args: [] }))];
+  return sharedCandidates({ platform, env: environment, minMinor: MIN_MINOR, windowsNames: ['python', 'python3'] });
 }
 
 function cachePath(environment = process.env) {
