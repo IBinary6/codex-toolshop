@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync, spawn } = require('node:child_process');
+const { pythonCandidates: sharedCandidates } = require('./_shared/python-candidates.cjs');
 const UV_VERSION = '0.12.10';
 
 function dataDir(env = process.env, platform = process.platform) {
@@ -15,22 +16,13 @@ function dataDir(env = process.env, platform = process.platform) {
   return path.join(env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'dbg');
 }
 
-// Versioned names cover Homebrew/python.org installs that do not own the bare python3 name (stock macOS ships 3.9).
-const VERSIONED_PYTHONS = ['python3.14', 'python3.13', 'python3.12', 'python3.11'];
 const BOOTSTRAP_LOCK_WAIT_MS = 15 * 60 * 1000;
 const BOOTSTRAP_LOCK_STALE_MS = 30 * 60 * 1000;
 
 function pythonCandidates(env = process.env, platform = process.platform) {
-  const candidates = [];
-  if (env.DBG_PYTHON) candidates.push([env.DBG_PYTHON]);
-  candidates.push(['python3'], ['python']);
-  if (platform === 'win32') return [...candidates, ['py', '-3']];
-  for (const name of VERSIONED_PYTHONS) candidates.push([name]);
-  const dirs = platform === 'darwin'
-    ? ['/opt/homebrew/bin', '/usr/local/bin', '/Library/Frameworks/Python.framework/Versions/Current/bin']
-    : ['/usr/local/bin', '/usr/bin'];
-  for (const dir of dirs) for (const name of ['python3', ...VERSIONED_PYTHONS]) candidates.push([`${dir}/${name}`]);
-  return candidates;
+  const explicit = env.DBG_PYTHON ? [[env.DBG_PYTHON]] : [];
+  const found = sharedCandidates({ platform, env, minMinor: 11, includeUv: false });
+  return [...explicit, ...found.map(({ command, args }) => [command, ...args])];
 }
 
 function findPython(options = {}) {

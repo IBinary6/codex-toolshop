@@ -48,7 +48,7 @@
     },
     {
       "name": "local-knowledge-codex",
-      "version": "0.2.7",
+      "version": "0.2.8",
       "description": "Local indexed knowledge for Codex with relevant recall of fixes, preferences, facts, decisions, and workflows.",
       "source": {
         "source": "local",
@@ -90,7 +90,7 @@
     },
     {
       "name": "dbg-codex",
-      "version": "0.1.5",
+      "version": "0.1.6",
       "description": "Script-driven deployment, update and repair of debugger extensions and their MCP servers.",
       "source": {
         "source": "local",
