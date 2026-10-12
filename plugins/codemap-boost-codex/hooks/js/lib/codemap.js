@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { MCP_STARTUP_TIMEOUT_SEC, MCP_BOOTSTRAP_BUDGET_MS, crgRuntimePaths, ensureCrg, probeCrgRuntime } = require('./bootstrap');
+const { MCP_BOOTSTRAP_BUDGET_MS, crgRuntimePaths, ensureCrg, probeCrgRuntime } = require('./bootstrap');
 
 const {
   codexHome,
@@ -16,10 +16,18 @@ const {
   spawnDetached,
   writeMarker,
 } = require('./runtime');
+const { parseMcpJson, isNativeCrgMcpConfig, resolveCodexCommand, runCodexMcp } = require('./codex-cli');
+const {
+  LEGACY_MCP_CHECKED_MARKER,
+  cleanLegacyCrgGitHook,
+  cleanLegacyCrgHooks,
+  isLegacyUvxCrgMcpConfig,
+  isPluginManagedLegacyCrgMcpConfig,
+  removeLegacyCrgMcp,
+  removeLegacyCrgMcpOnce,
+} = require('./legacy-crg');
 
 const ENABLED_MARKER = '.codemap-boost-enabled';
-const LEGACY_MCP_CHECKED_MARKER = '.legacy-crg-mcp-checked';
-const LEGACY_MCP_RETRY_MS = 24 * 60 * 60 * 1000;
 const BOOTSTRAP_FAILED_MARKER = '.codemap-bootstrap-failed';
 const LOCK_BOOT_MS = 5000;
 const LOCK_STALE_MS = 4 * 60 * 60 * 1000;
@@ -773,118 +781,6 @@ function startCrgUpdate(cwd, options = {}) {
   return true;
 }
 
-function stripAnsi(value) {
-  return String(value || '')
-    .replace(/[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g, '')
-    .replace(/[\u001b\u005d].*?(?:\u0007|\u001b\\)/g, '');
-}
-
-function parseMcpJson(value) {
-  if (value && typeof value === 'object') return value;
-  const text = stripAnsi(value);
-  for (let start = 0; start < text.length; start += 1) {
-    if (text[start] !== '{' && text[start] !== '[') continue;
-    let depth = 0;
-    let quote = false;
-    let escaped = false;
-    for (let index = start; index < text.length; index += 1) {
-      const char = text[index];
-      if (quote) {
-        if (escaped) escaped = false;
-        else if (char === '\\') escaped = true;
-        else if (char === '"') quote = false;
-        continue;
-      }
-      if (char === '"') {
-        quote = true;
-        continue;
-      }
-      if (char === '{' || char === '[') depth += 1;
-      else if (char === '}' || char === ']') depth -= 1;
-      if (depth !== 0) continue;
-      try { return JSON.parse(text.slice(start, index + 1)); } catch (_) { break; }
-    }
-  }
-  return null;
-}
-
-function mcpTransport(config) {
-  if (!config || typeof config !== 'object') return {};
-  const transport = config.transport;
-  if (transport && typeof transport === 'object') return transport;
-  return config;
-}
-
-/**
- * Check whether a same-name global MCP uses an old uvx launcher with ambiguous ownership.
- * @example isLegacyUvxCrgMcpConfig({ command: 'uvx', args: ['code-review-graph', 'serve'] })
- */
-function isLegacyUvxCrgMcpConfig(config) {
-  if (!config || typeof config !== 'object') return false;
-  const transport = mcpTransport(config);
-  const type = typeof config.transport === 'string'
-    ? config.transport
-    : (transport.type || config.type || config.transport_type || 'stdio');
-  if (String(type).toLowerCase() !== 'stdio') return false;
-  const command = String(transport.command || config.command || '');
-  const args = transport.args || config.args;
-  if (!Array.isArray(args)) return false;
-  const normalizedArgs = JSON.stringify(args);
-  return path.basename(command).toLowerCase() === 'uvx'
-    && normalizedArgs === JSON.stringify(['code-review-graph', 'serve']);
-}
-
-/**
- * Check whether a path proves that a same-name global MCP belongs to the old plugin-private runtime.
- * @example isPluginManagedLegacyCrgMcpConfig({ command: '/home/me/.codex/plugins/data/codemap-boost-codex-shop/crg-runtime/bin/code-review-graph', args: ['serve'] })
- */
-function isPluginManagedLegacyCrgMcpConfig(config) {
-  if (!config || typeof config !== 'object') return false;
-  const transport = mcpTransport(config);
-  const type = typeof config.transport === 'string'
-    ? config.transport
-    : (transport.type || config.type || config.transport_type || 'stdio');
-  if (String(type).toLowerCase() !== 'stdio') return false;
-  const command = String(transport.command || config.command || '').replace(/\\/g, '/');
-  const args = transport.args || config.args;
-  if (!Array.isArray(args)) return false;
-  return /\/plugins\/data\/codemap-boost-codex(?:-[^/]+)?\/crg-runtime\/(?:Scripts|bin)\/code-review-graph(?:\.exe)?$/i.test(command)
-    && JSON.stringify(args) === JSON.stringify(['serve']);
-}
-
-/**
- * Check whether the current MCP configuration uses the plugin’s bundled cross-platform launcher.
- * @example isNativeCrgMcpConfig({ command: 'node', args: ['scripts/mcp-server.cjs'], cwd: '.', startup_timeout_sec: 600 }, { allowRelativeCwd: true })
- */
-function isNativeCrgMcpConfig(config, options = {}) {
-  if (!config || typeof config !== 'object') return false;
-  if (config.enabled === false && !options.allowDisabled) return false;
-  const transport = mcpTransport(config);
-  const type = typeof config.transport === 'string'
-    ? config.transport
-    : (transport.type || config.type || config.transport_type || 'stdio');
-  const command = String(transport.command || config.command || '');
-  const args = transport.args || config.args;
-  const cwd = String(transport.cwd ?? config.cwd ?? '');
-  const timeout = Number(config.startup_timeout_sec ?? config.startupTimeoutSec);
-  let cwdOk = false;
-  if (options.allowRelativeCwd) cwdOk = cwd === '.';
-  else if (options.expectedCwd && cwd) {
-    const actual = path.resolve(cwd);
-    const expected = path.resolve(options.expectedCwd);
-    cwdOk = process.platform === 'win32'
-      ? actual.toLowerCase() === expected.toLowerCase()
-      : actual === expected;
-  }
-  return String(type).toLowerCase() === 'stdio'
-    && ['node', 'node.exe'].includes(path.basename(command).toLowerCase())
-    && Array.isArray(args)
-    && JSON.stringify(args) === JSON.stringify(['scripts/mcp-server.cjs'])
-    && cwdOk
-    && Number.isFinite(timeout)
-    && timeout === MCP_STARTUP_TIMEOUT_SEC;
-}
-
 function readBootstrapFailure() {
   for (const name of ['.crg-install-failed', BOOTSTRAP_FAILED_MARKER]) {
     try {
@@ -895,157 +791,6 @@ function readBootstrapFailure() {
   return '';
 }
 
-/**
- * Run a resolved Codex CLI; Windows batch entry points must launch through cmd.exe.
- * @example runCodexCommand('codex', ['--version'])
- */
-function runCodexCommand(command, args, options = {}) {
-  const spawn = options.spawnSync || spawnSync;
-  const env = options.env || process.env;
-  const useCmdShim = process.platform === 'win32'
-    && !options.spawnSync
-    && /\.(?:cmd|bat)$/i.test(command);
-  const executable = useCmdShim ? (env.ComSpec || process.env.ComSpec || 'cmd.exe') : command;
-  const commandEnv = useCmdShim ? { ...env, CODEMAP_BOOST_CODEX_COMMAND: command } : env;
-  if (useCmdShim) {
-    args.forEach((arg, index) => {
-      commandEnv[`CODEMAP_BOOST_CODEX_ARG_${index}`] = String(arg);
-    });
-  }
-  const commandArgRefs = args.map((arg, index) => {
-    const ref = `%CODEMAP_BOOST_CODEX_ARG_${index}%`;
-    return /^[A-Za-z0-9_./:\\-]+$/.test(String(arg)) ? ref : `"${ref}"`;
-  });
-  const commandArgs = useCmdShim
-    ? [
-        '/d',
-        '/v:off',
-        '/s',
-        '/c',
-        `""%CODEMAP_BOOST_CODEX_COMMAND%" ${commandArgRefs.join(' ')}"`,
-      ]
-    : args;
-  try {
-    return spawn(executable, commandArgs, {
-      cwd: options.cwd || process.cwd(),
-      env: commandEnv,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: options.timeout || 30000,
-      windowsHide: process.platform === 'win32',
-      windowsVerbatimArguments: useCmdShim,
-    });
-  } catch (error) {
-    return { status: null, error, stdout: '', stderr: '' };
-  }
-}
-
-/**
- * Probe Codex CLI candidates from PATH one by one, skipping desktop-app entries that exist but cannot execute.
- * @example resolveCodexCommand({ cwd: process.cwd() })
- */
-function resolveCodexCommand(options = {}) {
-  const env = options.env || process.env;
-  const explicit = String(env.CODEMAP_BOOST_CODEX_CLI || '').trim();
-  const candidates = [];
-  if (explicit) {
-    candidates.push(explicit);
-  } else {
-    const suffixes = process.platform === 'win32'
-      ? String(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
-      : [''];
-    const names = process.platform === 'win32'
-      ? [...suffixes.map((suffix) => `codex${suffix.toLowerCase()}`), 'codex']
-      : ['codex'];
-    for (const directory of String(env.PATH || '').split(path.delimiter).filter(Boolean)) {
-      for (const name of names) {
-        const candidate = path.resolve(directory.replace(/^"|"$/g, ''), name);
-        try {
-          if (fs.statSync(candidate).isFile()) candidates.push(candidate);
-        } catch (_) {}
-      }
-    }
-  }
-  const seen = new Set();
-  for (const candidate of candidates) {
-    const key = process.platform === 'win32' ? candidate.toLowerCase() : candidate;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const probe = runCodexCommand(candidate, ['--version'], { ...options, env, timeout: 10000 });
-    if (probe && !probe.error && probe.status === 0) return candidate;
-  }
-  return null;
-}
-
-/**
- * Run Codex MCP subcommands through a verified CLI; tests may inject spawnSync.
- * @example runCodexMcp(['mcp', 'get', 'code-review-graph', '--json'])
- */
-function runCodexMcp(args, options = {}) {
-  const command = options.codexCommand
-    || (options.spawnSync ? 'codex' : resolveCodexCommand(options));
-  if (!command) {
-    const error = new Error('Codex CLI is unavailable');
-    error.code = 'ENOENT';
-    return { status: null, error, stdout: '', stderr: '', available: false };
-  }
-  return runCodexCommand(command, args, options);
-}
-
-/**
- * Remove an old global registration only when its private-runtime path proves plugin ownership.
- * @example removeLegacyCrgMcp({ cwd: process.cwd() })
- */
-function removeLegacyCrgMcp(options = {}) {
-  const codexCommand = options.codexCommand
-    || (options.spawnSync ? 'codex' : resolveCodexCommand(options));
-  if (!codexCommand) {
-    return {
-      ok: true,
-      changed: false,
-      skipped: true,
-      diagnostic: 'No executable standalone Codex CLI was found, so old global MCP overrides cannot be checked; the native plugin MCP launcher itself does not depend on the CLI.',
-    };
-  }
-  const commandOptions = { ...options, codexCommand };
-  const getResult = runCodexMcp(['mcp', 'get', 'code-review-graph', '--json'], commandOptions);
-  const output = `${getResult && getResult.stdout ? getResult.stdout : ''}\n${getResult && getResult.stderr ? getResult.stderr : ''}`;
-  const config = parseMcpJson(output);
-  if (!isPluginManagedLegacyCrgMcpConfig(config)) return { ok: true, changed: false };
-  const removeResult = runCodexMcp(['mcp', 'remove', 'code-review-graph'], commandOptions);
-  if (removeResult && !removeResult.error && removeResult.status === 0) {
-    return { ok: true, changed: true };
-  }
-  return {
-    ok: false,
-    changed: false,
-    diagnostic: 'Could not remove the old global code-review-graph registration. It shadows the native plugin MCP; run setup to repair it automatically.',
-  };
-}
-
-/**
- * Run the legacy MCP migration until it has checked a real Codex CLI once, then never again.
- * SessionStart fires on startup, resume, clear and compact; repeating CLI probes there only adds latency.
- * When no usable CLI exists the check is skipped and retried at most once a day, so an unrunnable desktop-app
- * entry on PATH does not cost a failed `codex --version` probe at every session start.
- * @example removeLegacyCrgMcpOnce({ cwd: process.cwd() })
- */
-function removeLegacyCrgMcpOnce(options = {}) {
-  const marker = markerPath(LEGACY_MCP_CHECKED_MARKER);
-  const now = (options.now || Date.now)();
-  try {
-    const recorded = JSON.parse(fs.readFileSync(marker, 'utf8'));
-    if (recorded && (recorded.status === 'checked'
-        || (recorded.status === 'skipped' && now - recorded.at < LEGACY_MCP_RETRY_MS))) {
-      return { ok: true, changed: false, cached: true };
-    }
-  } catch (_) {} // missing or unreadable marker: run the check
-  const result = (options.removeLegacyCrgMcp || removeLegacyCrgMcp)(options);
-  // A failed removal (ok: false) is never recorded, so it is retried at the next session start.
-  if (result.ok) writeMarker(LEGACY_MCP_CHECKED_MARKER, JSON.stringify({ status: result.skipped ? 'skipped' : 'checked', at: now }));
-  return result;
-}
-
 const CONTEXT = GUIDANCE;
 
 function promptLooksStructural(text) {
@@ -1053,91 +798,6 @@ function promptLooksStructural(text) {
   return /\b(?:callers?|callees?|dependencies|depends? on|references?|call (?:graph|chain)|impact (?:radius|analysis)|review context|codemap|code map)\b|\u4ee3\u7801\u7ed3\u6784|\u7b26\u53f7\u5173\u7cfb|\u8c03\u7528|\u5f15\u7528\u5173\u7cfb|\u5f71\u54cd\u9762|\u4ee3\u7801\u5ba1\u67e5|\u6a21\u5757\u4f9d\u8d56|\u4f9d\u8d56\u5173\u7cfb|\u4f9d\u8d56\u94fe/.test(value)
     || /\b(?:review|inspect|check)\b.{0,50}\b(?:code|patch|changes?|diff|regressions?)\b/.test(value)
     || /(?:\u5206\u6790|\u68b3\u7406|\u67e5\u627e|\u5b9a\u4f4d|\u4e86\u89e3).{0,30}(?:\u67b6\u6784|\u6a21\u5757|\u7b26\u53f7|\u51fd\u6570|\u7c7b)|(?:find|locate|trace|inspect|explain)\b.{0,40}\b(?:symbols?|functions?|classes|architecture|modules?)\b/.test(value);
-}
-
-function normalizeLegacyCommand(command) {
-  return String(command || '').trim().replace(/\s+/g, ' ');
-}
-
-function isLegacyCrgCommand(command) {
-  const normalized = normalizeLegacyCommand(command);
-  return normalized === 'code-review-graph status || true'
-    || normalized === 'code-review-graph update --skip-flows || true'
-    || normalized === 'cat >/dev/null || true; code-review-graph status || true'
-    || normalized === 'cat >/dev/null || true; code-review-graph update --skip-flows || true';
-}
-
-function cleanLegacyCrgHooks(home = codexHome()) {
-  const target = path.join(home, 'hooks.json');
-  let parsed = null;
-  try {
-    parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
-  } catch (error) {
-    if (error.code === 'ENOENT') return false;
-    return false;
-  }
-  if (!parsed || typeof parsed !== 'object' || !parsed.hooks) return false;
-  let changed = false;
-  for (const eventName of Object.keys(parsed.hooks)) {
-    if (!Array.isArray(parsed.hooks[eventName])) continue;
-    const next = [];
-    for (const group of parsed.hooks[eventName]) {
-      if (!group || !Array.isArray(group.hooks)) {
-        next.push(group);
-        continue;
-      }
-      const hooks = group.hooks.filter((hook) => !isLegacyCrgCommand(hook && hook.command));
-      if (hooks.length !== group.hooks.length) changed = true;
-      if (hooks.length > 0) next.push({ ...group, hooks });
-    }
-    if (next.length !== parsed.hooks[eventName].length) {
-      changed = true;
-      if (next.length === 0) delete parsed.hooks[eventName];
-      else parsed.hooks[eventName] = next;
-    }
-  }
-  if (!changed) return false;
-  ensureDir(path.dirname(target));
-  fs.writeFileSync(target, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
-  return true;
-}
-
-/**
- * Remove legacy CRG lines only from the Git hook path effective for the current repository.
- * @example cleanLegacyCrgGitHook(process.cwd())
- */
-function cleanLegacyCrgGitHook(cwd) {
-  const root = repoRoot(cwd);
-  if (!root) return false;
-  const target = gitPath(root, 'hooks/pre-commit');
-  if (!target) return false;
-  let content = '';
-  try {
-    content = fs.readFileSync(target, 'utf8');
-  } catch (_) {
-    return false;
-  }
-  if (!content.includes('Installed by code-review-graph')) return false;
-  if (!content.includes('code-review-graph update')) return false;
-  const lines = content.split(/\r?\n/);
-  const kept = lines.filter((line) =>
-    !line.includes('Installed by code-review-graph')
-    && normalizeLegacyCommand(line) !== 'code-review-graph update || true'
-  );
-  const meaningful = kept.filter((line) => {
-    const trimmed = line.trim();
-    return trimmed && trimmed !== '#!/bin/sh' && trimmed !== '#!/usr/bin/env sh';
-  });
-  try {
-    if (meaningful.length === 0) {
-      fs.unlinkSync(target);
-    } else {
-      fs.writeFileSync(target, `${kept.join('\n').replace(/\s+$/, '')}\n`, 'utf8');
-    }
-    return true;
-  } catch (_) {
-    return false;
-  }
 }
 
 module.exports = {
