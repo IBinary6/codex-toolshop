@@ -1,6 +1,6 @@
 # tgrep Search for Codex
 
-Independent plugin `tgrep-search-codex@codex-toolshop` (0.1.3). Requires Node.js 18+, with no npm dependencies or MCP. Microsoft tgrep **v1.0.5** is the cold-install fallback; the plugin checks and validates upstream stable releases automatically. It manages services and private indexes per real Git worktree for text, string, and candidate-file search. CodeMap remains responsible for symbols, call chains, dependencies, and impact analysis. Read known files directly.
+Independent plugin `tgrep-search-codex@codex-toolshop`. Requires Node.js 18+, with no npm dependencies or MCP. Microsoft tgrep **v1.0.5** is the cold-install fallback; the plugin checks and validates upstream stable releases automatically. It manages services and private indexes per real Git worktree for text, string, and candidate-file search. CodeMap remains responsible for symbols, call chains, dependencies, and impact analysis. Read known files directly.
 
 ## Automatic operation
 
