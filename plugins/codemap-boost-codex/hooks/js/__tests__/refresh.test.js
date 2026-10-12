@@ -7,11 +7,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const {
-  listLinkedWorktrees,
-  refreshCrgSync,
-  refreshLinkedWorktreesSync,
-} = require('../lib/codemap');
+const { refreshCrgSync } = require('../lib/codemap');
 const {
   ROOT_SCOPED_CRG_TOOLS,
   refreshFailureReason,
@@ -29,11 +25,6 @@ function git(cwd, args, env = process.env) {
   });
   assert.strictEqual(result.status, 0, result.stderr || result.stdout);
   return (result.stdout || '').trim();
-}
-
-function canonicalPath(filePath) {
-  const realpath = fs.realpathSync.native || fs.realpathSync;
-  return realpath(filePath);
 }
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-refresh-'));
@@ -95,7 +86,7 @@ try {
     cwd: repo,
     input: JSON.stringify({ cwd: repo, tool_name: 'mcp__code_review_graph__list_repos_tool', tool_input: {} }),
     encoding: 'utf8',
-    env: { ...process.env, PLUGIN_DATA: registryData, CODEMAP_BOOST_DISABLE_BOOTSTRAP: '1' },
+    env: { ...process.env, PLUGIN_DATA: registryData },
     windowsHide: process.platform === 'win32',
   });
   assert.strictEqual(registry.status, 0, registry.stderr);
@@ -131,25 +122,6 @@ try {
   assert.strictEqual(refreshCrgSync(repo, options), true);
   assert.strictEqual(calls.length, 3, 'the same untracked source state does not repeat a full build');
   assert.strictEqual(git(repo, ['diff', '--cached', '--name-only']), '', 'real index stays untouched');
-
-  const worktree = path.join(tmp, 'worktree');
-  git(repo, ['worktree', 'add', '-b', 'codemap-test-worktree', worktree]);
-  fs.mkdirSync(path.join(worktree, '.code-review-graph'));
-  const roots = listLinkedWorktrees(repo);
-  assert.ok(roots.includes(canonicalPath(repo)), 'main worktree is listed');
-  assert.ok(roots.includes(canonicalPath(worktree)), 'new worktree is listed');
-
-  const linkedCalls = [];
-  assert.strictEqual(refreshLinkedWorktreesSync(repo, {
-    canUseCrg: () => true,
-    runCrg: (args, runOptions) => {
-      linkedCalls.push({ args, cwd: runOptions.cwd });
-      fs.writeFileSync(path.join(runOptions.cwd, '.code-review-graph', 'graph.db'), 'linked graph\n');
-      return { status: 0 };
-    },
-  }), true);
-  assert.ok(!linkedCalls.some((call) => canonicalPath(call.cwd) === canonicalPath(repo)), 'already-fresh main graph is skipped');
-  assert.ok(linkedCalls.some((call) => canonicalPath(call.cwd) === canonicalPath(worktree)), 'new worktree graph refreshed');
 
   const stateFile = path.join(repo, '.code-review-graph', '.codemap-boost-source-state');
   fs.writeFileSync(path.join(repo, 'tracked.js'), 'function beforeRefresh() {}\n');

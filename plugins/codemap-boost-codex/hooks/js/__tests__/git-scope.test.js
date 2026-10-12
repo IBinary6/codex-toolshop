@@ -56,13 +56,12 @@ try {
 'use strict';
 const fs = require('fs');
 const codemap = require(process.env.CODEMAP_SCOPE_LIBRARY);
-for (const name of ['isCodeMapEnabled', 'canUseCrg', 'refreshCrgSync', 'prepareCrgForRead', 'startAutoBootstrap',
+for (const name of ['isCodeMapEnabled', 'canUseCrg', 'refreshCrgSync', 'prepareCrgForRead',
   'removeLegacyCrgMcp', 'cleanLegacyCrgHooks', 'cleanLegacyCrgGitHook',
   'ensureAgentsBlock', 'ensureGitInfoExclude', 'readBootstrapFailure']) {
   codemap[name] = (...args) => {
     fs.appendFileSync(process.env.CODEMAP_SCOPE_EVENTS, JSON.stringify({ name, args }) + '\\n');
     if (name === 'removeLegacyCrgMcp') return { ok: true, changed: false };
-    if (name === 'startAutoBootstrap') return false;
     if (name === 'readBootstrapFailure') return '';
     return true;
   };
@@ -80,7 +79,6 @@ require(process.env.CODEMAP_SCOPE_UPDATES).schedulePluginUpdate = () => {};
       CODEX_HOME: path.join(tmp, 'codex-home'),
       PLUGIN_ROOT: pluginRoot,
       PLUGIN_DATA: data,
-      CODEMAP_BOOST_DISABLE_BOOTSTRAP: '1',
       CODEMAP_BOOST_DISABLE_BACKGROUND: '1',
       CODEMAP_SCOPE_LIBRARY: path.join(hooksDir, 'lib', 'codemap.js'),
       CODEMAP_SCOPE_UPDATES: path.join(hooksDir, 'lib', 'plugin-updates.js'),
@@ -165,8 +163,8 @@ require(process.env.CODEMAP_SCOPE_UPDATES).schedulePluginUpdate = () => {};
       const result = invoke(name, cwd, payload);
       assert.ok(result.output.additionalContext, `${name} recognizes a Git parent of ${cwd}`);
       assert.ok(!result.events.some((event) => ['canUseCrg',
-        'refreshCrgSync', 'prepareCrgForRead', 'startAutoBootstrap'].includes(event.name)),
-      'session and reminders never probe, bootstrap or refresh before a graph call');
+        'refreshCrgSync', 'prepareCrgForRead'].includes(event.name)),
+      'session and reminders never probe or refresh before a graph call');
     }
     const implicit = invoke('pre_graph_tool', cwd, graph);
     assert.strictEqual(implicit.output.permissionDecision, 'allow');

@@ -23,7 +23,6 @@ function runSession(cwd, codexHome, extraEnv = {}) {
       CODEX_HOME: codexHome,
       PLUGIN_ROOT: pluginRoot,
       PLUGIN_DATA: path.join(codexHome, 'plugin-data'),
-      CODEMAP_BOOST_DISABLE_BOOTSTRAP: '1',
       CODEMAP_BOOST_DISABLE_BACKGROUND: '1',
       ...extraEnv,
     },

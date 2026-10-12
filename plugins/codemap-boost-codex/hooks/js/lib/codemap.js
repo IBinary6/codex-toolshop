@@ -31,7 +31,6 @@ const ENABLED_MARKER = '.codemap-boost-enabled';
 const BOOTSTRAP_FAILED_MARKER = '.codemap-bootstrap-failed';
 const LOCK_BOOT_MS = 5000;
 const LOCK_STALE_MS = 4 * 60 * 60 * 1000;
-const BOOTSTRAP_LOCK_STALE_MS = 30 * 60 * 1000;
 const REFRESH_LOCK_WAIT_MS = 2 * 60 * 1000;
 const REFRESH_WAIT_MS = 10 * 60 * 1000;
 const REFRESH_DIAGNOSTIC_MAX_CHARS = 600;
@@ -612,36 +611,6 @@ function prepareCrgForRead(cwd, options = {}) {
   });
 }
 
-function listLinkedWorktrees(cwd) {
-  const root = repoRoot(cwd);
-  if (!root) return [];
-  const result = gitResult(root, ['worktree', 'list', '--porcelain']);
-  if (result.error || result.status !== 0) return [root];
-  return String(result.stdout || '')
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith('worktree '))
-    .map((line) => {
-      const worktree = path.resolve(line.slice('worktree '.length).trim());
-      try {
-        const realpath = fs.realpathSync.native || fs.realpathSync;
-        return realpath(worktree);
-      } catch (_) {
-        return worktree;
-      }
-    })
-    .filter((worktree, index, all) => fs.existsSync(worktree) && all.indexOf(worktree) === index);
-}
-
-function refreshLinkedWorktreesSync(cwd, options = {}) {
-  const worktrees = listLinkedWorktrees(cwd);
-  if (worktrees.length === 0) return false;
-  let ok = true;
-  for (const worktree of worktrees) {
-    if (!refreshCrgSync(worktree, options)) ok = false;
-  }
-  return ok;
-}
-
 function startCrgBuild(cwd, options = {}) {
   if (process.env.CODEMAP_BOOST_DISABLE_BACKGROUND === '1') return false;
   const root = repoRoot(cwd);
@@ -668,114 +637,6 @@ function startCrgBuild(cwd, options = {}) {
   const child = launch(process.execPath, ['-e', code], { cwd: root });
   if (!child) {
     try { fs.unlinkSync(lockFile); } catch (_) {}
-    return false;
-  }
-  return true;
-}
-
-function writeBootstrapDiagnostic(diagnostic) {
-  try {
-    const target = markerPath(BOOTSTRAP_FAILED_MARKER);
-    ensureDir(path.dirname(target));
-    fs.writeFileSync(target, `${diagnostic}\n`, 'utf8');
-  } catch (_) {}
-}
-
-/**
- * Explicit setup/repair may start background runtime repair, using a lock to prevent duplicate installation.
- * @example startAutoBootstrap(process.cwd())
- */
-function startAutoBootstrap(cwd, options = {}) {
-  if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1') return false;
-  if (process.env.CODEMAP_BOOST_DISABLE_BOOTSTRAP === '1') return false;
-  const root = repoRoot(cwd);
-  if (!root) return false;
-  const probe = options.canUseCrg || canUseCrg;
-  const hasCrg = probe();
-  if (hasCrg) {
-    enableCodeMap();
-    return false;
-  }
-  const lockFile = path.join(os.tmpdir(), lockName('codemap-bootstrap', root));
-  // Whether another process holds the lock or this process just acquired it, report bootstrap in progress instead of silently skipping.
-  if (isLockActive(lockFile, BOOTSTRAP_LOCK_STALE_MS)) return true;
-  if (!tryWriteLock(lockFile)) {
-    if (isLockActive(lockFile, BOOTSTRAP_LOCK_STALE_MS)) return true;
-    writeBootstrapDiagnostic('CodeMap Boost could not create the background installation lock. Check plugin-data permissions, run setup, and open a new task.');
-    return false;
-  }
-  const code = `
-    const fs = require('fs');
-    const { markerPath } = require(${JSON.stringify(path.join(__dirname, 'runtime.js'))});
-    const { ensureCrg } = require(${JSON.stringify(path.join(__dirname, 'bootstrap.js'))});
-    const codemap = require(${JSON.stringify(__filename)});
-    try {
-      try { fs.writeFileSync(${JSON.stringify(lockFile)}, String(process.pid)); } catch (_) {}
-      if (ensureCrg()) {
-        const migration = codemap.removeLegacyCrgMcp({ cwd: ${JSON.stringify(root)} });
-        if (migration.ok) {
-          codemap.enableCodeMap();
-          try { fs.rmSync(markerPath(${JSON.stringify(BOOTSTRAP_FAILED_MARKER)}), { force: true }); } catch (_) {}
-          codemap.cleanLegacyCrgHooks();
-          codemap.cleanLegacyCrgGitHook(${JSON.stringify(root)});
-          codemap.ensureAgentsBlock();
-          codemap.ensureGitInfoExclude(${JSON.stringify(root)});
-          codemap.startCrgBuild(${JSON.stringify(root)});
-        } else {
-          try { fs.writeFileSync(markerPath(${JSON.stringify(BOOTSTRAP_FAILED_MARKER)}), migration.diagnostic || '1'); } catch (_) {}
-        }
-      } else {
-        const diagnostic = codemap.readBootstrapFailure();
-        try { fs.writeFileSync(markerPath(${JSON.stringify(BOOTSTRAP_FAILED_MARKER)}), diagnostic || '1'); } catch (_) {}
-      }
-    } finally {
-      try { fs.unlinkSync(${JSON.stringify(lockFile)}); } catch (_) {}
-    }
-  `;
-  const launch = options.spawnDetached || spawnDetached;
-  const child = launch(process.execPath, ['-e', code], { cwd: root });
-  if (!child) {
-    try { fs.unlinkSync(lockFile); } catch (_) {}
-    writeBootstrapDiagnostic('CodeMap Boost could not start background isolated-runtime installation. Run setup in the target repository and open a new task.');
-    return false;
-  }
-  return true;
-}
-
-function startCrgUpdate(cwd, options = {}) {
-  if (process.env.CODEMAP_BOOST_DISABLE_BACKGROUND === '1') return false;
-  const root = repoRoot(cwd);
-  if (!root) return false;
-  const enabled = options.isCodeMapEnabled || (() => isCodeMapEnabled() && canUseCrg());
-  if (!enabled()) return false;
-  if (!fs.existsSync(path.join(root, '.code-review-graph'))) return false;
-  const lockFile = path.join(os.tmpdir(), lockName('codemap-crg-refresh', root));
-  const pendingFile = `${lockFile}.pending`;
-  if (isLockActive(lockFile)) {
-    try { fs.writeFileSync(pendingFile, '1', 'utf8'); } catch (_) {}
-    return true;
-  }
-  if (!tryWriteLock(lockFile)) return false;
-  const command = crgCommand(options);
-  const code = `
-    const fs = require('fs');
-    const codemap = require(${JSON.stringify(__filename)});
-    try {
-      try { fs.writeFileSync(${JSON.stringify(lockFile)}, String(process.pid)); } catch (_) {}
-      do {
-        try { fs.rmSync(${JSON.stringify(pendingFile)}, { force: true }); } catch (_) {}
-        codemap.refreshCrgUnlocked(${JSON.stringify(root)}, { crgCommand: ${JSON.stringify(command)} });
-      } while (fs.existsSync(${JSON.stringify(pendingFile)}));
-    } finally {
-      try { fs.unlinkSync(${JSON.stringify(lockFile)}); } catch (_) {}
-      try { fs.rmSync(${JSON.stringify(pendingFile)}, { force: true }); } catch (_) {}
-    }
-  `;
-  const launch = options.spawnDetached || spawnDetached;
-  const child = launch(process.execPath, ['-e', code], { cwd: root });
-  if (!child) {
-    try { fs.unlinkSync(lockFile); } catch (_) {}
-    try { fs.rmSync(pendingFile, { force: true }); } catch (_) {}
     return false;
   }
   return true;
@@ -817,14 +678,10 @@ module.exports = {
   canUseCrg,
   isCodeMapEnabled,
   enableCodeMap,
-  startAutoBootstrap,
   startCrgBuild,
-  startCrgUpdate,
   refreshCrgUnlocked,
   refreshCrgSync,
   prepareCrgForRead,
-  listLinkedWorktrees,
-  refreshLinkedWorktreesSync,
   parseMcpJson,
   isLegacyUvxCrgMcpConfig,
   isPluginManagedLegacyCrgMcpConfig,
