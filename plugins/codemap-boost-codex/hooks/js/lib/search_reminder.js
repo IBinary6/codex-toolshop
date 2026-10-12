@@ -5,7 +5,7 @@ const path = require('path');
 const { createHash } = require('crypto');
 const { pluginDataDir } = require('./runtime');
 
-const SEARCH_CONTEXT = 'CodeMap Boost: If this search concerns symbols, calls, dependencies, or impact, query available graph tools first, then verify against source. If you already have relevant graph evidence, are reading a known file, or are searching filenames or literal text, continue the current operation. When graph tools are unavailable or lack coverage, fall back immediately and state the basis; do not repeat build/update.';
+const SEARCH_CONTEXT = 'CodeMap Boost: If this search concerns symbols, calls, dependencies, or impact, query available graph tools first (a text match only locates a name; it does not show callers or impact), then verify against source. If you already have relevant graph evidence, are reading a known file, or are searching filenames or literal text, continue the current operation. When graph tools are unavailable or lack coverage, fall back immediately and state the basis; do not repeat build/update.';
 
 /**
  * Recognize common search commands for a soft hint, not for permissions or the command’s actual working directory.
@@ -26,10 +26,17 @@ function looksLikeCodeSearch(input) {
     if (!commandStart) continue;
     if (token === 'command' || /^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) continue;
     commandStart = false;
-    const executable = token.replace(/^['"]|['"]$/g, '').split(/[\\/]/).pop();
-    if (!/^(?:rg|grep|findstr|Select-String)(?:\.exe)?$/i.test(executable)) continue;
+    const baseName = (value) => String(value || '').replace(/^['"]|['"]$/g, '').split(/[\\/]/).pop();
+    let executable = baseName(token);
+    let argStart = index + 1;
+    // The tgrep plugin supplies its search entry as `node <plugin>/scripts/tgrep.cjs search ...`; its other subcommands are not searches.
+    if (/^node(?:\.exe)?$/i.test(executable) && /^tgrep\.cjs$/i.test(baseName(tokens[index + 1])) && baseName(tokens[index + 2]) === 'search') {
+      executable = 'tgrep';
+      argStart = index + 3;
+    }
+    if (!/^(?:rg|grep|findstr|Select-String|tgrep)(?:\.exe)?$/i.test(executable)) continue;
     const args = [];
-    for (let next = index + 1; next < tokens.length && !/^[;&|\n]+$/.test(tokens[next]); next += 1) {
+    for (let next = argStart; next < tokens.length && !/^[;&|\n]+$/.test(tokens[next]); next += 1) {
       if (tokens[next].startsWith('#')) break;
       args.push(tokens[next].replace(/^['"]|['"]$/g, ''));
     }

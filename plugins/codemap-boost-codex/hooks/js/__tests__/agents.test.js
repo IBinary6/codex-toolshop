@@ -86,8 +86,11 @@ try {
     'shared guidance remains exactly three numbered points');
   assert.ok(content.includes('code-review-graph'), 'first point keeps graph-first structural retrieval');
   assert.ok(content.includes('tgrep-search-codex'), 'shared guidance keeps indexed text and file discovery routing');
-  assert.ok(content.includes('CLI entry'), 'tgrep readiness is verified through its real CLI entry');
-  assert.ok(content.includes('use live rg'), 'standalone installs retain a usable text-search route');
+  assert.ok(content.includes('CLI entry'), 'tgrep is used through the CLI entry its own hook supplied');
+  assert.ok(content.indexOf('tgrep-search-codex') < content.indexOf('Serena search tools') && content.indexOf('Serena search tools') < content.indexOf('live rg'),
+    'names and text: tgrep first, then Serena on the activated project, then rg');
+  assert.ok(content.includes('a location, not a relationship'), 'a text hit is handed to the graph for callers and impact');
+  assert.ok(content.includes('then live rg'), 'standalone installs retain a usable text-search route');
   assert.ok(!CONTEXT.includes('tool-priority'), 'published guidance must not depend on a personal skill');
   assert.ok(content.includes('current tool catalog and deferred discovery'), 'CRG and Serena are discovered from the live tool catalog');
   assert.ok(content.includes('discover code-review-graph and Serena separately'), 'CRG and Serena availability is discovered independently');
@@ -97,7 +100,7 @@ try {
   assert.ok(content.includes('unavailable only for now'), 'tool absence is scoped to the current observation');
   assert.ok(content.includes('rediscover on a later turn or natural demand'), 'later natural demand may rediscover tools');
   assert.ok(content.includes('Do not busy-wait or cache permanent absence'), 'guidance forbids busy waiting and permanent negative caches');
-  assert.ok(content.includes('Use graph queries for relationships and impact'), 'tools are selected by evidence type');
+  assert.ok(content.includes('use graph queries for callers, dependencies and impact'), 'tools are selected by evidence type');
   assert.ok(content.includes('stop when evidence is sufficient'), 'cooperation does not force redundant round trips');
   assert.ok(content.includes('Graphs apply only to Git worktrees'), 'guidance preserves Git-only graph scope');
   assert.ok(content.includes('pre-read barrier'), 'guidance preserves the graph read barrier');
