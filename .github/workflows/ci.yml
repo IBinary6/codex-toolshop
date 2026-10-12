@@ -102,6 +102,49 @@ jobs:
         working-directory: plugins/system-proxy-codex
         run: npm test
 
+  node18:
+    # The plugins' hooks run on whatever Node the Codex host provides, and these declare ">=18" in package.json.
+    name: Node 18, the declared minimum, on ubuntu-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Prepare process ownership regression runtime
+        run: python -m pip install psutil==7.0.0
+
+      - name: Prepare ripgrep for tgrep CLI tests
+        run: sudo apt-get update && sudo apt-get install --yes ripgrep
+
+      - name: Run the root checks
+        run: |
+          node scripts/check-runner-sync.cjs
+          node scripts/sync-shared.cjs --check
+          node scripts/sync-shared.test.cjs
+          node scripts/plugin-manifests.cjs --check
+          node scripts/plugin-manifests.test.cjs
+
+      - name: Validate every plugin that declares Node 18
+        shell: bash
+        run: |
+          plugins=$(node -e 'const fs=require("fs");for(const d of fs.readdirSync("plugins").sort()){try{const e=JSON.parse(fs.readFileSync("plugins/"+d+"/package.json","utf8")).engines;if(e&&/^>=\s*18(\.|$)/.test(e.node))console.log(d)}catch(_){}}')
+          echo "$plugins"
+          for plugin in $plugins; do
+            echo "::group::$plugin"
+            (cd "plugins/$plugin" && npm test) || { echo "::error::$plugin failed on Node 18"; exit 1; }
+            echo "::endgroup::"
+          done
+
   tgrep-runtime:
     name: tgrep runtime on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
