@@ -53,6 +53,24 @@ function pidAlive(pid) {
   }
 }
 
+// Windows refuses to create or remove a directory whose deletion is still completing (another process, a virus scanner
+// or the search indexer holds a handle for a moment) with EPERM, EACCES or EBUSY. That is contention, not a failure.
+const TRANSIENT_FS_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
+const TRANSIENT_FS_GRACE_MS = 2000;
+
+/** Remove a directory tree, retrying for about 200 ms while Windows still holds it; returns whether it is gone. */
+function removeDirectory(target) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      fs.rmSync(target, { recursive: true, force: true });
+      return true;
+    } catch (error) {
+      if (attempt >= 10 || !TRANSIENT_FS_CODES.has(error.code)) return false;
+      sleepSync(20);
+    }
+  }
+}
+
 /**
  * Remove a lock left behind by a crashed process. A lock is abandoned when its recorded owner is gone, or when it
  * is older than staleMs. Only one waiter at a time may judge and remove it: the guard directory serializes the
@@ -64,10 +82,10 @@ function reclaimAbandonedLock(lockDir, staleMs) {
   try {
     fs.mkdirSync(guard);
   } catch (error) {
-    if (error.code !== 'EEXIST') throw error;
+    if (error.code !== 'EEXIST' && !TRANSIENT_FS_CODES.has(error.code)) throw error;
     // The guard is held for a few milliseconds; one older than a minute belongs to a process that died inside it.
     try {
-      if (Date.now() - fs.statSync(guard).mtimeMs > 60 * 1000) fs.rmSync(guard, { recursive: true, force: true });
+      if (Date.now() - fs.statSync(guard).mtimeMs > 60 * 1000) removeDirectory(guard);
     } catch (_) {}
     return false;
   }
@@ -82,10 +100,9 @@ function reclaimAbandonedLock(lockDir, staleMs) {
     try { owner = Number(fs.readFileSync(path.join(lockDir, 'pid'), 'utf8')); } catch (_) {}
     const ownerGone = owner > 0 && !pidAlive(owner);
     if (!ownerGone && ageMs <= staleMs) return false;
-    fs.rmSync(lockDir, { recursive: true, force: true });
-    return true;
+    return removeDirectory(lockDir); // still held by another process: keep waiting
   } finally {
-    fs.rmSync(guard, { recursive: true, force: true });
+    removeDirectory(guard);
   }
 }
 
@@ -98,12 +115,24 @@ function withBootstrapLock(lockDir, fn, options = {}) {
   const staleMs = options.staleMs ?? BOOTSTRAP_LOCK_STALE_MS;
   fs.mkdirSync(path.dirname(lockDir), { recursive: true });
   const deadline = Date.now() + waitMs;
+  const graceMs = options.transientGraceMs ?? TRANSIENT_FS_GRACE_MS;
+  let transientSince = 0;
   for (;;) {
     try {
       fs.mkdirSync(lockDir);
       break;
     } catch (error) {
-      if (error.code !== 'EEXIST') throw error;
+      if (error.code === 'EEXIST') {
+        transientSince = 0;
+      } else if (TRANSIENT_FS_CODES.has(error.code)) {
+        // A name that is still being deleted frees up in a moment; a refusal that lasts is a real error.
+        transientSince = transientSince || Date.now();
+        if (Date.now() - transientSince > graceMs) throw error;
+        sleepSync(25);
+        continue;
+      } else {
+        throw error;
+      }
     }
     if (Date.now() > deadline) throw new Error('Runtime preparation failed: another Dbg process is still preparing Python');
     if (!reclaimAbandonedLock(lockDir, staleMs)) sleepSync(250);
@@ -112,7 +141,7 @@ function withBootstrapLock(lockDir, fn, options = {}) {
     try { fs.writeFileSync(path.join(lockDir, 'pid'), String(process.pid)); } catch (_) {}
     return fn();
   } finally {
-    try { fs.rmSync(lockDir, { recursive: true, force: true }); } catch (_) {}
+    removeDirectory(lockDir);
   }
 }
 
