@@ -49,6 +49,15 @@ assert.strictEqual(isGitCommit('  git   commit  --amend'), true, 'git commit wit
 assert.strictEqual(isGitCommit('git -C repo commit -m "x"'), true, 'git -C repo commit is detected');
 assert.strictEqual(isGitCommit('git -c user.name=x commit -m "x"'), true, 'git -c ... commit is detected');
 assert.strictEqual(isGitCommit('cd repo; git commit -m "x"'), true, 'git commit in a compound command is detected');
+// Other ways a shell ends one command and starts the next must not hide the commit.
+assert.strictEqual(isGitCommit('echo hi\ngit commit -m "x"'), true, 'git commit after a newline is detected');
+assert.strictEqual(isGitCommit('echo hi\r\ngit commit -m "x"'), true, 'git commit after CRLF is detected');
+assert.strictEqual(isGitCommit('true & git commit -m "x"'), true, 'git commit after a background & is detected');
+assert.strictEqual(isGitCommit('(git commit -m "x")'), true, 'git commit inside a subshell is detected');
+assert.strictEqual(isGitCommit('cd repo && (git commit -m "x")'), true, 'git commit in a subshell after && is detected');
+assert.strictEqual(isGitCommit('git status 2>&1'), false, 'a redirection such as 2>&1 is not a separator');
+assert.strictEqual(isGitCommit('echo "a & git commit"'), false, 'a quoted & is still text');
+assert.strictEqual(isGitCommit('echo "(git commit)"'), false, 'quoted parentheses are still text');
 assert.strictEqual(isGitCommit('cmd /c git commit -m "x"'), true, 'git commit wrapped in cmd /c is detected');
 assert.strictEqual(isGitCommit('GIT COMMIT -m "x"'), true, 'Case-insensitive GIT COMMIT is detected');
 assert.strictEqual(isGitCommit('git.exe commit -m "x"'), true, 'Windows git.exe commit is detected');

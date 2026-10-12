@@ -17,14 +17,14 @@ function pluginRoot() {
   return fromEnv ? path.resolve(fromEnv) : path.resolve(__dirname, '..');
 }
 
-function pluginDataDir(root) {
+function pluginDataDir() {
   const fromEnv = process.env.PLUGIN_DATA;
   if (fromEnv) return path.resolve(fromEnv);
   const codexHome = process.env.CODEX_HOME
     ? path.resolve(process.env.CODEX_HOME)
     : path.join(os.homedir(), '.codex');
-  const safeName = path.basename(root).replace(/[^A-Za-z0-9._-]/g, '_') || 'cpp-style-enforcer-codex';
-  return path.join(codexHome, 'plugins', 'data', safeName);
+  // Fixed name: inside the Codex cache the plugin root's own name is the version folder, which changes on upgrade.
+  return path.join(codexHome, 'plugins', 'data', 'cpp-style-enforcer-codex');
 }
 
 function readStdin() {
@@ -75,7 +75,7 @@ function main() {
 
   const root = pluginRoot();
   const script = path.join(root, rel);
-  const dataDir = pluginDataDir(root);
+  const dataDir = pluginDataDir();
   try {
     fs.mkdirSync(dataDir, { recursive: true });
   } catch (_) {}
