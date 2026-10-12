@@ -146,10 +146,9 @@ async function main() {
   try {
     const started = Date.now();
     hook('session_start', { cwd: fixture });
-    hook('post_tool_use', { cwd: fixture, tool_name: 'Edit', tool_input: {} });
     report.sessionAndEditMs = Date.now() - started;
     report.graphBeforeUse = fs.existsSync(path.join(fixture, '.code-review-graph'));
-    if (!args.baseline) assert.equal(report.graphBeforeUse, false, 'SessionStart/PostToolUse must not build a graph before use');
+    if (!args.baseline) assert.equal(report.graphBeforeUse, false, 'SessionStart must not build a graph before use');
     const memFile = memoryScript(temp);
     const initializedAt = Date.now();
     child = spawn(process.execPath, [path.join(args.pluginRoot, 'scripts', 'mcp-server.cjs')], { cwd: args.pluginRoot, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
@@ -203,7 +202,6 @@ async function main() {
       const indexBefore = checked('git', ['ls-files', '--stage'], { cwd: fixture });
       fs.appendFileSync(source, '\ndef smoke_added_later(value):\n    """Normalize a greeting value after editing the file."""\n    return str(value).strip()\n');
       fs.writeFileSync(path.join(fixture, 'untracked.py'), 'def smoke_untracked():\n    return "untracked fixture"\n');
-      hook('post_tool_use', { cwd: fixture, tool_name: 'Edit', tool_input: {} });
       const updated = await call('query_graph_tool', { pattern: 'file_summary', target: 'sample.py', repo_root: fixture });
       assert.match(JSON.stringify(updated), /smoke_added_later/);
       const untracked = await call('query_graph_tool', { pattern: 'file_summary', target: 'untracked.py', repo_root: fixture });

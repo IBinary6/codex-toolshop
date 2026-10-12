@@ -109,10 +109,8 @@ assert.ok(searchHook && searchHook.hooks[0].command.includes('pre_code_search'),
 assert.ok(searchHook.hooks[0].timeout <= 5, 'search reminders do not reserve graph refresh time');
 assert.ok(hooks.hooks.UserPromptSubmit[0].hooks[0].timeout <= 5,
   'prompt hints must not reserve the graph build timeout');
-assert.ok(
-  hooks.hooks.PostToolUse.some((group) => String(group.matcher || '').includes('apply_patch')),
-  'PostToolUse must refresh after apply_patch edits'
-);
+assert.strictEqual(hooks.hooks.PostToolUse, undefined,
+  'edits register no hook: source changes are validated by the next graph read, so a per-edit hook would only start Node');
 assert.ok(
   hooks.hooks.SessionStart[0].hooks[0].timeout >= 300,
   'SessionStart refresh needs enough time for a full build'

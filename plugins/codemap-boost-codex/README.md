@@ -86,7 +86,7 @@ Native MCP configuration sets `startup_timeout_sec = 600`, plus `tool_timeout_se
 
 The first request needing the backend starts the original `code-review-graph serve`. On Windows, it retains upstream main-thread model prewarming to avoid known first-load Torch/DLL/OpenMP hangs on worker threads. This initialization cost applies to the first ordinary structural query; the graph and semantic-model phases are not split. Since 0.1.37, ten minutes after the last backend work, the frontend recycles only its heavy process tree while retaining discovery and the disk graph. Preparation, startup, active requests, callbacks, and forwarded cancellation awaiting a response block retirement. Discovery and ping do not extend the timer. A request during retirement waits for confirmed exit and shares one restart; initialization and logging state are replayed. Connection close, stdin EOF, or termination also cleans up the owned process tree.
 
-`SessionStart` and edit `PostToolUse` do not probe, install, build, or refresh CRG. The actual graph-read barrier validates the real Git worktree, prepares the runtime, and refreshes the index. Untracked source enters a temporary Git index while the user's real index remains untouched. Each linked worktree has its own graph.
+`SessionStart` does not probe, install, build, or refresh CRG, and edits trigger no hook at all. The actual graph-read barrier validates the real Git worktree, prepares the runtime, and refreshes the index. Untracked source enters a temporary Git index while the user's real index remains untouched. Each linked worktree has its own graph.
 
 For a real-function and Windows-memory comparison, run `npm run test:crg-smoke -- --data-dir <private-data-dir> --output <report.json>`. It checks lightweight discovery, the first graph query, Windows model loading, five prompt templates, edits and untracked source, worktree isolation, vector search, concurrent reuse, and EOF cleanup in temporary repositories. `--plugin-root <old-plugin> --baseline --discovery-only` measures an older startup baseline. Working-set reports include shared pages and are not a net physical-memory saving.
 
@@ -147,7 +147,6 @@ py -3 -m pip install "graphifyy[all]"
 | Hook | Behavior |
 | --- | --- |
 | `SessionStart` | Injects shared retrieval guidance. In Git, maintains owned legacy overrides, managed guidance, and ignore rules; no CRG probe, install, or refresh. |
-| `PostToolUse` | Receives edits and returns quietly; source changes and worktree creation are validated on the next graph read. |
 | `PreToolUse:MCP` | Prepares runtime and verifies or refreshes the graph synchronously before project graph calls. Failure denies that read with diagnostics. Global repository-registry calls do not depend on the current project graph. |
 | `PreToolUse:Bash` | Adds one conditional graph-first hint for common source searches, atomically deduplicated per user turn. It does not deny or rewrite commands or refresh the graph. Filename, document, configuration, and log searches stay quiet. tgrep owns its separate command injection. |
 | `UserPromptSubmit` | Injects shared guidance for structural requests; outside Git it writes no reminder state. |

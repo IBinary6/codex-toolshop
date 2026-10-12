@@ -13,19 +13,6 @@
         ]
       }
     ],
-    "PostToolUse": [
-      {
-        "matcher": "Write|Edit|MultiEdit|apply_patch|Bash|mcp__.*(?:write|edit|create|replace|insert)",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${PLUGIN_ROOT}/scripts/run-hook.cjs\" post_tool_use",
-            "timeout": 600,
-            "statusMessage": "Deferring CodeMap refresh until graph access"
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
       {
         "matcher": "Bash",
