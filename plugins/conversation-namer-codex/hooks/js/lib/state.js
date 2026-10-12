@@ -19,8 +19,26 @@ function stateFile(sessionId, env = process.env) {
   return path.join(dataDirectory(env), 'sessions', `${key}.json`);
 }
 
+const TRANSIENT_CODES = new Set(['EBUSY', 'EPERM', 'EACCES']);
+
+/**
+ * Windows briefly refuses to open or replace a file while another process is replacing or reading it. State files
+ * are replaced by rename, so concurrent hooks hit this window; retry for about 50 ms before giving up.
+ * @example retryTransient(() => fs.renameSync(temporary, file))
+ */
+function retryTransient(operation) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return operation();
+    } catch (error) {
+      if (!TRANSIENT_CODES.has(error.code) || attempt >= 10) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+    }
+  }
+}
+
 function readState(sessionId, env = process.env) {
-  try { return JSON.parse(fs.readFileSync(stateFile(sessionId, env), 'utf8')); }
+  try { return JSON.parse(retryTransient(() => fs.readFileSync(stateFile(sessionId, env), 'utf8'))); }
   catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
 
@@ -29,7 +47,7 @@ function writeState(sessionId, value, env = process.env) {
   const temporary = `${file}.${randomUUID()}.tmp`;
   try {
     fs.writeFileSync(temporary, JSON.stringify(value), { flag: 'wx', mode: 0o600 });
-    fs.renameSync(temporary, file);
+    retryTransient(() => fs.renameSync(temporary, file));
   } finally {
     fs.rmSync(temporary, { force: true });
   }
