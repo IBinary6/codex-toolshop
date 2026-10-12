@@ -21,6 +21,16 @@ async function main() {
       assert.equal(candidate(command), false, command);
     }
     assert.equal(candidate('rg Auth a.cpp README.md'), true);
+    // The tgrep plugin's search entry gets the same hint; its other subcommands and file listings do not.
+    for (const command of ["node '/p/scripts/tgrep.cjs' search -n -- \"Auth\" src", 'node "/p/scripts/tgrep.cjs" search -F -n -- needle .',
+      'cd src && node /p/scripts/tgrep.cjs search -- Auth .', 'node.exe C:\\p\\scripts\\tgrep.cjs search -n -- Auth src', 'tgrep Auth src']) {
+      assert.equal(candidate(command), true, command);
+    }
+    for (const command of ['node /p/scripts/tgrep.cjs doctor', 'node /p/scripts/tgrep.cjs status', 'node /p/scripts/tgrep.cjs search --files -g "*.cpp" -- .',
+      'node /p/scripts/tgrep.cjs search -n -- ERROR app.log', 'node /p/scripts/tgrep.cjs search --help', 'node /p/other.js search -- Auth src',
+      "echo 'node /p/tgrep.cjs search -- Auth src'", 'node /p/scripts/tgrep.cjs']) {
+      assert.equal(candidate(command), false, command);
+    }
     assert.equal(reminder.looksLikeCodeSearch({ tool_name: 'mcp__x', tool_input: { command: 'rg Auth src' } }), false);
     assert.equal(reminder.claimSearchReminder(input), true);
     assert.equal(reminder.claimSearchReminder(input), false);

@@ -68,6 +68,8 @@ Compound commands are analyzed by segment. A Git segment does not hide a later n
 
 The default lightweight MCP prefixes include CodeMap Boost, Context Mode, and Serena, including Codex-native and plugin-namespaced Context Mode names and common Serena server names. Their tools can be used directly without a false “must delegate” hint. Agent Dispatch selects agents; CodeMap Boost owns graph refresh, read barriers, and graph retrieval. Use graph rules only for explicit code structure, call relationships, impact, or code review. Verify relationships against source and never claim an unrun query produced evidence.
 
+Every dispatched agent receives the same search routing at start: the `tgrep-search-codex` CLI entry (a shell command, not an MCP, so it has no prefix to configure) and CodeMap Boost's rules, which find names and text with tgrep, then Serena, then `rg`, and ask the graph for callers and impact. The role instructions do not repeat it.
+
 Agent Dispatch does not install these MCPs. Context Mode is a separate Codex plugin; Serena needs its own setup. Additional server prefixes can be configured with `mcp_prefixes_add`. CodeMap tools may be deferred and absent from static schemas; inspect `ALL_TOOLS` for `mcp__code_review_graph__*` or make an appropriate call before declaring them unavailable.
 
 ## Agent profiles and model selection

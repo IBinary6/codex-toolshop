@@ -17,8 +17,8 @@ Both versions prefer graph evidence for structural questions and require a succe
 The managed AGENTS block and hook entry points share three rules: tool and target selection, text-search fallback, and evidence/freshness. Details on verifying graph tools and text fallback are in the [setup skill](skills/codemap-boost-setup/SKILL.md#verification).
 
 1. Discover CRG and Serena independently in the current tool catalog and deferred discovery facility. Pass the actual target Git worktree as CRG `repo_root`; activate the target project's absolute path in Serena. Neither task cwd nor MCP launcher cwd substitutes for the target root.
-2. Read known files directly. For literal text and filename enumeration, verify the actual `tgrep-search-codex` CLI and run it from the target directory; use live `rg` when it is not ready. An unavailable tool is a current observation: fall back immediately and rediscover on later natural demand without busy-waiting or permanent negative caching.
-3. Use CRG for relationships and impact, Serena/LSP for precise symbols, and tgrep/rg for text. Add only evidence the question still needs and stop when it is sufficient.
+2. Read known files directly. To locate a function or type name, a literal string, a log line, a configuration key or filenames, use the `tgrep-search-codex` CLI entry when its own hook supplied one this session (run from the target directory). Without it, use Serena's search tools on the activated target project, then live `rg`. An unavailable tool is a current observation: fall back immediately and rediscover on later natural demand without busy-waiting or permanent negative caching.
+3. A name found by text search is a location, not a relationship: use CRG for callers, dependencies and impact, and Serena/LSP when the exact definition, references or overload matter. Add only evidence the question still needs and stop when it is sufficient.
 
 ## Bundled Serena and project boundaries
 
