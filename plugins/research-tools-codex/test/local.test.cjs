@@ -33,7 +33,7 @@ async function localFixture(t, options = {}) {
     });
   `);
   const children = [];
-  const gateway = new Gateway({ configFile: path.join(directory, 'config.json'), fetch: () => { throw new Error('no HTTP'); }, timeoutMs: options.timeoutMs || 3000,
+  const gateway = new Gateway({ configFile: path.join(directory, 'config.json'), fetch: () => { throw new Error('no HTTP'); }, timeoutMs: options.timeoutMs || 10000,
     createLocal: provider => new ChildTransport(provider, async () => ({ command: process.execPath, args: [backend], env: { ...process.env, TRACE: trace } }), {
       spawn: (...args) => { const child = spawn(...args); children.push(child); return child; }
     }) });
@@ -89,9 +89,14 @@ test('child cancellation returns promptly, sends cancellation ID and keeps backe
 });
 
 test('child timeout aborts waiting and failed backend restarts only on a future call', async t => {
-  const { gateway, children } = await localFixture(t, { timeoutMs: 800 });
+  const { gateway, children } = await localFixture(t);
   await gateway.call({ name: 'fetch', arguments: { url: 'https://example.org' } });
+  // Only the hanging call needs the short timeout. Starting and crashing a backend process must not race it:
+  // on a loaded Windows runner that took longer than 800 ms and failed main's CI once.
+  const normalTimeoutMs = gateway.timeoutMs;
+  gateway.timeoutMs = 800;
   await assert.rejects(gateway.call({ name: 'fetch', arguments: { mode: 'hang' } }), /cancelled or timed out/);
+  gateway.timeoutMs = normalTimeoutMs;
   assert.equal(children.length, 1);
   await assert.rejects(gateway.call({ name: 'fetch', arguments: { mode: 'crash' } }), /local MCP backend failed/);
   assert.equal(children.length, 1);
