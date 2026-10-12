@@ -67,6 +67,16 @@ try {
   drift('.agents/plugins/marketplace.json', edited((entry) => { entry.version = '0.1.0'; }), /plain-codex: .*marketplace\.json says 0\.1\.0, plugin\.json says 0\.2\.0/);
   drift('.agents/plugins/marketplace.json', edited((entry) => { delete entry.version; }), /plain-codex: .*says \(no version\)/);
   drift('.agents/plugins/marketplace.json', edited((entry) => { entry.category = 'Productivity'; }), /plain-codex: .* category is Productivity, plugin\.json says Coding/);
+  // A command hook that sets async never runs under Codex; that is reported for any plugin and either hook file.
+  const hooks = (file, flag) => write(file, json({ hooks: { SessionStart: [{ matcher: 'startup', hooks: [{ type: 'command', command: 'node x.js', ...flag }] }] } }));
+  hooks('plugins/plain-codex/hooks/hooks.json', {});
+  hooks('plugins/plain-codex/hooks/codex-hooks.json', {});
+  assert.equal(check().status, 0, 'hooks without async pass');
+  hooks('plugins/plain-codex/hooks/hooks.json', { async: true });
+  assert.match(check().stderr, /plain-codex: hooks\/hooks\.json sets async on a SessionStart hook/);
+  hooks('plugins/plain-codex/hooks/hooks.json', {});
+  hooks('plugins/plain-codex/hooks/codex-hooks.json', { async: false });
+  assert.match(check().stderr, /hooks\/codex-hooks\.json sets async/, 'even async: false is a hook Codex does not handle as usual');
   console.log('plugin-manifests.test.cjs PASS');
 } finally {
   fs.rmSync(root, { recursive: true, force: true });

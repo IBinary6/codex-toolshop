@@ -41,11 +41,27 @@ function manifest(root, plugin) {
   return readJson(root, `plugins/${plugin}/.codex-plugin/plugin.json`);
 }
 
+// Codex skips command hooks that set `async`, so such a hook never runs. Checked for every hook file of every plugin.
+function asyncHooks(root, plugin) {
+  const found = [];
+  for (const file of ['hooks.json', 'codex-hooks.json']) {
+    const target = path.join(root, `plugins/${plugin}/hooks/${file}`);
+    if (!fs.existsSync(target)) continue;
+    for (const [event, groups] of Object.entries(readJson(root, `plugins/${plugin}/hooks/${file}`).hooks || {})) {
+      for (const group of groups) {
+        for (const hook of group.hooks || []) if (Object.hasOwn(hook, 'async')) found.push(`${plugin}: hooks/${file} sets async on a ${event} hook; Codex skips async command hooks`);
+      }
+    }
+  }
+  return found;
+}
+
 function check(root) {
   const problems = [];
   for (const entry of marketplace(root).plugins) {
     const plugin = entry.name;
     const wanted = manifest(root, plugin);
+    problems.push(...asyncHooks(root, plugin));
     if (entry.version !== wanted.version) problems.push(`${plugin}: ${MARKETPLACE} says ${entry.version ?? '(no version)'}, plugin.json says ${wanted.version}`);
     const category = wanted.interface && wanted.interface.category;
     if (entry.category !== category) problems.push(`${plugin}: ${MARKETPLACE} category is ${entry.category}, plugin.json says ${category}`);
