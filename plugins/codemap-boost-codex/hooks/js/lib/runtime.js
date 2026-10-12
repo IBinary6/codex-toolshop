@@ -124,7 +124,13 @@ function commandExists(cmd) {
   }
 }
 
+// A hook asks about the same directory several times (guidance, ignore rules, legacy cleanup). Remember successful
+// answers for the life of this short-lived process; failures are not remembered, so a directory that becomes a
+// repository later is still found.
+const repoRoots = new Map();
+
 function repoRoot(cwd) {
+  if (repoRoots.has(cwd)) return repoRoots.get(cwd);
   try {
     const result = spawnSync('git', ['rev-parse', '--show-toplevel'], {
       cwd,
@@ -134,10 +140,44 @@ function repoRoot(cwd) {
       timeout: 5000,
     });
     if (!result.error && result.status === 0 && result.stdout.trim()) {
-      return path.resolve(result.stdout.trim());
+      const root = path.resolve(result.stdout.trim());
+      repoRoots.set(cwd, root);
+      return root;
     }
   } catch (_) {}
   return null;
+}
+
+// The git-path lookups SessionStart needs, answered together by a single `git rev-parse`.
+const COMMON_GIT_PATHS = ['hooks/pre-commit', 'info/exclude'];
+const gitPaths = new Map();
+
+/**
+ * Absolute path of a file inside the repository's git directory, as `git rev-parse --git-path` reports it
+ * (this honors worktrees and core.hooksPath). The paths SessionStart uses are resolved by one git call.
+ * @example gitPath('/repo', 'info/exclude') // '/repo/.git/info/exclude'
+ */
+function gitPath(root, relative) {
+  const key = `${root}\0${relative}`;
+  if (gitPaths.has(key)) return gitPaths.get(key);
+  const wanted = [...new Set([relative, ...COMMON_GIT_PATHS])];
+  let lines = [];
+  try {
+    const result = spawnSync('git', ['rev-parse', ...wanted.flatMap((item) => ['--git-path', item])], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: isWindows,
+      timeout: 5000,
+    });
+    if (!result.error && result.status === 0) lines = result.stdout.split(/\r?\n/).filter(Boolean);
+  } catch (_) {}
+  if (lines.length !== wanted.length) return '';
+  wanted.forEach((item, index) => {
+    // resolve() also turns the forward slashes git prints on Windows into the platform's separators.
+    gitPaths.set(`${root}\0${item}`, path.resolve(root, lines[index]));
+  });
+  return gitPaths.get(key);
 }
 
 function isGitRepo(cwd) {
@@ -193,6 +233,7 @@ module.exports = {
   additionalContext,
   commandExists,
   repoRoot,
+  gitPath,
   isGitRepo,
   markerPath,
   markerExists,

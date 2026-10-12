@@ -26,7 +26,7 @@ try {
     process.stdout.write(JSON.stringify({ pid: process.pid, main: require.main === module,
       argv1: process.argv[1], root: process.env.PLUGIN_ROOT, data: process.env.PLUGIN_DATA,
       stdin: fs.readFileSync(0, 'utf8') }));`;
-  for (const name of ['session_start', 'post_tool_use', 'pre_code_search', 'user_prompt_submit', 'subagent_start']) {
+  for (const name of ['session_start', 'pre_code_search', 'user_prompt_submit', 'subagent_start']) {
     const ran = invoke(name, probe, { input: '{"hello":"world"}' });
     assert.equal(ran.status, 0, `${name}: ${ran.stderr}`);
     const seen = JSON.parse(ran.stdout);

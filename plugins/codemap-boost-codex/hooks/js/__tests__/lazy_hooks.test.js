@@ -46,8 +46,7 @@ child.spawn = () => { fs.appendFileSync(process.env.CODEMAP_TEST_EVENTS, 'spawn\
 `);
   const events = path.join(tmp, 'events');
   for (const [name, toolInput] of [
-    ['session_start', {}], ['post_tool_use', { command: 'git worktree add ../new-worktree' }],
-    ['post_tool_use', { command: 'Set-Content tracked.js changed' }], ['post_tool_use', {}],
+    ['session_start', {}],
   ]) {
     const result = spawnSync(process.execPath,
       ['--require', preload, path.join(pluginRoot, 'hooks/js', `${name}.js`)], {

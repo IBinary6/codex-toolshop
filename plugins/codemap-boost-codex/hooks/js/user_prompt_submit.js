@@ -1,6 +1,6 @@
 'use strict';
 
-const { additionalContext, hookCwd, passSilent, readStdinJson, repoRoot } = require('./lib/runtime');
+const { additionalContext, passSilent, readStdinJson } = require('./lib/runtime');
 const { CONTEXT, promptLooksStructural } = require('./lib/codemap');
 const { resetSearchReminder } = require('./lib/search_reminder');
 
@@ -11,9 +11,8 @@ function promptText(input) {
 
 async function main() {
   const input = await readStdinJson({ timeoutMs: 2000 });
-  const root = repoRoot(hookCwd(input));
-  // Outside Git, do not write reminder state; structural requests can still receive discovery and fallback guidance.
-  if (root) resetSearchReminder(input);
+  // Only removes the previous reminder's marker file: nothing is written, so no repository lookup is needed.
+  resetSearchReminder(input);
   if (process.env.CODEMAP_BOOST_DISABLE_GRAPH === '1'
     || !promptLooksStructural(promptText(input))) return passSilent();
   // Keywords only hint at available tools. The barrier refreshes on actual graph access without blocking pure consultation.
