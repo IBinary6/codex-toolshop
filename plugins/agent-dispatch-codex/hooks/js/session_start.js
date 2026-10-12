@@ -6,8 +6,7 @@ const { ensureAgentProfiles } = require('./lib/agent_profiles');
 const { mainAgentGuidance } = require('./lib/guidance');
 const { hookCwd, readStdinJson, writeHookContext } = require('./lib/protocol');
 
-function main() {
-  const input = readStdinJson();
+function main(input = readStdinJson()) {
   const cwd = hookCwd(input);
   let config;
   try {
@@ -26,4 +25,6 @@ function main() {
   writeHookContext('SessionStart', mainAgentGuidance(config, input && input.source === 'compact'));
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { main };

@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { gitOutput, gitRoot } = require('./config');
+const { appendGitExclude, gitOutput, gitRoot } = require('./config');
 
 const MANAGED_HEADER = '# Managed by agent-dispatch-codex. Configure via .agent-dispatch-codex/config.json.';
 const GIT_HANDOFF = 'Do not run Git commands by default. A user request or explicit skill workflow for complete local commit preparation may let the primary agent designate one writable preparer in the same workspace to inspect status, read the diff, and stage only assigned files; return a summary, checks, HEAD/index tree OIDs, and a commit message. Do not commit, push, rewrite history, or run Git concurrently with the primary; the primary validates the snapshot and commits.';
@@ -44,22 +44,10 @@ function isManaged(content) {
   return content.startsWith(MANAGED_HEADER);
 }
 
-function addExcludeEntries(root, entries) {
-  if (!entries.length) return;
-  const raw = gitOutput(root, ['rev-parse', '--git-path', 'info/exclude']);
-  if (!raw) return;
-  const target = path.isAbsolute(raw) ? raw : path.resolve(root, raw);
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
-  const lines = new Set(existing.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
-  const missing = entries.filter((entry) => !lines.has(entry));
-  if (!missing.length) return;
-  const prefix = existing && !existing.endsWith('\n') ? '\n' : '';
-  fs.appendFileSync(target, `${prefix}${missing.join('\n')}\n`, 'utf8');
-}
-
-function isTracked(root, relative) {
-  return Boolean(gitOutput(root, ['ls-files', '--error-unmatch', '--', relative]));
+/** Paths under .codex/agents that git already tracks: one call instead of one per profile. */
+function trackedAgentFiles(root) {
+  const output = gitOutput(root, ['ls-files', '-z', '--', '.codex/agents']);
+  return new Set(output.split('\0').filter(Boolean));
 }
 
 function ensureAgentProfiles(cwd, config) {
@@ -86,6 +74,7 @@ function ensureAgentProfiles(cwd, config) {
     }
   }
   const excluded = [];
+  const tracked = trackedAgentFiles(root);
   for (const name of names) {
     const profile = profiles[name];
     if (!VALID_NAME.test(name) || (profile && (typeof profile !== 'object' || Array.isArray(profile)))) {
@@ -100,7 +89,7 @@ function ensureAgentProfiles(cwd, config) {
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
     }
-    if ((stat && !stat.isFile()) || isTracked(root, relative)) {
+    if ((stat && !stat.isFile()) || tracked.has(relative)) {
       result.preserved.push(relative);
       continue;
     }
@@ -124,7 +113,7 @@ function ensureAgentProfiles(cwd, config) {
     }
     excluded.push(relative);
   }
-  addExcludeEntries(root, excluded);
+  appendGitExclude(root, excluded);
   return result;
 }
 
