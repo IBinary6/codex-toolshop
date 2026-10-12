@@ -5,8 +5,7 @@ const { loadConfig, loadDefaults } = require('./lib/config');
 const { toolNudge } = require('./lib/guidance');
 const { hookCwd, readStdinJson, writeHookContext } = require('./lib/protocol');
 
-function main() {
-  const input = readStdinJson();
+function main(input = readStdinJson()) {
   if (!input) return;
   let config;
   try {
@@ -18,4 +17,6 @@ function main() {
   writeHookContext('PreToolUse', toolNudge(input, config));
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { main };

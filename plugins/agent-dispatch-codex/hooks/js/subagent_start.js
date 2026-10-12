@@ -5,8 +5,7 @@ const { loadConfig, loadDefaults } = require('./lib/config');
 const { subagentGuidance } = require('./lib/guidance');
 const { hookCwd, readStdinJson, writeHookContext } = require('./lib/protocol');
 
-function main() {
-  const input = readStdinJson();
+function main(input = readStdinJson()) {
   let config;
   try {
     config = loadConfig(hookCwd(input));
@@ -17,4 +16,6 @@ function main() {
   writeHookContext('SubagentStart', subagentGuidance(config));
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { main };

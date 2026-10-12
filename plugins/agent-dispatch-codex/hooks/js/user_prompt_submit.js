@@ -5,8 +5,7 @@ const { loadConfig, loadDefaults } = require('./lib/config');
 const { promptGuidance } = require('./lib/guidance');
 const { hookCwd, readStdinJson, writeHookContext } = require('./lib/protocol');
 
-function main() {
-  const input = readStdinJson();
+function main(input = readStdinJson()) {
   if (!input) return;
   let config;
   try {
@@ -20,4 +19,6 @@ function main() {
   writeHookContext('UserPromptSubmit', guidance);
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { main };
