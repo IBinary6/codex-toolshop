@@ -4,11 +4,10 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnPythonSync } = require('./python-runtime');
+const { legacyFixture, spawnPythonSync } = require('./python-runtime');
 
 const root = path.resolve(__dirname, '..');
 const cli = path.join(root, 'local_knowledge', 'cli.py');
-const legacyCli = path.join(root, 'bugdb', 'cli.py');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'local-knowledge-'));
 const home = path.join(temp, 'home');
 const legacyHome = path.join(temp, 'legacy-home');
@@ -35,24 +34,6 @@ function run(args, expected = 0) {
 function json(args, expected = 0) {
   const result = run([...args, '--format', 'json'], expected);
   return JSON.parse(result.stdout);
-}
-
-function runLegacy(args, expected = 0) {
-  const result = spawnPythonSync([legacyCli, ...args], {
-    cwd: root,
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      LOCAL_KNOWLEDGE_HOME: home,
-      BUGDB_HOME: legacyHome,
-      PYTHONUTF8: '1',
-      PYTHONIOENCODING: 'utf-8',
-    },
-    windowsHide: process.platform === 'win32',
-    timeout: 15000,
-  });
-  assert.equal(result.status, expected, `${args.join(' ')}\n${result.stderr}`);
-  return result;
 }
 
 try {
@@ -216,12 +197,11 @@ try {
     '--recall-policy', 'pinned'], 2);
   assert.match(importedPinned.stderr, /imported|pinned/i);
 
-  runLegacy(['add', '--category', 'link',
-    '--context', 'error LNK2001 unresolved external symbol __imp_WSAStartup',
-    '--cause', 'ws2_32.lib is missing',
-    '--content', 'Add ws2_32.lib to linker dependencies',
-    '--action-steps', '["update linker inputs","rebuild"]',
-    '--language', 'c++', '--project-type', 'cmake', '--tags', 'linker,windows']);
+  legacyFixture(db, 'add', [{
+    category: 'link', context: 'error LNK2001 unresolved external symbol __imp_WSAStartup',
+    cause: 'ws2_32.lib is missing', content: 'Add ws2_32.lib to linker dependencies',
+    action_steps: ['update linker inputs', 'rebuild'], language: 'c++', project_type: 'cmake', tags: ['linker', 'windows'],
+  }]);
   const legacy = json(['recall', '--query', 'LNK2001 unresolved external symbol',
     '--no-legacy-bugs']);
   assert.equal(legacy.results.some((item) => item.source === 'legacy_bug'), false);

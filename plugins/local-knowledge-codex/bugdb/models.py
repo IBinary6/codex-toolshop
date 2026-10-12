@@ -73,9 +73,6 @@ class KnowledgeRecord:
     replacement_hint: "KnowledgeRecord | None" = None
 
 
-ErrorType = Category
-BugRecord = KnowledgeRecord
-
 _KIND_CATEGORY_RULES: dict[EntryKind, frozenset[Category]] = {
     EntryKind.BUG: frozenset({
         Category.COMPILE, Category.LINK, Category.RUNTIME, Category.TYPE,

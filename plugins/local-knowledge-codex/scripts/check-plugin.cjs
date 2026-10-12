@@ -62,7 +62,7 @@ function main() {
   }
   assert(!fs.existsSync(path.join(root, 'node_modules')), 'node_modules must not be committed');
   for (const relative of [
-    'bugdb/cli.py', 'bugdb/db.py', 'bugdb/search.py',
+    'bugdb/db.py', 'bugdb/search.py', 'bugdb/migration.py',
     'local_knowledge/cli.py', 'local_knowledge/storage.py',
     'scripts/run-hook.cjs', 'scripts/python-launcher.cjs',
     'hooks/js/local_knowledge_cli.js',

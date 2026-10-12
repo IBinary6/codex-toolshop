@@ -33,4 +33,19 @@ function spawnPythonSync(args, options = {}) {
   });
 }
 
-module.exports = { runtime, spawnPythonSync };
+const path = require('path');
+
+function legacyFixture(dbFile, command, records) {
+  /**
+   * Create (`add`) or inspect (`dump`) a legacy BugDB database through the bugdb library and return the parsed result.
+   *
+   * Example: `legacyFixture(file, 'add', [{ category: 'link', context: 'LNK2001', cause: 'x', content: 'y' }])` returns the new ids.
+   */
+  const args = [path.join(__dirname, 'legacy_fixture.py'), dbFile, command];
+  if (records) args.push(JSON.stringify(records));
+  const result = spawnPythonSync(args, { encoding: 'utf8', timeout: 15000 });
+  if (result.status !== 0) throw new Error(`legacy fixture ${command} failed: ${result.stderr}`);
+  return JSON.parse(result.stdout);
+}
+
+module.exports = { legacyFixture, runtime, spawnPythonSync };

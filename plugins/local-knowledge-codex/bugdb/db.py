@@ -258,66 +258,6 @@ class BugDB:
             raise RecordNotFound(f"record id={record_id} not found")
         return self._row_to_record(row)
 
-    def update(self, record: KnowledgeRecord) -> KnowledgeRecord:
-        """Update a full record row."""
-        if record.id is None:
-            raise RecordNotFound("cannot update record without id")
-        record.updated_at = utils.now_iso()
-        with self._connection() as conn:
-            cursor = conn.execute(
-                """UPDATE knowledge SET entry_kind=?, category=?, key_pattern=?, context=?, cause=?,
-                content=?, action_steps=?, title=?, language=?, project_type=?, tags=?, confidence=?,
-                usage_count=?, success_count=?, status=?, replaced_by_id=?, valid_for=?,
-                deprecation_note=?, consecutive_failures=?, updated_at=? WHERE id=?""",
-                (self._value(record.entry_kind), self._value(record.category), record.key_pattern,
-                 record.context, record.cause, record.content, utils.to_json_array(record.action_steps),
-                 record.title, record.language, record.project_type, utils.comma_join(record.tags),
-                 record.confidence, record.usage_count, record.success_count, self._value(record.status),
-                 record.replaced_by_id, record.valid_for, record.deprecation_note,
-                 record.consecutive_failures, record.updated_at, record.id),
-            )
-            if cursor.rowcount == 0:
-                raise RecordNotFound(f"record id={record.id} not found")
-        return record
-
-    def delete(self, record_id: int, hard: bool = False) -> None:
-        """Soft-delete a record, or delete it physically when ``hard=True``."""
-        if hard:
-            with self._connection() as conn:
-                cursor = conn.execute("DELETE FROM knowledge WHERE id=?", (record_id,))
-                if cursor.rowcount == 0:
-                    raise RecordNotFound(f"record id={record_id} not found")
-            return
-        record = self.get(record_id)
-        record.status = Status.ARCHIVED
-        self.update(record)
-
-    def restore(self, record_id: int) -> KnowledgeRecord:
-        """Restore an archived record to active."""
-        record = self.get(record_id)
-        record.status = Status.ACTIVE
-        record.consecutive_failures = 0
-        return self.update(record)
-
-    def feedback(self, record_id: int, success: bool) -> KnowledgeRecord:
-        """Record fix feedback and update confidence using the original rules."""
-        record = self.get(record_id)
-        record.usage_count += 1
-        if success:
-            record.success_count += 1
-            record.consecutive_failures = 0
-        else:
-            record.consecutive_failures += 1
-            rate = record.success_count / record.usage_count
-            if (record.consecutive_failures >= _DECAY_FAILURE_THRESHOLD
-                    and rate < _DECAY_SUCCESS_RATE):
-                record.confidence = max(record.confidence - _DECAY_STEP, _DECAY_FLOOR)
-                record.consecutive_failures = 0
-                if record.confidence <= _DECAY_FLOOR:
-                    record.status = Status.DEPRECATED
-                    record.deprecation_note = "auto: low confidence"
-        return self.update(record)
-
     def list_all(self, status: str | None = None, language: str | None = None) -> list[KnowledgeRecord]:
         """List records by status or language."""
         sql = f"SELECT {_COLUMNS} FROM knowledge WHERE 1=1"
@@ -332,18 +272,6 @@ class BugDB:
         with self._connection() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [self._row_to_record(row) for row in rows]
-
-    def stats(self) -> dict:
-        """Return total record count and category statistics."""
-        with self._connection() as conn:
-            total = conn.execute("SELECT COUNT(*) FROM knowledge").fetchone()[0]
-            by_status = dict(conn.execute("SELECT status, COUNT(*) FROM knowledge GROUP BY status").fetchall())
-            by_language = dict(conn.execute("SELECT language, COUNT(*) FROM knowledge GROUP BY language").fetchall())
-            by_category = dict(conn.execute("SELECT category, COUNT(*) FROM knowledge GROUP BY category").fetchall())
-            by_entry_kind = dict(conn.execute("SELECT entry_kind, COUNT(*) FROM knowledge GROUP BY entry_kind").fetchall())
-        return {"total": total, "by_status": by_status, "by_language": by_language,
-                "by_category": by_category, "by_entry_kind": by_entry_kind,
-                "db_path": str(self._path)}
 
     @staticmethod
     def _build_match_expr(query: str, columns: list[str]) -> str:
@@ -405,35 +333,4 @@ class BugDB:
                 rows = self._fts_query(columns, safe, statuses, language, limit)
             except Exception:
                 rows = self._like_fallback(columns, safe, statuses, language, limit)
-        return [self._row_to_record(row) for row in rows]
-
-    def like_search(self, columns, query, statuses=None, language=None, limit=20):
-        """Run LIKE substring search without FTS tokenization."""
-        rows = self._like_fallback(columns, query or "", statuses, language, limit)
-        return [self._row_to_record(row) for row in rows]
-
-    def list_by_filters(self, category=None, language=None, entry_kind=None,
-                        tags_any=None, statuses=None, limit=20):
-        """List records by category, language, kind, and tags."""
-        statuses = statuses or ["active"]
-        sql = f"SELECT {_COLUMNS} FROM knowledge WHERE status IN ({','.join('?' * len(statuses))})"
-        params: list = list(statuses)
-        if category:
-            sql += " AND category=?"
-            params.append(category)
-        if language:
-            sql += " AND (language=? OR language='any')"
-            params.append(language)
-        if entry_kind:
-            sql += " AND entry_kind=?"
-            params.append(entry_kind)
-        if tags_any:
-            sql += " AND (" + " OR ".join("tags LIKE ? ESCAPE '\\'" for _ in tags_any) + ")"
-            for tag in tags_any:
-                escaped = tag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-                params.append(f"%{escaped}%")
-        sql += " ORDER BY confidence DESC, success_count DESC, id DESC LIMIT ?"
-        params.append(limit)
-        with self._connection() as conn:
-            rows = conn.execute(sql, params).fetchall()
         return [self._row_to_record(row) for row in rows]
