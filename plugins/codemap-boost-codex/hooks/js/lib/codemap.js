@@ -10,6 +10,7 @@ const { MCP_STARTUP_TIMEOUT_SEC, MCP_BOOTSTRAP_BUDGET_MS, crgRuntimePaths, ensur
 const {
   codexHome,
   ensureDir,
+  gitPath,
   markerPath,
   repoRoot,
   spawnDetached,
@@ -159,19 +160,8 @@ function ensureGitignore(cwd) {
 function ensureGitInfoExclude(cwd) {
   const root = repoRoot(cwd);
   if (!root) return false;
-  let target = '';
-  try {
-    const result = spawnSync('git', ['rev-parse', '--git-path', 'info/exclude'], {
-      cwd: root,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      windowsHide: process.platform === 'win32',
-      timeout: 5000,
-    });
-    if (!result.error && result.status === 0) target = result.stdout.trim();
-  } catch (_) {}
+  const target = gitPath(root, 'info/exclude');
   if (!target) return false;
-  if (!path.isAbsolute(target)) target = path.resolve(root, target);
   let content = '';
   try {
     content = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
@@ -1119,19 +1109,8 @@ function cleanLegacyCrgHooks(home = codexHome()) {
 function cleanLegacyCrgGitHook(cwd) {
   const root = repoRoot(cwd);
   if (!root) return false;
-  let target = '';
-  try {
-    const result = spawnSync('git', ['rev-parse', '--git-path', 'hooks/pre-commit'], {
-      cwd: root,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      windowsHide: process.platform === 'win32',
-      timeout: 5000,
-    });
-    if (!result.error && result.status === 0) target = result.stdout.trim();
-  } catch (_) {}
+  const target = gitPath(root, 'hooks/pre-commit');
   if (!target) return false;
-  if (!path.isAbsolute(target)) target = path.resolve(root, target);
   let content = '';
   try {
     content = fs.readFileSync(target, 'utf8');
