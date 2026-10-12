@@ -7,10 +7,9 @@ const { requireIconv } = require('../lib/ensure_deps.js');
 /**
  * Add a UTF-8 BOM, transcoding GBK when needed; do not write unchanged content.
  * @param {string} filePath
- * @param {{isCMake?:boolean}} options Retained for legacy callers; CMake no longer skips BOM
  * @returns {boolean} Whether the file was rewritten
  */
-function applyBom(filePath, options = {}) {
+function applyBom(filePath) {
   let buf;
   try { buf = fs.readFileSync(filePath); } catch (_) { return false; }
 

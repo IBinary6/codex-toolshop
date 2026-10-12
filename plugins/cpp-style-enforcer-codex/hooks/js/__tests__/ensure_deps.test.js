@@ -13,8 +13,6 @@ const {
   spawnPrewarm,
 } = require('../lib/ensure_deps.js');
 
-const pluginRoot = path.join(__dirname, '..', '..', '..');
-
 // ---- ensureIconvLite: return an installed module without installing. ----
 {
   // iconv-lite is declared as a plugin dependency; local require may find it after npm install.

@@ -161,12 +161,6 @@ function gitSubcommand(tokens) {
   return null;
 }
 
-function segmentIsGitCommit(segment) {
-  const tokens = normalizedCommandTokens(segment);
-  if (tokens.length === 0) return false;
-  return gitSubcommand(tokens) === 'commit';
-}
-
 function gitCommitCwdFromTokens(tokens, cwd) {
   if (tokens.length === 0 || !isGitExecutable(tokens[0])) return null;
   let current = path.resolve(cwd);
