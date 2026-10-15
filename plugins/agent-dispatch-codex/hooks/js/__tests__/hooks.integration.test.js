@@ -49,6 +49,8 @@ try {
   assert.match(session.hookSpecificOutput.additionalContext, /no routing hint does not preserve an earlier route/i);
   assert.match(session.hookSpecificOutput.additionalContext, /For every new or reused review agent/);
   assert.match(session.hookSpecificOutput.additionalContext, /observable host model\/effort metadata/);
+  assert.match(session.hookSpecificOutput.additionalContext, /family unresolved.*catalog-unavailable-or-stale/);
+  assert.equal(fs.existsSync(path.join(repo, '.codex', 'agents', 'dispatch_sol_worker.toml')), false);
 
   const compactSession = parse(run('session_start', { hook_event_name: 'SessionStart', source: 'compact' }));
   assert.match(compactSession.hookSpecificOutput.additionalContext, /Delegate only when independent parallel work helps/);
@@ -74,9 +76,9 @@ try {
   const solProfile = path.join(repo, '.codex', 'agents', 'dispatch_sol_worker.toml');
   for (const [models, model, effort] of [
     [[['gpt-6.1-sol', ['high']], ['gpt-6-sol', ['medium', 'high']]], 'gpt-6.1-sol', 'high'],
-    [[['gpt-6-sol', ['medium', 'high']]], 'gpt-6-sol', 'medium'],
-    [[['unrelated-model', ['medium', 'high']]], 'gpt-6-sol', 'medium'],
-    [[['gpt-6.1-sol', ['medium']], ['gpt-6-sol', ['medium', 'high']]], 'gpt-6-sol', 'medium'],
+    [[['gpt-6-sol', ['medium', 'high']]], 'gpt-6-sol', 'high'],
+    [[['gpt-6.1-sol', ['medium']], ['gpt-6-sol', ['medium', 'high']]], 'gpt-6-sol', 'high'],
+    [[['gpt-7-sol', ['high']], ['gpt-8-sol', ['medium']]], 'gpt-7-sol', 'high'],
   ]) {
     fs.writeFileSync(catalogPath, JSON.stringify({
       fetched_at: new Date().toISOString(),
@@ -90,15 +92,23 @@ try {
     assert.ok(toml.includes(`model = "${model}"`));
     assert.ok(toml.includes(`model_reasoning_effort = "${effort}"`));
     assert.doesNotMatch(toml, /^model_candidates/m, 'plugin metadata is not a native TOML field');
+    assert.doesNotMatch(toml, /^model_resolution/m, 'resolution diagnostics are not native TOML fields');
     const prompt = parse(run('user_prompt_submit', { prompt: '\u8bf7\u5b9e\u73b0\u8fd9\u4e2a\u5e38\u89c4\u529f\u80fd' }));
     assert.ok(prompt.hookSpecificOutput.additionalContext.includes(`dispatch_sol_worker (${model}/${effort})`));
     const compact = parse(run('session_start', { source: 'compact' }));
     assert.ok(compact.hookSpecificOutput.additionalContext.includes(`Use the effective ${model}/${effort} candidate for writing`));
   }
   fs.writeFileSync(catalogPath, '{invalid');
-  run('session_start', { source: 'startup' });
-  assert.match(fs.readFileSync(solProfile, 'utf8'), /model = "gpt-6-sol"/);
+  const damaged = parse(run('session_start', { source: 'startup' })).hookSpecificOutput.additionalContext;
+  assert.equal(fs.existsSync(solProfile), false, 'damaged catalog removes the obsolete managed role');
+  assert.match(damaged, /family unresolved/);
+  const unresolvedPrompt = parse(run('user_prompt_submit', { prompt: 'implement this code module' })).hookSpecificOutput.additionalContext;
+  assert.match(unresolvedPrompt, /host-supported full model ID and effort explicitly/);
+  assert.doesNotMatch(unresolvedPrompt, /dispatch_sol_worker \(|explicit sol\/high/);
   fs.unlinkSync(catalogPath);
+  assert.match(parse(run('session_start', { source: 'startup' })).hookSpecificOutput.additionalContext, /catalog-unavailable-or-stale/);
+  // Restore an isolated visible catalog for the remaining routing behavior checks.
+  fs.writeFileSync(catalogPath, JSON.stringify(require('./model_fixture.cjs').cache));
 
   assert.equal(run('user_prompt_submit', {
     hook_event_name: 'UserPromptSubmit',
@@ -145,7 +155,7 @@ try {
   assert.match(hardPrompt.hookSpecificOutput.additionalContext, /writable/);
   assert.match(hardPrompt.hookSpecificOutput.additionalContext, /model and effort/);
   assert.match(hardPrompt.hookSpecificOutput.additionalContext, /primary agent.*accept/);
-  assert.match(hardPrompt.hookSpecificOutput.additionalContext, /dispatch_sol_worker.*gpt-6-sol\/medium/);
+  assert.match(hardPrompt.hookSpecificOutput.additionalContext, /dispatch_sol_worker.*gpt-6-sol\/high/);
   assert.doesNotMatch(hardPrompt.hookSpecificOutput.additionalContext, /dispatch_luna_worker/);
 
   const plannedHardPrompt = parse(run('user_prompt_submit', {
@@ -156,7 +166,7 @@ try {
   assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /writable/);
   assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /without replanning/);
   assert.doesNotMatch(plannedHardPrompt.hookSpecificOutput.additionalContext, /must use two serial phases|must spawn/);
-  assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /dispatch_sol_worker.*gpt-6-sol\/medium/);
+  assert.match(plannedHardPrompt.hookSpecificOutput.additionalContext, /dispatch_sol_worker.*gpt-6-sol\/high/);
   assert.doesNotMatch(plannedHardPrompt.hookSpecificOutput.additionalContext, /dispatch_luna_worker/);
 
   const searchPrompt = parse(run('user_prompt_submit', {

@@ -4,7 +4,7 @@ Agent Dispatch brings the primary-agent orchestration model of Claude Code's `ag
 
 ## Relationship to the Claude Code version
 
-Both versions follow the same division of responsibility: the primary agent keeps key decisions, review, integration, and ordinary serial Git work; bounded subtasks go to matching agents. Only a user request or an explicit skill workflow for complete local commit preparation can assign that preparation to one designated writable agent in the same workspace. Results are integrated before idle subagents are released.
+Both versions follow the same division of responsibility: the primary agent keeps key decisions, review, integration, and ordinary serial Git work; bounded subtasks go to matching agents. Only a user request or an explicit skill workflow for complete local commit preparation can assign that preparation to one designated writable Luna agent in the same workspace, using an explicit host-supported model and effort. Results are integrated before idle subagents are released.
 
 | Capability | Codex version | Claude Code version |
 | --- | --- | --- |
@@ -59,7 +59,7 @@ Generated configuration does not prove host role loading or account model access
 
 Node.js 18 or newer is required on Windows and macOS. Hooks run in Node.js independently of the integrated terminal shell.
 
-Single Git CLI commands stay quiet and serial in the primary agent. This is an orchestration rule, not a Git permission for subagents. For explicitly requested complete local commit preparation, one designated writable agent in the same workspace may inspect status and diff, stage only target files, and report a summary, checks, HEAD and index-tree OIDs, and a commit message. It cannot commit, perform remote operations, or rewrite history. The primary agent must not run Git concurrently; after handoff it verifies status, diff, staging scope, and OIDs before committing. No extra role or configuration switch is needed.
+Single Git CLI commands stay quiet and serial in the primary agent. This is an orchestration rule, not a Git permission for subagents. For explicitly requested complete local commit preparation, one designated writable Luna agent in the same workspace with an explicit host-supported model and effort may inspect status and diff, stage only target files, and report a summary, checks, HEAD and index-tree OIDs, and a commit message. It cannot commit, perform remote operations, or rewrite history. The primary agent must not run Git concurrently; after handoff it verifies status, diff, staging scope, and OIDs before committing. No extra role or configuration switch is needed.
 
 A prompt counts as a pure Git CLI command when it is one or more `git` commands joined by `&&`, `||` or `;`. A pipe, a redirect, a background `&`, a subshell, a newline, a command substitution (also inside double quotes), an unterminated quote, or any non-Git segment such as `git status && rg -n TODO src` makes it an ordinary prompt that is routed by its whole text. Legacy `git_readonly_*` and `git_safe_write_*` keys do not control this version. These rules never bypass the Codex sandbox, user authority, hook trust, or Git protections.
 
@@ -77,31 +77,30 @@ For a Git project, `SessionStart` generates local `.codex/agents/*.toml` profile
 
 | Agent | Default model | Effort | Purpose |
 | --- | --- | --- | --- |
-| `dispatch_explorer` | `gpt-6-luna` | `medium` | Bounded read-only search and evidence; code graph only for explicit structure questions. |
-| `dispatch_mapper` | `gpt-6-luna` | `medium` | Broad read-only scans and relationship mapping across materials. |
-| `dispatch_researcher` | `gpt-6-luna` | `medium` | Official sources, current facts, market/competitor and version-sensitive research. |
-| `dispatch_luna_worker` | `gpt-6-luna` | `max` | Low-cost search, source/log evidence, material organization, and established tests; may write evidence artifacts but not product/test code. |
-| `dispatch_sol_worker` | preferably `gpt-6.1-sol` | `high` | Default code implementation and tests; compatibility fallback `gpt-6-sol/medium`. |
-| `dispatch_astra_worker` | `gpt-6-astra` | `medium` | Optional candidate for exceptionally complex deliverables when its cost is justified. |
+| `dispatch_explorer` | latest compatible Luna | `medium` | Bounded read-only search and evidence; code graph only for explicit structure questions. |
+| `dispatch_mapper` | latest compatible Luna | `medium` | Broad read-only scans and relationship mapping across materials. |
+| `dispatch_researcher` | latest compatible Luna | `medium` | Official sources, current facts, market/competitor and version-sensitive research. |
+| `dispatch_luna_worker` | latest compatible Luna | `max` | Low-cost search, source/log evidence, material organization, and established tests; may write evidence artifacts but not product/test code. |
+| `dispatch_sol_worker` | latest compatible Sol | `high` | Default code implementation and tests. |
+| `dispatch_astra_worker` | latest compatible Astra | `medium` | Optional candidate for exceptionally complex deliverables when its cost is justified. |
 | `dispatch_worker` | explicit at spawn | explicit at spawn | Unpinned general execution role. |
 | `dispatch_hard_worker` | explicit at spawn | explicit at spawn | Unpinned role for difficult deliverables and complex problems. |
-| `dispatch_tester` | `gpt-6-luna` | `medium` | Verification against established cases, criteria, or reproduction steps without changing the deliverable. |
-| `dispatch_planner` | preferably `gpt-6.1-sol` | `high` | Plans and constraint analysis; fallback `gpt-6-sol/high`. |
-| `dispatch_reviewer` | preferably `gpt-6.1-sol` | `high` | Ordinary independent review; fallback `gpt-6-sol/high`. |
-| `dispatch_deep_reviewer` | `gpt-6-astra` | `high` | Critical acceptance or exceptionally complex constraints, not risk-keyword escalation. |
+| `dispatch_tester` | latest compatible Luna | `medium` | Verification against established cases, criteria, or reproduction steps without changing the deliverable. |
+| `dispatch_planner` | latest compatible Sol | `high` | Plans and constraint analysis. |
+| `dispatch_reviewer` | latest compatible Sol | `high` | Ordinary independent review. |
+| `dispatch_deep_reviewer` | latest compatible Astra | `high` | Critical acceptance or exceptionally complex constraints, not risk-keyword escalation. |
 
-These are overridable presets, not account availability guarantees. Choose model and effort together for the actual responsibility, user preference, host support, and total task cost. Low-cost `policy.low_cost` defaults to `gpt-6-luna/max`; other Luna evidence roles remain at `medium`. Evidence gathering and established tests differ from judging correctness or acceptance. A mixed “logs + fix” task gives Luna only the evidence stage. Use the effective `dispatch_sol_worker` for code writing, or an enabled unpinned non-Luna worker with an explicit pair, or primary-agent execution.
+These are overridable presets, not account availability guarantees. Choose model and effort together for the actual responsibility, user preference, host support, and total task cost. Low-cost `policy.low_cost` defaults to `luna/max`; other Luna evidence roles remain at `medium`. Evidence gathering and established tests differ from judging correctness or acceptance. A mixed “logs + fix” task gives Luna only the evidence stage. Use the effective `dispatch_sol_worker` for code writing, or an enabled unpinned non-Luna worker with an explicit pair, or primary-agent execution.
 
-Each profile and `policy.low_cost` may specify an ordered `model_candidates` array of `{ model, model_reasoning_effort }` pairs. After merging configuration, the plugin reads only `${CODEX_HOME}/models_cache.json` (or `~/.codex/models_cache.json`) and chooses the first pair listed in a catalog no more than 24 hours old. Missing, damaged, stale, or unmatched catalogs leave the configured baseline intact. The catalog is a compatibility hint, not proof of account access or loaded roles; hooks do not make network or model-probe requests. An explicit override of `model` or `model_reasoning_effort`, including an empty string, clears inherited candidates unless that layer also supplies `model_candidates`. Use `[]` to disable selection. Candidate resolution occurs before TOML generation; a newly opened task loads a changed profile.
+The `model` field accepts a case-insensitive family (`luna`, `sol`, or `astra`), an explicit full model ID, or `""` to unpin. After merging all layers, family settings resolve from the visible entries in `${CODEX_HOME}/models_cache.json` (or `~/.codex/models_cache.json`), fetched no more than 24 hours ago. Supported automatic IDs have the form `gpt-<numeric-version>-<family>`; version components compare numerically, so 6.10 is newer than 6.9. The newest same-family model supporting the requested effort wins; an older compatible model may win without reducing effort or crossing families. Other ID formats remain available through explicit full-ID pins. The plugin contains no dated model or effort capability table.
 
-The capability snapshot used for static validation was checked against the Codex host catalog on 2026-10-08. It detects obviously incompatible pairs but does not probe account access:
+Missing, damaged, future-dated, stale, or unmatched catalogs leave families explicitly unresolved. Session diagnostics report the reason and omit those native roles; existing untracked, non-symlink managed roles are safely removed so an old pin cannot remain loadable. Refresh the host catalog, explicitly pin a supported full ID and effort, use an available generic role with an explicit supported pair, or keep the work in the primary agent. A family alias is never written to native TOML or passed as a native model ID. The catalog is a compatibility hint, not proof of account access or loaded roles; hooks do not make network or model-probe requests. Dynamic diagnostics may show the resolved full ID.
 
-| Model | Recorded effort levels |
-| --- | --- |
-| `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` |
-| `gpt-6-luna` | `low`, `medium`, `high`, `xhigh`, `max`; no `ultra` |
+For compatibility, each profile and `policy.low_cost` may still specify ordered `model_candidates` of exact `{ model, model_reasoning_effort }` pairs. The first compatible visible pair wins; no match preserves a full-ID baseline, while a family baseline follows family resolution. Explicit overrides of `model` or `model_reasoning_effort`, including empty strings, clear inherited candidates unless the same layer supplies them. `[]` disables candidate-list selection; a family in `model` still requests family resolution. Existing explicit full-ID pins survive upgrades. Candidate and family metadata are not emitted to TOML. A newly opened task loads changed profiles.
 
-Thus `gpt-6-luna/max` and `gpt-6-astra/ultra` are valid recorded pairs, while Luna/ultra is not. For a temporary Astra/ultra task, use an unpinned `dispatch_worker` or `dispatch_hard_worker`, pass both model and effort explicitly, and verify actual host support and need. Pinned TOML values override spawn arguments. The current host's full-history fork cannot accept model overrides; pass only the necessary context using a supported path. The primary conversation model is controlled by Codex settings, not this plugin. Generated profile paths are added individually to `.git/info/exclude`; hand-written, tracked, empty, or symlinked files are preserved. Only untracked profiles carrying the plugin's managed header can be updated or cleaned up.
+For low-cost routing, a complete explicit pair with a matching role remains a candidate when its catalog record is missing, stale, or unlisted; the suggestion requires host-support verification. A fresh record that excludes the requested effort rejects that route. Unresolved families and empty target fields cannot route through implicit parent-model inheritance.
+
+For a temporary different pair, use an unpinned `dispatch_worker` or `dispatch_hard_worker`, pass both full model ID and effort explicitly, and verify actual host support and need. Pinned TOML values override spawn arguments. The current host's full-history fork cannot accept model overrides; pass only the necessary context using a supported path. The primary conversation model is controlled by Codex settings, not this plugin. Generated profile paths are added individually to `.git/info/exclude`; hand-written, tracked, empty, or symlinked files are preserved. Only untracked profiles carrying the plugin's managed header can be updated or cleaned up.
 
 Substantive deliverables receive proportionate validation and then independent review. Code may need tests, builds, or runtime evidence; design, documents, operations, and data use their own content, format, constraint, and data checks. The primary agent verifies substantive findings, reuses the original writer for a bounded fix, reruns affected checks, and reviews again. User limits on delegation or concurrency prevail; primary-only review should state its actual scope.
 
@@ -119,7 +118,7 @@ Configuration merges three layers in order: `defaults/dispatch-rules.json`, glob
   "modules": { "prompt_guidance": true },
   "policy": {
     "max_parallel_subagents": 2,
-    "low_cost": { "enabled": true, "model": "gpt-6-luna", "model_reasoning_effort": "max" }
+    "low_cost": { "enabled": true, "model": "luna", "model_reasoning_effort": "max" }
   },
   "agent_profiles": {
     "profiles": {
@@ -135,7 +134,7 @@ Configuration merges three layers in order: `defaults/dispatch-rules.json`, glob
 
 Policy fields include `max_parallel_subagents`, `require_changed_file_report`, `require_validation_report`, and `low_cost.{enabled,model,model_reasoning_effort}`. List overrides apply only to `prompt_keywords_*`; keys left by earlier versions (`mcp_prefixes_*`, `shell_heads_*`, `modules.pre_tool_nudge`) are ignored. Legacy `git_readonly_*` and `git_safe_write_*` keys cannot change the primary agent's serial Git rule.
 
-Explicit `model` and `model_reasoning_effort` values in the same layer are preserved, including empty strings. An empty string omits that TOML field so the host inherits it. Clearing only `model` without supplying effort clears both. Switching only to a different known model uses this plugin's conservative `medium` preset rather than inheriting an old or primary `ultra`; for an unknown model, effort is omitted and host support must be checked. Description-only edits or repeating the same model retain inherited effort, while an explicit effort in a closer layer wins. `policy.low_cost` also merges across layers and must resolve to an available pinned role or an explicitly configured unpinned `dispatch_worker`, never silently to the primary model.
+Explicit `model` and `model_reasoning_effort` values in the same layer are preserved, including empty strings. An empty string omits that TOML field so the host inherits it; generic workers must receive an explicit supported pair at spawn. Clearing only a profile's `model` without supplying effort clears both. Switching only to a different family or recognized versioned family ID uses the `medium` preset, with compatibility checked against the fresh catalog; for an unknown model, effort is omitted and host support must be checked. Description-only edits or repeating the same model retain inherited effort, while an explicit effort in a closer layer wins. A family with empty effort stays unresolved. `policy.low_cost` also merges across layers and must resolve to an available pinned role or an explicitly configured unpinned `dispatch_worker`, never silently to the primary model.
 
 Disabling a profile or all profiles cleans up corresponding untracked managed files on the next `SessionStart`, including obsolete managed roles. Hand-written, tracked, and symlinked files remain owned by their creators. Existing tasks do not unload already loaded roles; open a new task to inspect the final set. The `agent-dispatch-setup` skill can show effective rules and their three sources.
 

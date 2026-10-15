@@ -77,12 +77,12 @@ function claimSession(sessionId, env = process.env) {
   return true;
 }
 
-/** Optional configuration accepts only a model name and bounded timeout; it does not change global Codex settings. */
+/** 命名配置接受家族或精确型号及有界超时；默认跟随最新兼容 Luna，不改变全局模型。 */
 function loadConfig(env = process.env) {
   let config = {};
   try { config = JSON.parse(fs.readFileSync(path.join(dataDirectory(env), 'config.json'), 'utf8')); }
   catch (error) { if (error.code !== 'ENOENT') throw error; }
-  const model = config.model === undefined ? 'gpt-6-luna' : config.model;
+  const model = config.model === undefined ? 'luna' : config.model;
   const timeoutSeconds = config.timeoutSeconds === undefined ? 60 : config.timeoutSeconds;
   if (typeof model !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(model)
       || !Number.isInteger(timeoutSeconds) || timeoutSeconds < 5 || timeoutSeconds > 120) {

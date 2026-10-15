@@ -25,7 +25,18 @@ const LOW_COST_DESCRIPTION_PATTERNS = [
   /\b(?:affordable|low[\s-]+cost|cost[\s-]+effective|economical)\b/i,
 ];
 const LIGHTWEIGHT_FAMILIES = new Set(['luna', 'mini', 'nano']);
+const MODEL_FAMILIES = new Set(['luna', 'sol', 'astra']);
 const LOW_EFFORTS = ['none', 'minimal', 'low'];
+
+/** 按数字版本元组比较，缺少的分量视为零；不能将 6.10 当作小数或字符串排序。 */
+function compareVersions(left, right) {
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const a = BigInt(left[index] || '0');
+    const b = BigInt(right[index] || '0');
+    if (a !== b) return a > b ? -1 : 1;
+  }
+  return 0;
+}
 
 /** Return the catalog-based low-cost tier; a lower value means stronger evidence. */
 function lowCostTier(model) {
@@ -37,11 +48,20 @@ function lowCostTier(model) {
     ? LOW_COST_DESCRIPTION_PATTERNS.length : null;
 }
 
-/** Select a low-cost model from the live catalog without hard-coded versions or a large-model fallback. */
+/** 从实时目录解析家族、精确 pin 或 auto；家族缺失时不跨家族回退。 */
 function selectModel(models, requested = 'auto') {
   const available = models.filter((model) => !model.hidden
     && typeof model.model === 'string'
     && (!model.inputModalities || model.inputModalities.includes('text')));
+  if (MODEL_FAMILIES.has(requested)) {
+    const candidates = available.flatMap((model) => {
+      const match = /^gpt-(\d+(?:\.\d+)*)-(luna|sol|astra)$/i.exec(model.model);
+      return match && match[2].toLowerCase() === requested && lowestEffort(model)
+        ? [{ model, version: match[1].split('.') }] : [];
+    });
+    candidates.sort((left, right) => compareVersions(left.version, right.version));
+    return candidates[0]?.model || null;
+  }
   if (requested !== 'auto') {
     return available.find((model) => model.model === requested || model.id === requested) || null;
   }
@@ -229,7 +249,7 @@ function createNamingClient(options = {}) {
         if (cursor && cursors.has(cursor)) throw new Error('invalid_model_cursor');
         cursors.add(cursor);
       } while (cursor);
-      const selected = selectModel(models, settings.model || 'auto');
+      const selected = selectModel(models, settings.model || 'luna');
       if (!selected) return { skipped: 'no_available_model' };
       const effort = lowestEffort(selected);
       if (!effort) return { skipped: 'no_low_reasoning_effort' };

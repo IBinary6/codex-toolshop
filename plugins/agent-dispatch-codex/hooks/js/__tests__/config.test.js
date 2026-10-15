@@ -52,7 +52,9 @@ try {
   const effective = loadConfig(repo);
   assert.equal(effective.modules.prompt_guidance, false);
   assert.equal(effective.policy.max_parallel_subagents, 2);
-  assert.deepEqual(effective.policy.low_cost, loadDefaults().policy.low_cost);
+  assert.equal(effective.policy.low_cost.model, 'luna');
+  assert.equal(effective.policy.low_cost.model_resolution.status, 'unresolved');
+  assert.equal(effective.policy.low_cost.model_resolution.reason, 'catalog-unavailable-or-stale');
   assert.equal(effective.agent_profiles.profiles.dispatch_worker.model, 'gpt-6.1-sol');
   assert.equal(effective.agent_profiles.profiles.dispatch_worker.sandbox_mode, 'workspace-write');
   assert.ok(effective.whitelist.prompt_keywords.includes('my-keyword'));

@@ -1,7 +1,8 @@
 'use strict';
 
 const assert = require('assert').strict;
-const { loadDefaults, mergeConfig, modelEffortWarnings } = require('../lib/config');
+const { mergeConfig, modelEffortWarnings } = require('../lib/config');
+const { defaults: loadDefaults } = require('./model_fixture.cjs');
 const { renderAgentProfile } = require('../lib/agent_profiles');
 const { mainAgentGuidance } = require('../lib/guidance');
 
@@ -50,7 +51,7 @@ assert.match(mainAgentGuidance(invalidExplicit, true), /gpt-6-luna\/ultra.*confi
 const unknown = override({ model: 'private-future-model' });
 assert.equal(unknown.agent_profiles.profiles.dispatch_worker.model, 'private-future-model');
 assert.equal(unknown.agent_profiles.profiles.dispatch_worker.model_reasoning_effort, '');
-assert.match(modelEffortWarnings(unknown).join('\n'), /no capability record for private-future-model/);
+assert.match(modelEffortWarnings(unknown).join('\n'), /No fresh visible capability record for private-future-model/);
 const inherit = override({ model: '' });
 assert.equal(inherit.agent_profiles.profiles.dispatch_worker.model_reasoning_effort, '');
 assert.doesNotMatch(renderAgentProfile('dispatch_worker', inherit.agent_profiles.profiles.dispatch_worker), /^model(?:_reasoning_effort)? = /m);

@@ -1,7 +1,8 @@
 'use strict';
 
 const { GIT_HANDOFF, profileSummary } = require('./agent_profiles');
-const { loadDefaults, modelEffortWarnings } = require('./config');
+const { loadDefaults, modelEffortWarnings, readModelCatalog } = require('./config');
+const { unresolvedModel, modelFamily } = require('./model_candidates');
 
 const REVIEW_TERMS = [
   '\u5ba1\u67e5', '\u5ba1\u6838', '\u8bc4\u5ba1', 'review', 'audit', 'code review', 'reviewing',
@@ -148,7 +149,7 @@ function taskScopeGuidance(language = 'en') {
 }
 
 function modelSelectionGuidance(language = 'en') {
-  return 'Use Luna for bounded extraction, lookups, logs, and established test evidence. Use Sol high for code, substantive document interpretation, planning, and ordinary independent review when supported. Choose model and effort together: effort levels are not equivalent across model families. Reserve Astra for critical review decisions or exceptionally complex reasoning when the primary agent judges the benefit worth the total cost; keywords alone do not require escalation. Complex computer interaction may justify Sol max after checking host support. Do not escalate to max or ultra merely because a task mentions review or risk. Model catalogs are compatibility hints, not proof of account access; verify the actual loaded role and pair before spawning. Preserve explicit settings and use the configured compatible fallback when a preferred default is unavailable.';
+  return 'Use Luna for bounded extraction, lookups, logs, and established test evidence. Use Sol high for code, substantive document interpretation, planning, and ordinary independent review when supported. Family defaults resolve to the newest visible numeric model version supporting the requested effort in a fresh host catalog; retain explicit full-ID pins. Choose model and effort together: effort levels are not equivalent across model families. Reserve Astra for critical review decisions or exceptionally complex reasoning when the primary agent judges the benefit worth the total cost; keywords alone do not require escalation. Complex computer interaction may justify Sol max after checking host support. Do not escalate to max or ultra merely because a task mentions review or risk. Model catalogs are compatibility hints, not proof of account access; verify the actual loaded role and pair before spawning. For an unresolved family, refresh the catalog or use a generic role with an explicit host-supported full model ID and effort; never pass a family alias to native model APIs or silently inherit the parent model.';
 }
 
 function codeImplementationPair(config) {
@@ -253,7 +254,7 @@ function profileEnabled(config, name) {
   const settings = config && config.agent_profiles;
   if (!settings || settings.enabled === false || !settings.profiles) return false;
   const profile = settings.profiles[name];
-  return Boolean(profile && profile.enabled !== false);
+  return Boolean(profile && profile.enabled !== false && !unresolvedModel(profile));
 }
 
 function firstEnabled(config, names) {
@@ -275,7 +276,7 @@ function profileLabel(config, name) {
 function lowCostPolicy(config) {
   const defaults = {
     enabled: true,
-    model: 'gpt-6-luna',
+    model: 'luna',
     effort: 'max',
   };
   const configured = config && config.policy && config.policy.low_cost;
@@ -284,10 +285,8 @@ function lowCostPolicy(config) {
   }
   return {
     enabled: configured.enabled !== false,
-    model: typeof configured.model === 'string' && configured.model.trim()
-      ? configured.model.trim() : defaults.model,
+    model: typeof configured.model === 'string' ? configured.model.trim() : defaults.model,
     effort: typeof configured.model_reasoning_effort === 'string'
-      && configured.model_reasoning_effort.trim()
       ? configured.model_reasoning_effort.trim() : defaults.effort,
   };
 }
@@ -297,7 +296,7 @@ function profileSettings(config, name) {
   if (!settings || settings.enabled === false || !settings.profiles) return null;
   const profile = settings.profiles[name];
   if (!profile || typeof profile !== 'object' || Array.isArray(profile)
-      || profile.enabled === false || profile.role_kind === 'verification') {
+      || profile.enabled === false || unresolvedModel(profile) || profile.role_kind === 'verification') {
     return null;
   }
   const model = typeof profile.model === 'string' ? profile.model.trim() : '';
@@ -314,22 +313,16 @@ function profileSettings(config, name) {
  */
 function lowCostCandidate(config) {
   const target = lowCostPolicy(config);
-  if (!target.enabled) return null;
-  const targetWarnings = modelEffortWarnings({
-    policy: {
-      low_cost: {
-        enabled: true,
-        model: target.model,
-        model_reasoning_effort: target.effort,
-      },
-    },
-    agent_profiles: { enabled: false },
-  });
-  if (targetWarnings.length) return null;
+  // An explicit pair may need host verification without being invalid. Reject only
+  // unresolved/inherited targets or incompatibility established by a fresh catalog.
+  if (!target.enabled || !target.model || !target.effort || modelFamily(target.model)) return null;
+  const supported = readModelCatalog()?.get(target.model);
+  if (supported && !supported.has(target.effort)) return null;
+  const supportUnconfirmed = !supported;
 
   const luna = profileSettings(config, 'dispatch_luna_worker');
   if (luna && luna.model === target.model && luna.effort === target.effort) {
-    return { name: 'dispatch_luna_worker', model: target.model, effort: target.effort, explicit: false };
+    return { name: 'dispatch_luna_worker', model: target.model, effort: target.effort, explicit: false, supportUnconfirmed };
   }
 
   const worker = profileSettings(config, 'dispatch_worker');
@@ -340,6 +333,7 @@ function lowCostCandidate(config) {
       model: target.model,
       effort: target.effort,
       explicit: !(worker.model === target.model && worker.effort === target.effort),
+      supportUnconfirmed,
     };
   }
   return null;
@@ -348,9 +342,11 @@ function lowCostCandidate(config) {
 function lowCostLabel(candidate) {
   if (!candidate) return '';
   const pair = `${candidate.model}/${candidate.effort}`;
-  return candidate.explicit
+  const label = candidate.explicit
     ? `${candidate.name} (explicit ${pair})`
     : `${candidate.name} (${pair})`;
+  return label + (candidate.supportUnconfirmed
+    ? ' (catalog support unconfirmed; verify host support before spawning)' : '');
 }
 
 function lowCostKindLabel(kind) {
@@ -420,7 +416,7 @@ function dynamicWriterGuidance(config, options = {}) {
   const eligible = (name) => {
     if (!settingsEnabled) return null;
     const profile = profiles[name];
-    if (!profile || profile.enabled === false
+    if (!profile || profile.enabled === false || unresolvedModel(profile)
         || ['labor', 'verification'].includes(profile.role_kind)
         || profile.sandbox_mode !== 'workspace-write') return null;
     const model = typeof profile.model === 'string' ? profile.model.trim() : '';
@@ -451,7 +447,9 @@ function dynamicWriterGuidance(config, options = {}) {
     }
     const defaultLabel = defaultCandidate.model
       ? `${defaultCandidate.name} (${defaultCandidate.model}/${defaultCandidate.effort})`
-      : `${defaultCandidate.name} (explicit ${pair})`;
+      : modelFamily(pair.split('/')[0])
+        ? `${defaultCandidate.name} (select a host-supported full model ID and effort explicitly; ${pair} family target unresolved)`
+        : `${defaultCandidate.name} (explicit ${pair})`;
     const alternativeGuidance = alternatives.length
       ? `; when complexity or explicit user preference warrants it, choose among enabled alternatives ${alternatives.join(', ')}`
       : '';
@@ -767,7 +765,7 @@ function mainAgentGuidance(config, compact = false) {
       'Verify the actual host model/effort pair before spawning. Do not carry an unsupported effort level into another model or silently replace a user-specified model.',
       'Use code graphs only for explicit code structure, call relationships, or code review. Agent Dispatch selects the agent; CodeMap Boost owns graph refresh and retrieval. Do not send ordinary design or business relationships to a code graph.',
       'Choose validation for the deliverable. For code, inspect first-party integration and needed dependency interfaces without formatting or linting third-party implementations by default.',
-      `Delegate only when independent parallel work helps, with at most ${maxParallel} concurrent subagents. Keep ordinary Git commands serial in the primary agent. Complete local commit preparation may be assigned to one writable agent only when a user request or explicit skill workflow requires it; the primary agent validates the snapshot and performs the final commit, remote operations, and history rewrites.`,
+      `Delegate only when independent parallel work helps, with at most ${maxParallel} concurrent subagents. Keep ordinary Git commands serial in the primary agent. Complete local commit preparation may be assigned to one writable Luna agent with an explicit host-supported model and effort only when a user request or explicit skill workflow requires it; the primary agent validates the snapshot and performs the final commit, remote operations, and history rewrites.`,
       'Review real entry points, intent, and acceptance criteria. Only verified defects affecting acceptance block; hypothetical risks and style suggestions are advisory. Advisory notes do not automatically trigger rework or a stop.',
       'After proportionate validation, independently review substantive work. If the user requires primary-only work or disables reviewers, the primary agent reviews and states the scope. Verified issues receive a bounded fix by the original writer and another review.',
       reviewLifecycleGuidance(),
@@ -801,7 +799,7 @@ function mainAgentGuidance(config, compact = false) {
     `- ${reviewLifecycleGuidance('en')}`,
     '- When review finds a verified substantive issue affecting acceptance, the primary agent reuses the original writer for a bounded fix, reruns affected checks, and reviews again. If an issue repeats without new evidence, change the decomposition, raise the model, or intervene in the primary agent instead of adding speculative changes indefinitely.',
     '- Stop subagents promptly after their result is integrated, or when they are blocked or no longer needed; do not leave idle agents occupying limited slots.',
-    '- Keep ordinary single-command Git CLI quiet and serial in the primary agent. Only an explicit user or skill request for complete local commit preparation may hand off that preparation to one writable agent in the same workspace; do not run Git concurrently, and have the primary validate the snapshot before the final commit. The final commit, remote operations, and history rewrites remain with the primary agent.',
+    '- Keep ordinary single-command Git CLI quiet and serial in the primary agent. Only an explicit user or skill request for complete local commit preparation may hand off that preparation to one writable Luna agent in the same workspace with an explicit host-supported model and effort; do not run Git concurrently, and have the primary validate the snapshot before the final commit. The final commit, remote operations, and history rewrites remain with the primary agent.',
     '- A role, workspace-write access, or delegation does not authorize external publishing or sending, purchases, production changes, or changes to real data. Verify existing user authority before those actions.',
     '- Ask subagents to report every changed file, validation performed, and any blocker; reread their outputs before integration.',
     '- Do not delegate vague decisions; give execution agents a concrete scope, artifact ownership, acceptance criteria, and validation target.',

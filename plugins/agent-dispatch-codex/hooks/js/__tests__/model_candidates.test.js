@@ -27,7 +27,7 @@ const cache = (models, fetchedAt = new Date(now).toISOString()) => ({
   })),
 });
 const defaults = loadDefaults();
-const supportedModels = new Set(['gpt-6-luna', 'gpt-6-sol', 'gpt-6.1-sol', 'gpt-6-astra']);
+const supportedModels = new Set(['luna', 'sol', 'astra']);
 const defaultModels = new Set();
 for (const settings of [defaults.policy.low_cost, ...Object.values(defaults.agent_profiles.profiles)]) {
   for (const pair of [settings, ...(settings.model_candidates || [])]) {
@@ -36,8 +36,9 @@ for (const settings of [defaults.policy.low_cost, ...Object.values(defaults.agen
     defaultModels.add(pair.model);
   }
 }
-assert.deepEqual(defaultModels, supportedModels, 'defaults use only the four current models');
-assert.deepEqual(defaults.agent_profiles.profiles.dispatch_sol_worker.model_candidates, candidates);
+assert.deepEqual(defaultModels, supportedModels, 'defaults use model families without version pins');
+assert.equal(defaults.agent_profiles.profiles.dispatch_sol_worker.model_candidates, undefined);
+assert.equal(defaults.agent_profiles.profiles.dispatch_sol_worker.model_reasoning_effort, 'high');
 assert.equal(Object.hasOwn(defaults.agent_profiles.profiles, 'dispatch_terra_worker'), false);
 const base = {
   policy: {
@@ -142,12 +143,71 @@ assert.deepEqual(mergeConfig(base, {
 }).agent_profiles.profiles.dispatch_sol_worker.model_candidates, candidates,
 'same-layer explicit candidates remain active');
 
+// Family defaults discover future versions numerically, with exact family names and fixed effort.
+const familyConfig = {
+  ...base,
+  policy: { low_cost: { model: 'LUNA', model_reasoning_effort: 'max' } },
+  agent_profiles: { profiles: { worker: { model: 'SoL', model_reasoning_effort: 'high' } } },
+};
+const familyCatalog = parseModelCatalog(cache([
+  ['gpt-5.6-sol', ['high']], ['gpt-6-sol', ['high']], ['gpt-6.1-sol', ['high']],
+  ['gpt-6.9-sol', ['high']], ['gpt-6.10-sol', ['high']], ['gpt-7-sol', ['medium']],
+  ['gpt-100-solaris', ['high']], ['gpt-101-solarium', ['high']],
+  ['gpt-99-sol', ['high'], 'hide'], ['gpt-9-astra', ['high']],
+  ['gpt-8-luna', ['medium']], ['gpt-7.2-luna', ['max']], ['gpt-next-sol', ['high']],
+]), now);
+const families = resolveModelCandidates(familyConfig, familyCatalog);
+assert.equal(families.agent_profiles.profiles.worker.model, 'gpt-6.10-sol');
+assert.equal(families.agent_profiles.profiles.worker.model_reasoning_effort, 'high');
+assert.equal(families.agent_profiles.profiles.worker.model_resolution.family, 'sol');
+assert.equal(families.policy.low_cost.model, 'gpt-7.2-luna');
+assert.equal(familyConfig.agent_profiles.profiles.worker.model, 'SoL', 'family resolution preserves input');
+assert.equal(mergeConfig(familyConfig, { agent_profiles: { profiles: { worker: { model: 'SOL' } } } }).agent_profiles.profiles.worker.model_reasoning_effort,
+  'high', 'changing only alias case preserves the requested effort');
+for (const [models, latest] of [
+  [['gpt-5.6-sol', 'gpt-6-sol'], 'gpt-6-sol'],
+  [['gpt-6-sol', 'gpt-6.1-sol'], 'gpt-6.1-sol'],
+  [['gpt-6.1-sol', 'gpt-6.9-sol'], 'gpt-6.9-sol'],
+  [['gpt-6.9-sol', 'gpt-6.10-sol'], 'gpt-6.10-sol'],
+  [['gpt-9007199254740992-sol', 'gpt-9007199254740993-sol'], 'gpt-9007199254740993-sol'],
+]) {
+  const selected = resolveModelCandidates(familyConfig, parseModelCatalog(cache(models.reverse().map((model) => [model, ['high']])), now));
+  assert.equal(selected.agent_profiles.profiles.worker.model, latest, 'numeric tuple order is independent of catalog order');
+}
+for (const invalidCatalog of [null, new Map(), parseModelCatalog(cache([['gpt-9-astra', ['high']]]), now)]) {
+  const unresolved = resolveModelCandidates(familyConfig, invalidCatalog);
+  assert.equal(unresolved.agent_profiles.profiles.worker.model, 'sol');
+  assert.equal(unresolved.agent_profiles.profiles.worker.model_resolution.status, 'unresolved');
+  assert.equal(unresolved.policy.low_cost.model, 'luna');
+}
+const familyWithoutEffort = mergeConfig(familyConfig, {
+  agent_profiles: { profiles: { worker: { model_reasoning_effort: '' } } },
+});
+assert.equal(resolveModelCandidates(familyWithoutEffort, familyCatalog).agent_profiles.profiles.worker.model_resolution.reason, 'explicit-effort-required');
+const familyPin = mergeConfig(familyConfig, {
+  agent_profiles: { profiles: { worker: { model: 'gpt-6-sol', model_reasoning_effort: 'high' } } },
+});
+assert.equal(resolveModelCandidates(familyPin, familyCatalog).agent_profiles.profiles.worker.model, 'gpt-6-sol');
+const familyUnpin = mergeConfig(familyConfig, { agent_profiles: { profiles: { worker: { model: '' } } } });
+assert.equal(resolveModelCandidates(familyUnpin, familyCatalog).agent_profiles.profiles.worker.model, '');
+assert.equal(resolveModelCandidates(familyUnpin, familyCatalog).agent_profiles.profiles.worker.model_reasoning_effort, '');
+const familyDisabled = mergeConfig(familyConfig, { agent_profiles: { profiles: { worker: { enabled: false } } } });
+assert.equal(resolveModelCandidates(familyDisabled, familyCatalog).agent_profiles.profiles.worker.model, 'SoL');
+const familyLayered = mergeConfig(mergeConfig(familyConfig, {
+  agent_profiles: { profiles: { worker: { model: 'astra', model_reasoning_effort: 'high' } } },
+}), { agent_profiles: { profiles: { worker: { model: 'sol', model_reasoning_effort: 'high' } } } });
+assert.equal(resolveModelCandidates(familyLayered, familyCatalog).agent_profiles.profiles.worker.model, 'gpt-6.10-sol');
+assert.equal(selectCandidate([{ model: 'sol', model_reasoning_effort: 'high' }], new Map([['sol', new Set(['high'])]])), null, 'candidate aliases cannot escape to native settings');
+
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-dispatch-model-cache-'));
 try {
   assert.equal(readModelCatalog({ codexHome: temp, now }), null, 'missing cache');
   const file = path.join(temp, 'models_cache.json');
   fs.writeFileSync(file, '{broken', 'utf8');
   assert.equal(readModelCatalog({ codexHome: temp, now }), null, 'damaged cache');
+  fs.writeFileSync(file, JSON.stringify(cache([['gpt-99-sol', ['high']]], new Date(now - CACHE_MAX_AGE_MS - 1).toISOString())), 'utf8');
+  assert.equal(resolveModelCandidates(familyConfig, readModelCatalog({ codexHome: temp, now })).agent_profiles.profiles.worker.model_resolution.status,
+    'unresolved', 'stale file cannot pin a family');
   fs.writeFileSync(file, JSON.stringify(cache([['gpt-6.1-sol', ['high']]])), 'utf8');
   assert.ok(readModelCatalog({ codexHome: temp, now }).has('gpt-6.1-sol'));
   const previousHome = process.env.CODEX_HOME;

@@ -22,6 +22,7 @@ realExecFileSync('git', ['init', '-q'], { cwd: repo });
 
 const { ensureConfigFiles, loadConfig, loadDefaults } = require('../lib/config');
 const { ensureAgentProfiles } = require('../lib/agent_profiles');
+require('./model_fixture.cjs');
 
 try {
   // SessionStart does all three; the number of git calls must not grow with the number of agent profiles.

@@ -31,17 +31,17 @@ Greetings, brief questions, and conversation management requests also get titles
 
 ## Lightweight model and state
 
-The default is `gpt-6-luna`, checked against the live `model/list`. If unavailable, the original title remains; the plugin does not automatically fall back to an older model. With an explicit `model: "auto"` setting, it selects an available text model using low-cost signals in model descriptions, falling back to the Luna, Mini, and Nano families when descriptions lack such signals. The catalog has no comparable actual prices, so automatic selection does not claim to rank models by price.
+The default is `luna`, resolved against the live `model/list` to the latest compatible Luna release. The `luna`, `sol`, and `astra` settings each stay within their exact family and compare numeric version components, so version 6.10 sorts after 6.9. Incompatible releases are excluded before choosing a version; if that family has no compatible release, the original title remains. With an explicit `model: "auto"` setting, it selects an available text model using low-cost signals in model descriptions, falling back to the Luna, Mini, and Nano families when descriptions lack such signals. The catalog has no comparable actual prices, so automatic selection does not claim to rank models by price.
 
-Candidates must explicitly support `none`, `minimal`, or `low`. Generation uses the lowest level the selected model actually declares. Within the same selection tier, the lowest supported effort wins; further ties retain catalog order. Hidden models, non-text models, and models with only higher effort levels are excluded. With no suitable candidate, the original title remains. The naming subprocess uses the `default` service tier and does not inherit the main task's Fast or priority tier.
+Candidates must explicitly support `none`, `minimal`, or `low`. Generation uses the lowest level the selected model actually declares. In `auto` mode, within the same selection tier, the lowest supported effort wins; further ties retain catalog order. Hidden models, non-text models, and models with only higher effort levels are excluded. With no suitable candidate, the original title remains. Family aliases are resolved to a full model ID before `thread/start` or `turn/start`. The naming subprocess uses the `default` service tier and does not inherit the main task's Fast or priority tier.
 
 Set a model or timeout in the plugin's `PLUGIN_DATA/config.json` if needed:
 
 ```json
-{ "model": "gpt-6-luna", "timeoutSeconds": 60 }
+{ "model": "luna", "timeoutSeconds": 60 }
 ```
 
-`model` can be any full model ID available to the current account; `timeoutSeconds` accepts 5–120 seconds. This configuration affects only naming, not the global Codex model. The plugin reuses existing login and provider settings and starts at most one naming inference per new conversation.
+`model` accepts `luna`, `sol`, `astra`, `auto`, or a full model ID available to the current account. A full ID pins that exact release without switching to another model when it is unavailable. `timeoutSeconds` accepts 5–120 seconds. This configuration affects only naming, not the global Codex model. The plugin reuses existing login and provider settings and starts at most one naming inference per new conversation.
 
 The executable follows the recognized host: desktop tasks on Windows or macOS use the Codex bundled with the desktop app, and CLI tasks use the CLI. If the host is unspecified, it searches for the CLI on `PATH` and for the desktop app. On other platforms with unrecognized desktop layouts, it retains the `PATH` launch path. It does not hard-code a username or version directory or switch hosts after a model call fails.
 

@@ -10,7 +10,7 @@ const { createNamingClient, generateName, lowestEffort, parseName, selectModel }
 const pluginRoot = path.resolve(__dirname, '..', '..', '..');
 const createdAt = Date.parse('2026-09-05T18:30:00Z') / 1000;
 const model = {
-  id: 'future-mini', model: 'gpt-future-mini', hidden: false,
+  id: 'default-luna', model: 'gpt-6-luna', hidden: false,
   description: 'A compact model for routine work.',
   supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'none' }],
 };
@@ -135,6 +135,31 @@ async function main() {
   assert.equal(selectModel([futureLuna, luna], 'gpt-6-luna'), luna);
   assert.equal(selectModel([futureLuna], 'gpt-6-luna'), null,
     'Do not switch to another model when explicitly requested GPT-6 Luna is unavailable');
+  const catalogModel = (id, overrides = {}) => ({ ...model, id, model: id, ...overrides });
+  for (const family of ['luna', 'sol', 'astra']) {
+    const previous = catalogModel(`gpt-6.9-${family}`);
+    const latest = catalogModel(`gpt-6.10-${family}`);
+    const next = catalogModel(`gpt-7-${family}`);
+    assert.equal(selectModel([previous, latest], family), latest, 'Compare numeric components, not decimals');
+    assert.equal(selectModel([latest, previous, next], family), next, 'Select the latest available generation');
+    const nextLow = catalogModel(next.model, { supportedReasoningEfforts: [{ reasoningEffort: 'low' }] });
+    assert.equal(selectModel([latest, nextLow], family), nextLow,
+      'Family version priority is independent of the auto effort ordering');
+    const patch = catalogModel(`gpt-7.12.10-${family}`);
+    assert.equal(selectModel([catalogModel(`gpt-7.12.9-${family}`), patch], family), patch);
+    assert.equal(selectModel([next, latest], latest.model), latest, 'An exact ID pins an older release');
+    for (const overrides of [
+      { hidden: true }, { inputModalities: ['audio'] },
+      { supportedReasoningEfforts: [{ reasoningEffort: 'high' }] },
+      { supportedReasoningEfforts: [] },
+    ]) {
+      assert.equal(selectModel([catalogModel(next.model, overrides), latest], family), latest,
+        'Filter incompatible releases before choosing the latest version');
+    }
+    assert.equal(selectModel([catalogModel(`gpt-9-${family}x`),
+      catalogModel('gpt-20-mini'), futureLuna], family), null, 'Require an exact, versioned family');
+  }
+  assert.equal(selectModel([catalogModel('gpt-9-solaris')], 'sol'), null);
   assert.equal(lowestEffort(model), 'none');
   assert.equal(lowestEffort({ supportedReasoningEfforts: [{ reasoningEffort: 'low' }] }), 'low');
   assert.equal(lowestEffort({ supportedReasoningEfforts: [{ reasoningEffort: 'minimal' }, { reasoningEffort: 'low' }] }), 'minimal');
@@ -279,6 +304,19 @@ async function main() {
   assert.equal(gpt6.calls.find((call) => call.method === 'turn/start').params.model, 'gpt-6-luna');
   assert.equal(gpt6.calls.some((call) => call.method === 'thread/name/set'), false);
 
+  for (const family of ['luna', 'sol', 'astra']) {
+    const selected = catalogModel(`gpt-8.10-${family}`);
+    const stub = fakeServer({ models: [catalogModel(`gpt-8.9-${family}`), selected] });
+    const generated = await generateName({ sessionId: 'current', prompt: 'Name this task',
+      ...(family === 'luna' ? {} : { model: family }), appServerFactory: stub.appServerFactory });
+    assert.equal(generated.model, selected.model);
+    for (const method of ['thread/start', 'turn/start']) {
+      assert.equal(stub.calls.find((call) => call.method === method).params.model, selected.model,
+        'Resolve aliases before sending a request to the host');
+    }
+    assert.equal(stub.calls.some((call) => call.method === 'thread/name/set'), false);
+  }
+
   const firstMessage = fakeServer({ thread: { turns: [{ items: [{
     type: 'functionCallOutput', namespace: 'codex_app', name: 'create_thread',
     output: '<codex_delegation><source_thread_id>parent</source_thread_id><input>\u5de5\u5177\u5efa\u7acb\u7684\u4efb\u52a1</input></codex_delegation>',
@@ -301,6 +339,9 @@ async function main() {
   }
   for (const [models, requested, expected] of [
     [[large], 'auto', 'no_available_model'],
+    [[catalogModel('gpt-8-sol')], 'luna', 'no_available_model'],
+    [[catalogModel('gpt-8-luna', { supportedReasoningEfforts: [{ reasoningEffort: 'high' }] })],
+      'luna', 'no_available_model'],
     [[{ ...model, supportedReasoningEfforts: [] }], 'auto', 'no_available_model'],
     [[{ ...model, supportedReasoningEfforts: [] }], model.model, 'no_low_reasoning_effort'],
   ]) {

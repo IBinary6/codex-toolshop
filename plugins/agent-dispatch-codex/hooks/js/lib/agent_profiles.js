@@ -3,9 +3,10 @@
 const fs = require('fs');
 const path = require('path');
 const { appendGitExclude, gitOutput, gitRoot } = require('./config');
+const { unresolvedModel } = require('./model_candidates');
 
 const MANAGED_HEADER = '# Managed by agent-dispatch-codex. Configure via .agent-dispatch-codex/config.json.';
-const GIT_HANDOFF = 'Do not run Git commands by default. A user request or explicit skill workflow for complete local commit preparation may let the primary agent designate one writable preparer in the same workspace to inspect status, read the diff, and stage only assigned files; return a summary, checks, HEAD/index tree OIDs, and a commit message. Do not commit, push, rewrite history, or run Git concurrently with the primary; the primary validates the snapshot and commits.';
+const GIT_HANDOFF = 'Do not run Git commands by default. A user request or explicit skill workflow for complete local commit preparation may let the primary agent designate one writable Luna preparer in the same workspace with an explicit host-supported model and effort to inspect status, read the diff, and stage only assigned files; return a summary, checks, HEAD/index tree OIDs, and a commit message. Do not commit, push, rewrite history, or run Git concurrently with the primary; the primary validates the snapshot and commits.';
 const VALID_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 
 function tomlString(value) {
@@ -18,6 +19,7 @@ function relativeAgentPath(name) {
 
 function renderAgentProfile(name, profile) {
   if (!VALID_NAME.test(name)) throw new Error(`invalid custom agent name: ${name}`);
+  if (unresolvedModel(profile)) throw new Error(`unresolved model family for custom agent: ${name}`);
   const description = profile.description || `Agent Dispatch custom agent ${name}.`;
   const requestedInstructions = typeof profile.developer_instructions === 'string'
     && profile.developer_instructions.trim()
@@ -94,7 +96,7 @@ function ensureAgentProfiles(cwd, config) {
       continue;
     }
     const existing = stat ? fs.readFileSync(target, 'utf8') : '';
-    if (settings.enabled === false || !profile || profile.enabled === false) {
+    if (settings.enabled === false || !profile || profile.enabled === false || unresolvedModel(profile)) {
       if (existing && isManaged(existing)) {
         fs.unlinkSync(target);
         result.removed.push(relative);
@@ -130,7 +132,7 @@ function profileSummary(config) {
         && profile.model_reasoning_effort.trim()
         ? profile.model_reasoning_effort.trim()
         : 'inherit';
-      return `${name} (${model}, ${effort})`;
+      return `${name} (${model}, ${effort}${unresolvedModel(profile) ? ', family unresolved; native role omitted' : ''})`;
     });
 }
 

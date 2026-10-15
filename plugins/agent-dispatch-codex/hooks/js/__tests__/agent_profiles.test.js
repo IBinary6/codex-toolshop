@@ -15,7 +15,9 @@ const {
   MANAGED_HEADER,
   renderAgentProfile,
 } = require('../lib/agent_profiles');
-const { loadDefaults } = require('../lib/config');
+const { defaults: loadDefaults } = require('./model_fixture.cjs');
+const { loadDefaults: familyDefaults } = require('../lib/config');
+const { resolveModelCandidates } = require('../lib/model_candidates');
 
 try {
   const config = loadDefaults();
@@ -58,7 +60,7 @@ try {
     dispatch_reviewer: ['gpt-6-sol', 'high', 'read-only'],
     dispatch_deep_reviewer: ['gpt-6-astra', 'high', 'read-only'],
     dispatch_luna_worker: ['gpt-6-luna', 'max', 'workspace-write'],
-    dispatch_sol_worker: ['gpt-6-sol', 'medium', 'workspace-write'],
+    dispatch_sol_worker: ['gpt-6-sol', 'high', 'workspace-write'],
     dispatch_astra_worker: ['gpt-6-astra', 'medium', 'workspace-write'],
     dispatch_tester: ['gpt-6-luna', 'medium', 'workspace-write'],
     dispatch_researcher: ['gpt-6-luna', 'medium', 'read-only'],
@@ -150,6 +152,25 @@ try {
   const staleResult = ensureAgentProfiles(root, config);
   assert.ok(staleResult.removed.includes('.codex/agents/dispatch_terra_worker.toml'));
   assert.equal(fs.existsSync(stale), false, 'retired managed roles must not remain loadable');
+
+  // Losing the catalog must remove only old plugin-owned pins, preserving every user-owned boundary.
+  const unresolvedConfig = resolveModelCandidates(familyDefaults(), null);
+  assert.throws(() => renderAgentProfile('unresolved', { model: 'SoL', model_reasoning_effort: 'high' }), /unresolved model family/);
+  const unresolvedResult = ensureAgentProfiles(root, unresolvedConfig);
+  assert.ok(unresolvedResult.removed.includes('.codex/agents/dispatch_sol_worker.toml'));
+  assert.equal(fs.existsSync(path.join(root, '.codex', 'agents', 'dispatch_sol_worker.toml')), false);
+  assert.equal(fs.readFileSync(tracked, 'utf8'), trackedContent, 'unresolved family preserves tracked managed file');
+  assert.match(fs.readFileSync(reviewer, 'utf8'), /^# user-owned/, 'unresolved family preserves handwritten file');
+  assert.equal(fs.readFileSync(empty, 'utf8'), '', 'unresolved family preserves empty file');
+  const linkedTarget = path.join(root, 'linked-profile-target');
+  fs.mkdirSync(linkedTarget);
+  const linkedProfile = path.join(root, '.codex', 'agents', 'dispatch_astra_worker.toml');
+  fs.symlinkSync(linkedTarget, linkedProfile, process.platform === 'win32' ? 'junction' : 'dir');
+  const unresolvedLinked = ensureAgentProfiles(root, unresolvedConfig);
+  assert.ok(unresolvedLinked.preserved.includes('.codex/agents/dispatch_astra_worker.toml'));
+  assert.equal(fs.lstatSync(linkedProfile).isSymbolicLink(), true, 'unresolved cleanup preserves linked entries');
+  const restored = ensureAgentProfiles(root, config);
+  assert.ok(restored.written.includes('.codex/agents/dispatch_explorer.toml'), 'a fresh resolution can restore managed roles');
 
   config.agent_profiles.enabled = false;
   const allDisabled = ensureAgentProfiles(root, config);

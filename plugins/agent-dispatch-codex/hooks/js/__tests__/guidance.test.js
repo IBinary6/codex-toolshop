@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('assert').strict;
-const { loadDefaults } = require('../lib/config');
+const { defaults: loadDefaults } = require('./model_fixture.cjs');
 const {
   mainAgentGuidance,
   promptNeedsDispatch,
@@ -29,7 +29,7 @@ assert.match(mainAgentGuidance(config), /explicitly pass model and effort/);
 assert.match(mainAgentGuidance(config), /configured low-cost candidate \(gpt-6-luna\/max\)/);
 assert.match(mainAgentGuidance(config), /Delegate bounded .*configured low-cost candidate \(gpt-6-luna\/max\) by default/);
 assert.match(mainAgentGuidance(config), /does not implement or modify product or test code/);
-assert.match(mainAgentGuidance(config), /effective gpt-6-sol\/medium candidate for code writing by default/);
+assert.match(mainAgentGuidance(config), /effective gpt-6-sol\/high candidate for code writing by default/);
 assert.match(mainAgentGuidance(config), /Reserve Astra for critical review decisions/);
 assert.match(mainAgentGuidance(config), /Do not escalate to max or ultra merely because a task mentions review or risk/);
 assert.match(mainAgentGuidance(config), /split only the evidence stage to low-cost labor/);
@@ -83,7 +83,7 @@ assert.match(mainAgentGuidance(config, true), /For an unpinned writer, explicitl
 assert.match(mainAgentGuidance(config, true), /matching low-cost role/);
 assert.match(mainAgentGuidance(config, true), /For code work/);
 assert.match(mainAgentGuidance(config, true), /must not implement or modify product or test code/);
-assert.match(mainAgentGuidance(config, true), /effective gpt-6-sol\/medium candidate for writing/);
+assert.match(mainAgentGuidance(config, true), /effective gpt-6-sol\/high candidate for writing/);
 assert.match(mainAgentGuidance(config, true), /Reserve Astra for critical review decisions or exceptionally complex reasoning/);
 assert.match(mainAgentGuidance(config, true), /Pinned TOML values override spawn arguments/);
 assert.match(mainAgentGuidance(config, true), /full-history fork cannot accept overrides/);
@@ -122,6 +122,9 @@ assert.match(subagentGuidance(config), /every file you changed/i);
 assert.match(subagentGuidance(config), /Do not run Git commands/);
 assert.match(subagentGuidance(config), /complete local commit preparation/);
 assert.match(subagentGuidance(config), /stage only assigned files/);
+assert.match(subagentGuidance(config), /one writable Luna preparer/);
+assert.match(mainAgentGuidance(config), /one writable Luna agent/);
+assert.match(mainAgentGuidance(config, true), /one writable Luna agent/);
 assert.match(subagentGuidance(config), /HEAD\/index tree OIDs/);
 assert.match(subagentGuidance(config), /primary validates the snapshot and commits/);
 assert.match(subagentGuidance(config), /CodeMap Boost only for explicit code structure or code-review work/);
@@ -269,7 +272,7 @@ assert.equal(mixedEvidence.lowCostEvidence, true);
 assert.match(promptGuidance('\u6839\u636e\u6784\u5efa\u65e5\u5fd7\u4fee\u590d\u590d\u6742\u5d29\u6e83\uff0c\u5e76\u8865\u56de\u5f52\u6d4b\u8bd5', config), /assigned to.*dispatch_luna_worker/);
 assert.match(promptGuidance('\u6839\u636e\u6784\u5efa\u65e5\u5fd7\u4fee\u590d\u590d\u6742\u5d29\u6e83\uff0c\u5e76\u8865\u56de\u5f52\u6d4b\u8bd5', config), /gpt-6-luna\/max/);
 assert.match(promptGuidance('\u6839\u636e\u6784\u5efa\u65e5\u5fd7\u4fee\u590d\u590d\u6742\u5d29\u6e83\uff0c\u5e76\u8865\u56de\u5f52\u6d4b\u8bd5', config), /writable/);
-assert.match(promptGuidance('\u6839\u636e\u6784\u5efa\u65e5\u5fd7\u4fee\u590d\u590d\u6742\u5d29\u6e83\uff0c\u5e76\u8865\u56de\u5f52\u6d4b\u8bd5', config), /dispatch_sol_worker.*gpt-6-sol\/medium/);
+assert.match(promptGuidance('\u6839\u636e\u6784\u5efa\u65e5\u5fd7\u4fee\u590d\u590d\u6742\u5d29\u6e83\uff0c\u5e76\u8865\u56de\u5f52\u6d4b\u8bd5', config), /dispatch_sol_worker.*gpt-6-sol\/high/);
 assert.equal(routePrompt('\u68c0\u7d22\u6784\u5efa\u65e5\u5fd7\u91cc\u7684 crash \u548c error', config).category, 'low-cost');
 assert.match(promptGuidance('\u68c0\u7d22\u6784\u5efa\u65e5\u5fd7\u91cc\u7684 crash \u548c error', config), /gpt-6-luna\/max/);
 assert.equal(routePrompt('\u8bf7\u4f18\u5316 Agent Dispatch\uff0c\u8ba9\u65e5\u5fd7\u8bfb\u53d6\u4ea4\u7ed9 Luna Max', config).category, 'generic');
@@ -281,7 +284,7 @@ for (const prompt of ['\u751f\u6210\u4ee3\u7801\u5b9e\u73b0\u89e3\u6790\u5668', 
   const route = routePrompt(prompt, config);
   assert.equal(route.category, 'implementation', prompt);
   const guidance = promptGuidance(prompt, config);
-  assert.match(guidance, /dispatch_sol_worker.*gpt-6-sol\/medium/, prompt);
+  assert.match(guidance, /dispatch_sol_worker.*gpt-6-sol\/high/, prompt);
   assert.doesNotMatch(guidance, /dispatch_luna_worker/, prompt);
 }
 for (const prompt of ['\u751f\u6210\u4f1a\u8bae\u6458\u8981', '\u6574\u7406\u73b0\u6709\u6587\u6863', '\u5199\u4e00\u4efd\u53d1\u5e03\u8bf4\u660e']) {
@@ -302,7 +305,7 @@ assert.match(promptGuidance('\u8bf7\u67e5\u627e\u8fd9\u4e2a\u6587\u4ef6\u5e76\u5
 
 const hard = promptGuidance('\u8bf7\u5b9e\u73b0\u4e00\u4e2a\u56f0\u96be\u4e14\u590d\u6742\u7684\u529f\u80fd\uff0c\u5e76\u6392\u67e5\u590d\u6742\u8c03\u8bd5\u95ee\u9898', config);
 assert.match(hard, /writable/);
-assert.match(hard, /dispatch_sol_worker.*gpt-6-sol\/medium/);
+assert.match(hard, /dispatch_sol_worker.*gpt-6-sol\/high/);
 assert.match(hard, /primary agent.*accept/);
 assert.doesNotMatch(hard, /dispatch_luna_worker/);
 
@@ -312,7 +315,7 @@ assert.match(plannedHard, /writable/);
 assert.match(plannedHard, /model and effort/);
 assert.match(plannedHard, /without replanning/);
 assert.doesNotMatch(plannedHard, /must use two serial phases|must spawn/);
-assert.match(plannedHard, /dispatch_sol_worker.*gpt-6-sol\/medium/);
+assert.match(plannedHard, /dispatch_sol_worker.*gpt-6-sol\/high/);
 assert.doesNotMatch(plannedHard, /dispatch_luna_worker/);
 
 assert.match(promptGuidance('\u8bf7\u8bbe\u8ba1\u65b0\u7684\u67b6\u6784\u548c\u63a5\u53e3\u65b9\u6848', config), /dispatch_planner/);
@@ -327,7 +330,7 @@ const implementation = promptGuidance('\u8bf7\u5b9e\u73b0\u8fd9\u4e2a\u5e38\u89c
 assert.match(implementation, /writable/);
 assert.match(implementation, /model and effort/);
 assert.match(promptGuidance('\u8bf7\u5b9e\u73b0\u8fd9\u4e2a\u5e38\u89c4\u529f\u80fd', config), /primary agent.*accept/);
-assert.match(implementation, /dispatch_sol_worker.*gpt-6-sol\/medium/);
+assert.match(implementation, /dispatch_sol_worker.*gpt-6-sol\/high/);
 assert.doesNotMatch(implementation, /dispatch_luna_worker/);
 assert.match(implementation, /After proportionate validation, independently review substantive work/);
 assert.match(implementation, /bounded fix by the original writer/);
@@ -604,7 +607,7 @@ assert.doesNotMatch(promptGuidance('\u8bf7\u5ba1\u67e5\u5b89\u5168\u6743\u9650\u
 assert.match(promptGuidance('\u8bf7\u5ba1\u67e5\u5b89\u5168\u6743\u9650\u98ce\u9669', disabled), /primary agent/);
 assert.doesNotMatch(promptGuidance('\u8bf7\u626b\u63cf\u6574\u4e2a\u4ed3\u5e93\u7684\u8de8\u6a21\u5757\u8c03\u7528\u94fe', disabled), /dispatch_mapper|dispatch_explorer/);
 assert.match(promptGuidance('\u8bf7\u626b\u63cf\u6574\u4e2a\u4ed3\u5e93\u7684\u8de8\u6a21\u5757\u8c03\u7528\u94fe', disabled), /no.*low-cost|Luna max/);
-assert.match(promptGuidance('\u8bf7\u5b9e\u73b0\u8fd9\u4e2a\u5e38\u89c4\u529f\u80fd', disabled), /No code implementation candidate matches the effective gpt-6-sol\/medium pair. The primary agent handles the work/);
+assert.match(promptGuidance('\u8bf7\u5b9e\u73b0\u8fd9\u4e2a\u5e38\u89c4\u529f\u80fd', disabled), /No code implementation candidate matches the effective gpt-6-sol\/high pair. The primary agent handles the work/);
 assert.match(promptGuidance('\u6309\u5df2\u6709\u7528\u4f8b\u9a8c\u8bc1\u6d41\u7a0b\uff0c\u4e0d\u4fee\u6539\u4ea7\u54c1', disabled), /primary agent handles/);
 assert.doesNotMatch(promptGuidance('\u6309\u5df2\u6709\u7528\u4f8b\u9a8c\u8bc1\u6d41\u7a0b\uff0c\u4e0d\u4fee\u6539\u4ea7\u54c1', disabled), /dispatch_tester/);
 assert.match(promptGuidance('research competitor pricing from official sources', disabled), /primary agent handles/);
@@ -624,7 +627,7 @@ const solDisabled = JSON.parse(JSON.stringify(config));
 solDisabled.agent_profiles.profiles.dispatch_sol_worker.enabled = false;
 assert.match(
   promptGuidance('\u8bf7\u5b9e\u73b0\u8fd9\u4e2a\u5e38\u89c4\u529f\u80fd', solDisabled),
-  /dispatch_worker.*explicit gpt-6-sol\/medium/
+  /dispatch_worker.*explicit gpt-6-sol\/high/
 );
 assert.doesNotMatch(promptGuidance('\u8bf7\u5b9e\u73b0\u8fd9\u4e2a\u5e38\u89c4\u529f\u80fd', solDisabled), /dispatch_sol_worker/);
 const solOverridden = JSON.parse(JSON.stringify(config));
@@ -634,7 +637,7 @@ assert.match(
   promptGuidance('\u8bf7\u5b9e\u73b0\u8fd9\u4e2a\u5e38\u89c4\u529f\u80fd', solOverridden),
   /dispatch_sol_worker.*gpt-6-astra\/high/
 );
-assert.doesNotMatch(promptGuidance('\u8bf7\u5b9e\u73b0\u8fd9\u4e2a\u5e38\u89c4\u529f\u80fd', solOverridden), /explicit gpt-6-sol\/medium/);
+assert.doesNotMatch(promptGuidance('\u8bf7\u5b9e\u73b0\u8fd9\u4e2a\u5e38\u89c4\u529f\u80fd', solOverridden), /explicit gpt-6-sol\/high/);
 const fixedLunaGeneric = JSON.parse(JSON.stringify(config));
 fixedLunaGeneric.agent_profiles.profiles.dispatch_sol_worker.enabled = false;
 fixedLunaGeneric.agent_profiles.profiles.dispatch_worker.model = 'gpt-6-luna';
@@ -673,7 +676,7 @@ for (const name of [
 assert.equal(testerOnly.agent_profiles.profiles.dispatch_tester.role_kind, 'verification');
 assert.match(
   promptGuidance('\u8bf7\u5b9e\u73b0\u8fd9\u4e2a\u5e38\u89c4\u529f\u80fd', testerOnly),
-  /No code implementation candidate matches the effective gpt-6-sol\/medium pair. The primary agent handles the work/,
+  /No code implementation candidate matches the effective gpt-6-sol\/high pair. The primary agent handles the work/,
   'a verification specialist must not be offered as a product-code writer'
 );
 const laborAndTesterOnly = JSON.parse(JSON.stringify(config));
@@ -688,6 +691,6 @@ for (const name of [
 assert.equal(laborAndTesterOnly.agent_profiles.profiles.dispatch_luna_worker.role_kind, 'labor');
 assert.match(
   promptGuidance('\u8bf7\u5b9e\u73b0\u8fd9\u4e2a\u5e38\u89c4\u529f\u80fd', laborAndTesterOnly),
-  /No code implementation candidate matches the effective gpt-6-sol\/medium pair. The primary agent handles the work/,
+  /No code implementation candidate matches the effective gpt-6-sol\/high pair. The primary agent handles the work/,
   'labor and verification profiles must not be offered as code writers'
 );

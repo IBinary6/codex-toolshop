@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { readModelCatalog, resolveModelCandidates } = require('./model_candidates');
+const { modelFamily, versionedFamily, readModelCatalog, resolveModelCandidates } = require('./model_candidates');
 
 const PROJECT_DIR = '.agent-dispatch-codex';
 const CONFIG_FILE = 'config.json';
@@ -12,16 +12,7 @@ const OVERRIDE_KEYS = [
   'prompt_keywords',
 ];
 
-// Codex host capability snapshot from 2026-10-08. Used only for static validation; it does not prove account or host availability.
-const STANDARD_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
-const KNOWN_MODEL_EFFORTS = new Map([
-  ['gpt-6.1-sol', [...STANDARD_EFFORTS, 'max', 'ultra']],
-  ['gpt-6-astra', [...STANDARD_EFFORTS, 'max', 'ultra']],
-  ['gpt-6-sol', [...STANDARD_EFFORTS, 'max', 'ultra']],
-  ['gpt-6-luna', [...STANDARD_EFFORTS, 'max']],
-]);
-
-function modelEffortWarnings(config) {
+function modelEffortWarnings(config, catalog = readModelCatalog()) {
   const settings = config && config.agent_profiles;
   const warnings = [];
   if (settings && settings.enabled !== false) {
@@ -31,14 +22,7 @@ function modelEffortWarnings(config) {
       const effort = typeof profile.model_reasoning_effort === 'string'
         ? profile.model_reasoning_effort.trim() : '';
       if (!model) continue;
-      const supported = KNOWN_MODEL_EFFORTS.get(model);
-      if (!supported) {
-        warnings.push(`${name}: This plugin has no capability record for ${model}; verify host support without mapping it to another model.`);
-      } else if (effort && !supported.includes(effort)) {
-        warnings.push(`${name}: ${model}/${effort} exceeds this plugin's known capabilities (${supported.join(', ')}). The configuration is preserved; verify host support before spawning, and do not use an unsupported pair or silently replace an explicit model.`);
-      } else if (!effort) {
-        warnings.push(`${name}: ${model} inherits the primary task's reasoning effort; verify support before spawning and do not inherit an incompatible ultra setting.`);
-      }
+      warnings.push(...settingWarnings(name, profile, model, effort, catalog));
     }
   }
 
@@ -50,17 +34,22 @@ function modelEffortWarnings(config) {
     if (!model) {
       warnings.push('policy.low_cost: No model configured; the low-cost route cannot confirm its target model.');
     } else {
-      const supported = KNOWN_MODEL_EFFORTS.get(model);
-      if (!supported) {
-        warnings.push(`policy.low_cost: This plugin has no capability record for ${model}; verify host support without mapping it to another model.`);
-      } else if (effort && !supported.includes(effort)) {
-        warnings.push(`policy.low_cost: ${model}/${effort} exceeds this plugin's known capabilities (${supported.join(', ')}). The configuration is preserved; verify host support before spawning and do not use an unsupported pair.`);
-      } else if (!effort) {
-        warnings.push(`policy.low_cost: ${model} inherits the primary task's reasoning effort; verify support before spawning and do not inherit an incompatible ultra setting.`);
-      }
+      warnings.push(...settingWarnings('policy.low_cost', lowCost, model, effort, catalog));
     }
   }
   return warnings;
+}
+
+function settingWarnings(name, settings, model, effort, catalog) {
+  if (modelFamily(model)) {
+    const reason = settings.model_resolution?.reason || 'family-not-resolved';
+    return [`${name}: ${model}/${effort || 'inherit'} family unresolved (${reason}); no native role is generated. Refresh the host model catalog or explicitly pin a host-supported full model ID and effort. Use a supported generic role with an explicit pair or primary-agent work; never pass the family alias to native model APIs or inherit an expensive parent model implicitly.`];
+  }
+  const supported = catalog && catalog.get(model);
+  if (!supported) return [`${name}: No fresh visible capability record for ${model}; configuration is preserved. Verify host support without mapping it to another model.`];
+  if (effort && !supported.has(effort)) return [`${name}: ${model}/${effort} is unsupported by the fresh catalog (${[...supported].join(', ')}); configuration is preserved. Verify host support before spawning without silently replacing an explicit model or reducing effort.`];
+  if (!effort) return [`${name}: ${model} inherits the primary task's reasoning effort; verify support before spawning.`];
+  return [];
 }
 
 function pluginRoot() {
@@ -136,15 +125,16 @@ function mergeConfig(base, layer) {
         if (!profile || typeof profile !== 'object' || Array.isArray(profile)) continue;
         const previous = result.agent_profiles.profiles[name] || {};
         const changesModel = typeof profile.model === 'string'
-          && profile.model.trim() !== String(previous.model || '').trim();
+          && (modelFamily(profile.model) || profile.model.trim())
+            !== (modelFamily(previous.model) || String(previous.model || '').trim());
         result.agent_profiles.profiles[name] = {
           ...previous,
           ...((Object.hasOwn(profile, 'model') || Object.hasOwn(profile, 'model_reasoning_effort'))
             && !Object.hasOwn(profile, 'model_candidates') ? { model_candidates: [] } : {}),
-          // When switching only to a known model, use this plugin's medium preset rather than inheriting the old model's or primary task's ultra effort.
-          // Do not guess capabilities for unknown models; an explicit effort in the same layer, including an empty string, still takes precedence.
+          // A changed family or recognized versioned pin starts at the medium preset; catalog resolution validates support later.
+          // An explicit effort in this layer, including an empty string, always wins.
           ...(changesModel ? {
-            model_reasoning_effort: KNOWN_MODEL_EFFORTS.has(profile.model.trim()) ? 'medium' : '',
+            model_reasoning_effort: modelFamily(profile.model) || versionedFamily(profile.model.trim()) ? 'medium' : '',
           } : {}),
           ...profile,
         };
