@@ -65,7 +65,7 @@ node scripts/plugin-update.cjs --doctor
 node scripts/plugin-update.cjs --check-now
 ```
 
-`--doctor` is read-only; `--check-now` performs a check. `CODEMAP_BOOST_DISABLE_RUNTIME_UPDATES=1` disables automatic runtime updates, and `CODEX_TOOLSHOP_DISABLE_PLUGIN_UPDATES=1` disables automatic plugin-source refresh. Neither prevents initial preparation of a missing baseline runtime.
+`--doctor` is read-only; `--check-now` performs a check. `CODEMAP_BOOST_DISABLE_RUNTIME_UPDATES=1` disables automatic runtime updates, and `CODEX_TOOLSHOP_DISABLE_PLUGIN_UPDATES=1` disables automatic plugin-source refresh. Neither prevents initial preparation of a missing runtime.
 
 ## Install and use
 
@@ -82,7 +82,7 @@ Native MCP configuration sets `startup_timeout_sec = 600`, plus `tool_timeout_se
 
 ### CRG on-demand backend
 
-`initialize`, `ping`, and tool, prompt-template, and resource lists are served by a lightweight Node frontend without starting `serve` or a semantic model. The bundled discovery snapshot comes from real CRG 2.3.9; first use without a runtime installs that exact version. Existing versions use matching cached metadata, while an unknown version gets a brief metadata-only Python export that explicitly forbids Torch, Transformers, and SentenceTransformer imports. Candidate updates export and validate discovery metadata before promotion. A connection freezes its runtime choice so discovery and execution use the same version.
+`initialize`, `ping`, and tool, prompt-template, and resource lists are served by a lightweight Node frontend without starting `serve` or a semantic model. CRG is not pinned: first use without a runtime installs the latest stable CRG from PyPI, and an existing runtime of any version keeps working. The discovery catalog always matches the installed version: the bundled snapshot (real CRG 2.3.9) is used only on an exact version match, otherwise a brief metadata-only Python export, which explicitly forbids Torch, Transformers, and SentenceTransformer imports, is cached per version and re-exported automatically when the installed version changes. If no matching catalog can be produced (a fresh install has no runtime to describe, or the export fails), discovery falls back to starting the backend instead of serving a stale catalog. Candidate updates export and validate discovery metadata before promotion. A connection freezes its runtime choice so discovery and execution use the same version.
 
 The first request needing the backend starts the original `code-review-graph serve`. On Windows, it retains upstream main-thread model prewarming to avoid known first-load Torch/DLL/OpenMP hangs on worker threads. This initialization cost applies to the first ordinary structural query; the graph and semantic-model phases are not split. Since 0.1.37, ten minutes after the last backend work, the frontend recycles only its heavy process tree while retaining discovery and the disk graph. Preparation, startup, active requests, callbacks, and forwarded cancellation awaiting a response block retirement. Discovery and ping do not extend the timer. A request during retirement waits for confirmed exit and shares one restart; initialization and logging state are replayed. Connection close, stdin EOF, or termination also cleans up the owned process tree.
 

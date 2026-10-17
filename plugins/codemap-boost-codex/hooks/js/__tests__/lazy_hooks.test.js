@@ -75,9 +75,10 @@ child.spawn = () => { fs.appendFileSync(process.env.CODEMAP_TEST_EVENTS, 'spawn\
   assert.strictEqual(prepareCrgForRead(repo, options), true, 'first demand synchronously prepares and builds');
   assert.strictEqual(builds.length, 1);
   assert.strictEqual(builds[0].args[0], 'build');
-  assert.strictEqual(installs[0].version, '2.3.9', 'first install matches the bundled MCP catalog version');
-  assert.strictEqual(installs[0].expectedVersion, installs[0].version);
-  assert.ok(installs[0].runtimeDir.includes(path.join('crg-runtimes', '2.3.9')));
+  assert.ok(!installs[0].version, 'first install is unpinned and requests the latest stable CRG');
+  assert.ok(!installs[0].expectedVersion, 'first install must not carry an exact-version expectation');
+  assert.strictEqual(installs[0].runtimeDir, path.join(options.pluginDataDir, 'crg-runtime'),
+    'an unpinned first install lands in the legacy runtime directory that the updater promotes from');
   assert.strictEqual(path.dirname(builds[0].runOptions.crgCommand), path.join(installs[0].runtimeDir,
     process.platform === 'win32' ? 'Scripts' : 'bin'), 'refresh uses the same frozen runtime prepared by ensureCrg');
   assert.ok(installs[0].deadlineMs <= Date.now() + 570000);

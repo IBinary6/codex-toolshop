@@ -43,6 +43,10 @@ const { prepareMcpServer } = require('../../../scripts/mcp-server.cjs');
 
 async function discoveryOnly() {
   const data = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-node-discovery-')));
+  // An installed runtime whose version exactly matches the bundled catalog is described without starting Python or the backend.
+  const packageDir = path.join(data, 'crg-runtime', 'Lib', 'site-packages', 'code_review_graph-2.3.9.dist-info');
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.writeFileSync(path.join(packageDir, 'METADATA'), 'Name: code-review-graph\nVersion: 2.3.9\n');
   const forbidden = path.join(data, 'prepare-called');
   const server = path.resolve(__dirname, '../../../scripts/mcp-server.cjs');
   const script = 'const fs=require("node:fs");require(process.argv[1]).runMcpServer({pluginDataDir:process.argv[2],prepareSpawn(){fs.writeFileSync(process.argv[3],"called");throw new Error("discovery must not prepare");}}).then(code=>process.exitCode=code);';
@@ -69,6 +73,7 @@ async function discoveryOnly() {
     assert.strictEqual(responses.find((r) => r.id === 3).result.prompts.length, 5);
     assert.strictEqual(fs.existsSync(forbidden), false);
     assert.strictEqual(fs.existsSync(path.join(data, 'crg-runtimes')), false, 'discovery cannot create/install runtime');
+    assert.strictEqual(fs.existsSync(path.join(data, 'mcp-catalogs')), false, 'an exact bundled match needs no exported cache');
     child.stdin.end();
     const code = await new Promise((resolve) => child.once('exit', resolve));
     assert.strictEqual(code, 0, stderr);
@@ -77,4 +82,25 @@ async function discoveryOnly() {
     fs.rmSync(data, { recursive: true, force: true });
   }
 }
-discoveryOnly().then(() => console.log('mcp_server.test.js PASS')).catch((error) => { console.error(error); process.exitCode = 1; });
+// A fresh install has no installed version to match, so discovery must start the backend (which installs the latest CRG).
+async function freshBackendDiscovery() {
+  const { runMcpServer } = require('../../../scripts/mcp-server.cjs');
+  const { PassThrough } = require('node:stream');
+  const data = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-fresh-discovery-')));
+  const input = new PassThrough(), output = new PassThrough(), stderr = new PassThrough();
+  let prepared = 0, out = '';
+  output.on('data', (chunk) => { out += chunk; });
+  try {
+    const completion = runMcpServer({ pluginDataDir: data, input, output, stderr, prepareBackend: async () => { prepared++; throw new Error('backend preparation reached'); } });
+    input.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } } })}\n`);
+    const deadline = Date.now() + 5000;
+    while (!out.includes('\n')) {
+      if (Date.now() > deadline) throw new Error('fresh discovery timeout');
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.strictEqual(prepared, 1, 'fresh discovery starts backend preparation instead of serving a bundled 2.3.9 catalog');
+    assert.match(JSON.parse(out.trim().split('\n')[0]).error.message, /backend preparation reached/);
+    input.end(); await completion;
+  } finally { fs.rmSync(data, { recursive: true, force: true }); }
+}
+discoveryOnly().then(freshBackendDiscovery).then(() => console.log('mcp_server.test.js PASS')).catch((error) => { console.error(error); process.exitCode = 1; });

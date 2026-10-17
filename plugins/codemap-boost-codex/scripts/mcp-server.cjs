@@ -107,6 +107,8 @@ async function runMcpServer(options = {}) {
       const prepared = await prepareMcpServerAsync(resolved, signal);
       if (!prepared.ok) throw new Error(prepared.diagnostic);
       if (signal.aborted) throw new Error('CRG startup cancelled');
+      // Backend discovery means no catalog existed for the installed version; export one in the background so the next session is Node only.
+      if (!options.catalog && proxy.backendDiscovery) loadCatalog({ ...resolved }).catch(() => {});
       return (options.spawn || spawn)(prepared.command, prepared.args, {
         cwd: resolved.pluginDataDir, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
         detached: process.platform !== 'win32',
