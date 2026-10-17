@@ -90,6 +90,8 @@ async function freshBackendDiscovery() {
   const input = new PassThrough(), output = new PassThrough(), stderr = new PassThrough();
   let prepared = 0, out = '';
   output.on('data', (chunk) => { out += chunk; });
+  // runMcpServer chdirs into the data dir; Windows cannot remove a directory that is the process cwd.
+  const originalCwd = process.cwd();
   try {
     const completion = runMcpServer({ pluginDataDir: data, input, output, stderr, prepareBackend: async () => { prepared++; throw new Error('backend preparation reached'); } });
     input.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } } })}\n`);
@@ -101,6 +103,6 @@ async function freshBackendDiscovery() {
     assert.strictEqual(prepared, 1, 'fresh discovery starts backend preparation instead of serving a bundled 2.3.9 catalog');
     assert.match(JSON.parse(out.trim().split('\n')[0]).error.message, /backend preparation reached/);
     input.end(); await completion;
-  } finally { fs.rmSync(data, { recursive: true, force: true }); }
+  } finally { process.chdir(originalCwd); fs.rmSync(data, { recursive: true, force: true }); }
 }
 discoveryOnly().then(freshBackendDiscovery).then(() => console.log('mcp_server.test.js PASS')).catch((error) => { console.error(error); process.exitCode = 1; });
