@@ -49,5 +49,14 @@ async def export():
     }
 
 
+def dumps_catalog(catalog):
+    """Serialize as pure ASCII JSON so the bytes do not depend on the console or locale code page.
+
+    Upstream docstrings contain non-ASCII text (em-dashes). Writing them raw makes a pipe use the locale encoding
+    (cp1252 or GBK on Windows), which produces invalid UTF-8 or raises UnicodeEncodeError. Escapes round-trip exactly.
+    """
+    return json.dumps(catalog, ensure_ascii=True, indent=2) + "\n"
+
+
 if __name__ == "__main__":
-    print(json.dumps(asyncio.run(export()), ensure_ascii=False, indent=2))
+    sys.stdout.write(dumps_catalog(asyncio.run(export())))

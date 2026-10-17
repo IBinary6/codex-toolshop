@@ -114,11 +114,13 @@ function exportCatalog(paths, expectedVersion, options = {}) {
     const abort = () => { try { child.kill(); } catch (_) {} finish(new Error('catalog export cancelled')); };
     if (options.signal && options.signal.aborted) return finish(new Error('catalog export cancelled'));
     try {
-      child = (options.catalogSpawn || spawn)(paths.python, ['-I', '-B', path.join(SCRIPTS_DIR, 'export-mcp-catalog.py')], {
+      child = (options.catalogSpawn || spawn)(paths.python, ['-I', '-B', '-X', 'utf8', path.join(SCRIPTS_DIR, 'export-mcp-catalog.py')], {
         cwd: options.pluginDataDir || process.cwd(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
         env: { ...process.env, ...(options.env || {}), CRG_TOOLS: '' },
       });
       if (options.signal) options.signal.addEventListener('abort', abort, { once: true });
+      // Decode as UTF-8 explicitly; the decoder also keeps multi-byte characters intact across chunk boundaries.
+      child.stdout.setEncoding('utf8');
       child.stdout.on('data', (chunk) => { stdout += chunk; if (stdout.length > 4 * 1024 * 1024) abort(); });
       child.stderr.on('data', (chunk) => { stderr = (stderr + chunk).slice(-4000); });
       child.once('error', (error) => finish(error));
