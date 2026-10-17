@@ -553,7 +553,7 @@
     },
     {
       "name": "embed_graph_tool",
-      "description": "Compute vector embeddings for all graph nodes to enable semantic search.\n\nRequires: pip install code-review-graph[embeddings] (local provider only;\ncloud providers use stdlib urllib).\nDefault provider: local. Default model: all-MiniLM-L6-v2.\nOverride provider via `provider` param, model via `model` param or\nCRG_EMBEDDING_MODEL / CRG_OPENAI_MODEL / CRG_VOYAGE_MODEL env vars.\nChanging the model or provider re-embeds all nodes automatically.\n\nAfter running this, semantic_search_nodes_tool will use vector similarity\ninstead of keyword matching for much better results.\n\nRuns the blocking sentence-transformers / Gemini / HTTP inference on a\nworker thread via ``_offload`` so the stdio event loop stays\nresponsive — without that, embedding a large graph would silently hang\nthe MCP server on Windows. See: #46, #136, #262.",
+      "description": "Compute vector embeddings for all graph nodes to enable semantic search.\n\nRequires: pip install code-review-graph[embeddings] (local provider only;\ncloud providers use stdlib urllib).\nDefault provider: local. Default model: all-MiniLM-L6-v2.\nOverride provider via `provider` param, model via `model` param or\nCRG_EMBEDDING_MODEL / CRG_OPENAI_MODEL / CRG_VOYAGE_MODEL env vars.\nChanging the model or provider re-embeds all nodes automatically.\n\nAfter running this, semantic_search_nodes_tool will use vector similarity\ninstead of keyword matching for much better results.\n\nRuns the blocking sentence-transformers / Gemini / HTTP inference on a\nworker thread via ``_offload`` so the stdio event loop stays\nresponsive â€” without that, embedding a large graph would silently hang\nthe MCP server on Windows. See: #46, #136, #262.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1098,7 +1098,7 @@
     },
     {
       "name": "detect_changes_tool",
-      "description": "Detect changes and produce risk-scored, priority-ordered review guidance.\n\nPrimary tool for code review. Maps git diffs to affected functions,\nflows, communities, and test coverage gaps. Returns risk scores and\nprioritized review items. Replaces get_review_context for change-aware reviews.\n\nOffloaded via ``_offload`` — runs `git diff` subprocesses and BFS\ntraversals that can take several seconds on large repos, and honours\n``CRG_TOOL_TIMEOUT``. See: #46, #136, #262.",
+      "description": "Detect changes and produce risk-scored, priority-ordered review guidance.\n\nPrimary tool for code review. Maps git diffs to affected functions,\nflows, communities, and test coverage gaps. Returns risk scores and\nprioritized review items. Replaces get_review_context for change-aware reviews.\n\nOffloaded via ``_offload`` â€” runs `git diff` subprocesses and BFS\ntraversals that can take several seconds on large repos, and honours\n``CRG_TOOL_TIMEOUT``. See: #46, #136, #262.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1157,7 +1157,7 @@
           "max_flows": {
             "default": 20,
             "type": "integer",
-            "description": "Maximum affected flows to embed. Embedded flows carry\nper-flow metadata only — use get_affected_flows_tool for step\ndetail. Default: 20."
+            "description": "Maximum affected flows to embed. Embedded flows carry\nper-flow metadata only â€” use get_affected_flows_tool for step\ndetail. Default: 20."
           }
         },
         "type": "object"
@@ -1316,7 +1316,7 @@
     },
     {
       "name": "generate_wiki_tool",
-      "description": "Generate a markdown wiki from the code community structure.\n\nCreates a wiki page for each detected community and an index page.\nPages are written to .code-review-graph/wiki/ inside the repository.\nOnly regenerates pages whose content has changed unless force=True.\n\nOffloaded via ``_offload`` — on large graphs the page-generation loop\ntouches every community and issues many SQLite reads, which would\nblock the MCP event loop. See: #46, #136, #262.",
+      "description": "Generate a markdown wiki from the code community structure.\n\nCreates a wiki page for each detected community and an index page.\nPages are written to .code-review-graph/wiki/ inside the repository.\nOnly regenerates pages whose content has changed unless force=True.\n\nOffloaded via ``_offload`` â€” on large graphs the page-generation loop\ntouches every community and issues many SQLite reads, which would\nblock the MCP event loop. See: #46, #136, #262.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {

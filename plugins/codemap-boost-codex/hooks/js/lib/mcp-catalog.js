@@ -8,8 +8,8 @@ const { activeRuntimeVersion, isRuntimeVersion, promoteRuntimeVersion } = requir
 const { pluginDataDir } = require('./runtime');
 const { acquireUpdateLock, releaseUpdateLock } = require('./update-lock');
 
-const BUNDLED_CRG_VERSION = '2.3.9';
 // The Python exporter and the bundled catalogs ship in the plugin's scripts directory.
+// CRG itself is never pinned: a bundled catalog is used only when its version exactly matches the installed runtime.
 const SCRIPTS_DIR = path.join(__dirname, '..', '..', '..', 'scripts');
 
 // Read installation metadata only; do not start interpreters, CLI probes, or models.
@@ -36,15 +36,18 @@ function diskRuntimeVersion(runtimeDir) {
   return '';
 }
 
-/** Freeze runtime selection. First installation uses the exact version matching the bundled schema. */
+/**
+ * Freeze runtime selection without pinning CRG. An active pointer or an already installed runtime keeps its exact version
+ * (repairs rebuild that version); with neither, the version stays empty so the first install requests the latest stable CRG
+ * into the legacy runtime directory, and the weekly updater promotes later versions.
+ */
 function selectCrgRuntime(options = {}) {
   const data = options.pluginDataDir || pluginDataDir(options);
   const version = options.version || activeRuntimeVersion('crg', { ...options, pluginDataDir: data });
   const paths = crgRuntimePaths({ ...options, pluginDataDir: data, version });
   const installed = diskRuntimeVersion(paths.dir);
-  const selected = version || installed || BUNDLED_CRG_VERSION;
-  const runtimeDir = options.runtimeDir || ((version || installed) ? paths.dir
-    : crgRuntimePaths({ ...options, pluginDataDir: data, version: selected }).dir);
+  const selected = version || installed || '';
+  const runtimeDir = options.runtimeDir || paths.dir;
   return { ...options, pluginDataDir: data, version: selected, expectedVersion: selected, runtimeDir };
 }
 
@@ -111,11 +114,13 @@ function exportCatalog(paths, expectedVersion, options = {}) {
     const abort = () => { try { child.kill(); } catch (_) {} finish(new Error('catalog export cancelled')); };
     if (options.signal && options.signal.aborted) return finish(new Error('catalog export cancelled'));
     try {
-      child = (options.catalogSpawn || spawn)(paths.python, ['-I', '-B', path.join(SCRIPTS_DIR, 'export-mcp-catalog.py')], {
+      child = (options.catalogSpawn || spawn)(paths.python, ['-I', '-B', '-X', 'utf8', path.join(SCRIPTS_DIR, 'export-mcp-catalog.py')], {
         cwd: options.pluginDataDir || process.cwd(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
         env: { ...process.env, ...(options.env || {}), CRG_TOOLS: '' },
       });
       if (options.signal) options.signal.addEventListener('abort', abort, { once: true });
+      // Decode as UTF-8 explicitly; the decoder also keeps multi-byte characters intact across chunk boundaries.
+      child.stdout.setEncoding('utf8');
       child.stdout.on('data', (chunk) => { stdout += chunk; if (stdout.length > 4 * 1024 * 1024) abort(); });
       child.stderr.on('data', (chunk) => { stderr = (stderr + chunk).slice(-4000); });
       child.once('error', (error) => finish(error));
@@ -134,20 +139,37 @@ function filteredCatalog(catalog, options = {}) {
   return names.size ? { ...catalog, tools: catalog.tools.filter((tool) => names.has(tool.name)) } : catalog;
 }
 
+/** Signals the lazy frontend to start the backend for discovery instead of serving a catalog. */
+function backendDiscoveryError(message, cause) {
+  const error = new Error(message);
+  error.backendDiscovery = true;
+  if (cause) error.cause = cause;
+  return error;
+}
+
+/**
+ * Discovery catalog for the runtime that will actually serve requests. The installed version on disk decides: a cached
+ * export or the bundled catalog is used only on an exact version match; otherwise the metadata-only exporter runs once
+ * and is cached per version. When no matching catalog can be produced the caller falls back to backend discovery.
+ */
 async function loadCatalog(options = {}) {
   const selected = selectCrgRuntime(options);
   const paths = crgRuntimePaths(selected);
-  // A pointer schema must not hide a mismatch with the actual installed version.
+  // The pointer must not hide a mismatch with the installed version, so the installed metadata wins.
   const installed = diskRuntimeVersion(paths.dir);
-  const version = selected.version;
+  // A pinned but unreadable runtime is repaired to its exact version, so that version's catalog still describes it.
+  const version = installed || selected.version;
+  if (!version) throw backendDiscoveryError('No CRG runtime is installed yet; discovery will use the backend');
   const sources = [catalogPath(version, selected), path.join(SCRIPTS_DIR, `mcp-catalog-${version}.json`)];
   for (const source of sources) {
     try { return filteredCatalog(validateCatalog(JSON.parse(fs.readFileSync(source, 'utf8')), version), options); } catch (_) {}
   }
-  if (installed && installed !== selected.version) {
-    throw new Error(`CRG runtime pointer/catalog mismatch with no matching catalog: selected ${selected.version}, installed ${installed}; repair the runtime first`);
+  if (!installed) throw backendDiscoveryError(`CRG ${version} is not installed and has no catalog; discovery will use the backend`);
+  try {
+    return filteredCatalog(await exportCatalog(paths, installed, selected), options);
+  } catch (error) {
+    throw backendDiscoveryError(`CRG ${installed} catalog export failed (${error.message}); discovery will use the backend`, error);
   }
-  return filteredCatalog(await exportCatalog(paths, version, selected), options);
 }
 
-module.exports = { BUNDLED_CRG_VERSION, catalogPath, diskRuntimeVersion, exportCatalog, filteredCatalog, loadCatalog, recordSelectedCrgRuntime, selectCrgRuntime, validateCatalog, writeCatalog };
+module.exports = { catalogPath, diskRuntimeVersion, exportCatalog, filteredCatalog, loadCatalog, recordSelectedCrgRuntime, selectCrgRuntime, validateCatalog, writeCatalog };

@@ -20,7 +20,7 @@ node <plugin-root>/scripts/runtime-update.cjs --check-now
 2. When the user requests an immediate check, run `--check-now`. Package installer success alone is insufficient: the updater must pass its runtime and integration checks before changing the active version.
 3. Report each tool's outcome separately: already current, updated for later launches, failed with the old version retained, or disabled. Existing MCP processes keep their original environment; a new task loads the selected version.
 
-The default update source is official PyPI. Serena's initial compatibility baseline is 1.7.0, not a permanent version ceiling. CRG candidates must pass parser and graph-refresh adapter checks; Serena candidates must preserve Codex MCP tooling and the disabled dashboard/browser/GUI behavior. Language-server capability still depends on the target project's language and build setup.
+The default update source is official PyPI. Serena's initial compatibility baseline is 1.7.0, not a permanent version ceiling. CRG has no baseline pin or version ceiling: first install and updates both use the latest stable PyPI release. CRG candidates must pass parser and graph-refresh adapter checks and a metadata-only MCP catalog export for the candidate version; Serena candidates must preserve Codex MCP tooling and the disabled dashboard/browser/GUI behavior. Language-server capability still depends on the target project's language and build setup.
 
 ## Boundaries
 

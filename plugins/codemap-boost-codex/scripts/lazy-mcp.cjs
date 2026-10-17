@@ -5,6 +5,7 @@ const { spawn } = require('node:child_process');
 const crypto = require('node:crypto');
 const { performance } = require('node:perf_hooks');
 
+const FALLBACK_PROTOCOL_VERSION = '2025-11-25';
 const STARTUP_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 const LOGGING_LEVELS = new Set(['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency']);
@@ -39,6 +40,8 @@ class LazyMcpProxy {
     this.output = options.output || process.stdout;
     this.stderr = options.stderr || process.stderr;
     this.catalogPromise = null;
+    this.backendDiscovery = false;
+    this.backendInitializeResult = null;
     this.child = null;
     this.starting = null;
     this.closed = false;
@@ -171,6 +174,19 @@ class LazyMcpProxy {
     }
     return this.catalogPromise;
   }
+  /**
+   * Catalog for Node-only discovery, or null once the catalog source reported that no matching catalog can be produced
+   * (error.backendDiscovery). Null means discovery is answered by the real backend instead of a possibly stale catalog.
+   */
+  async discoveryCatalog() {
+    if (this.backendDiscovery) return null;
+    try { return await this.catalog(); } catch (error) {
+      if (!error || !error.backendDiscovery || this.closed) throw error;
+      this.backendDiscovery = true;
+      this.stderr.write(`[codemap-boost-codex] MCP: ${error.message}\n`);
+      return null;
+    }
+  }
 
   run() {
     return new Promise((resolve) => {
@@ -232,7 +248,11 @@ class LazyMcpProxy {
       if (message.method === 'ping') return this.reply(record, {});
       if (message.method === 'initialize') {
         this.initializeParams = message.params;
-        const c = await this.catalog();
+        const c = await this.discoveryCatalog();
+        if (!c) {
+          await this.ensureBackend();
+          return this.reply(record, this.backendInitializeResult);
+        }
         const requested = message.params && message.params.protocolVersion;
         const protocolVersion = (c.supportedProtocolVersions || [c.protocolVersion]).includes(requested) ? requested : c.protocolVersion;
         this.negotiatedProtocol = protocolVersion;
@@ -240,12 +260,13 @@ class LazyMcpProxy {
       }
       const discovery = { 'tools/list': 'tools', 'prompts/list': 'prompts', 'resources/list': 'resources', 'resources/templates/list': 'resourceTemplates' };
       if (discovery[message.method]) {
-        if (message.params && message.params.cursor) throw new Error('Invalid discovery cursor');
-        const c = await this.catalog();
-        return this.reply(record, { [discovery[message.method]]: c[discovery[message.method]] });
+        if (message.params && message.params.cursor && !this.backendDiscovery) throw new Error('Invalid discovery cursor');
+        const c = await this.discoveryCatalog();
+        // Without a catalog the request falls through to the backend below.
+        if (c) return this.reply(record, { [discovery[message.method]]: c[discovery[message.method]] });
       }
-      const c = await this.catalog();
-      if (!Array.isArray(c.requestMethods) || !c.requestMethods.includes(message.method)) {
+      const c = await this.discoveryCatalog();
+      if (c && (!Array.isArray(c.requestMethods) || !c.requestMethods.includes(message.method))) {
         return this.reply(record, undefined, { code: -32601, message: `Method not found: ${message.method}` });
       }
       if (message.method === 'logging/setLevel') {
@@ -306,7 +327,7 @@ class LazyMcpProxy {
     this.startController = controller;
     let timeout, launch;
     this.starting = (async () => {
-      const c = await this.catalog();
+      const c = await this.discoveryCatalog();
       launch = (async () => {
         const child = await this.options.launchBackend(controller.signal);
         const context = { child, exited: false, failed: false, retiring: false };
@@ -344,9 +365,10 @@ class LazyMcpProxy {
         const id = this.nextId('initialize');
         const result = await new Promise((resolve, reject) => {
           this.pending.set(id, { internal: true, resolve, reject });
-          this.toBackend({ id, method: 'initialize', params: this.initializeParams || { protocolVersion: c.protocolVersion, capabilities: {}, clientInfo: { name: 'codemap-boost-codex', version: '1' } } });
+          this.toBackend({ id, method: 'initialize', params: this.initializeParams || { protocolVersion: c ? c.protocolVersion : FALLBACK_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'codemap-boost-codex', version: '1' } } });
         });
         if (this.negotiatedProtocol && result.protocolVersion !== this.negotiatedProtocol) throw new Error('CRG backend protocol version differs from discovery catalog');
+        if (!c) { this.negotiatedProtocol = result.protocolVersion; this.backendInitializeResult = result; }
         this.toBackend({ method: 'notifications/initialized' });
         // Configuration may change during startup; apply the latest value via a real post-handshake request, replaying on retry.
         await this.replayBackendState(context);

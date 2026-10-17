@@ -94,6 +94,41 @@ async function main() {
   assert.deepEqual(b.messages.at(-1), { jsonrpc: '2.0', id: 10, result: { roots: [] } });
   f.input.end(); assert.equal(await f.completion, 0);
 
+  // A catalog source that cannot produce a matching catalog (backendDiscovery) makes the real backend answer discovery.
+  {
+    let catalogCalls = 0, discoveryStarts = 0;
+    const discoveryBackend = backend();
+    discoveryBackend.child.stdin.on('data', (chunk) => {
+      for (const line of String(chunk).trim().split('\n')) {
+        const message = JSON.parse(line);
+        if (message.method === 'tools/list') discoveryBackend.child.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { tools: [{ name: 'live-tool', inputSchema: { type: 'object' } }] } })}\n`);
+        if (message.method === 'resources/list') discoveryBackend.child.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { resources: [] } })}\n`);
+      }
+    });
+    const stale = fixture(async () => { discoveryStarts++; return discoveryBackend.child; }, {
+      catalog: async () => { catalogCalls++; throw Object.assign(new Error('catalog export failed'), { backendDiscovery: true }); },
+    });
+    stale.send({ id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'host', version: '1' } } });
+    const initialized = await stale.response(1);
+    assert.equal(initialized.result.serverInfo.name, 'fixture', 'initialize is answered by the backend, not a stale catalog');
+    assert.equal(discoveryStarts, 1, 'backend discovery starts the backend');
+    stale.send({ id: 2, method: 'tools/list' });
+    assert.deepEqual((await stale.response(2)).result.tools.map((tool) => tool.name), ['live-tool'], 'tools/list comes from the live backend');
+    stale.send({ id: 3, method: 'resources/list' });
+    assert.deepEqual((await stale.response(3)).result.resources, []);
+    stale.send({ id: 4, method: 'tools/call', params: { name: 'example' } });
+    assert.ok((await stale.response(4)).result);
+    assert.equal(discoveryStarts, 1);
+    assert.equal(catalogCalls, 1, 'a failed catalog is not retried for every request');
+    stale.input.end(); await stale.completion;
+
+    // Other catalog failures remain request errors instead of silently starting the backend.
+    const broken = fixture(async () => { throw new Error('must not start'); }, { catalog: async () => { throw new Error('corrupt'); } });
+    broken.send({ id: 1, method: 'tools/list' });
+    assert.match((await broken.response(1)).error.message, /corrupt/);
+    broken.input.end(); await broken.completion;
+  }
+
   let attempts = 0;
   const retryBackend = backend();
   const retry = fixture(async () => { if (++attempts === 1) throw new Error('cold failed'); return retryBackend.child; });
