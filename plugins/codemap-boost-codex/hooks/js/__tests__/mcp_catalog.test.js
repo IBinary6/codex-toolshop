@@ -37,7 +37,10 @@ async function main() {
       assert.equal(spawnOptions.env.CRG_TOOLS, '');
       const version = diskRuntimeVersion(runtimeDir);
       exportedVersions.push(version);
-      return spawn(process.execPath, ['-e', 'process.stdout.write(process.argv[1])', JSON.stringify(catalogFor(version))], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+      // Pass only a file path through argv: the full catalog exceeds the Windows command-line length limit (spawn ENAMETOOLONG).
+      const catalogFile = path.join(data, `exported-catalog-${starts}.json`);
+      fs.writeFileSync(catalogFile, JSON.stringify(catalogFor(version)), 'utf8');
+      return spawn(process.execPath, ['-e', 'process.stdout.write(require("node:fs").readFileSync(process.argv[1], "utf8"))', catalogFile], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     };
     const options = { pluginDataDir: data, env: {}, catalogSpawn: () => { starts++; throw new Error('known catalog must not spawn'); } };
 
