@@ -28,6 +28,7 @@ const {
   SERENA_MCP_ARGS,
   SERENA_VERSION,
   probeSerenaRuntime,
+  serenaHomeDir,
   serenaLaunchEnv,
   serenaRuntimePaths,
 } = require('./serena-runtime');
@@ -229,10 +230,12 @@ function verifySerenaCli(paths, options = {}) {
     "    assert getattr(self.agent, '_dashboard_manager', None) is None and getattr(self.agent, '_gui_log_viewer', None) is None",
     '    async def check_tools():',
     '        async with server.settings.lifespan(server):',
-    '            tools = {tool.name: tool for tool in await server.list_tools()}',
-    "            assert 'activate_project' in tools and 'find_symbol' in tools",
-    "            assert 'project' in tools['activate_project'].inputSchema.get('properties', {})",
-    "            assert 'name_path_pattern' in tools['find_symbol'].inputSchema.get('properties', {})",
+    '            tools = {tool.name for tool in await server.list_tools()}',
+    // Serena 2 can hide every operation behind one serena_repl tool (agent_interface: REPL); the frontend prepares C/C++ data by
+    // intercepting individual tools, so only the one-tool-per-operation interface the user's configuration selects is accepted.
+    "            get_interface = getattr(self.agent, 'get_agent_interface', None)",
+    "            assert get_interface is None or get_interface().is_tools(), 'the frontend requires agent_interface: tools'",
+    "            assert {'activate_project', 'find_symbol', 'find_referencing_symbols'} <= tools, sorted(tools)",
     '    asyncio.run(check_tools())',
     '    return server',
     "with patch.object(SerenaAgent, '__init__', guarded_agent_init):",
@@ -244,6 +247,9 @@ function verifySerenaCli(paths, options = {}) {
   try {
     // The candidate CLI writes default settings and logs, so use only a directory owned by this probe.
     probeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-serena-probe-'));
+    // Check the agent interface the user will get: a fresh template of a newer Serena may select another one than the stable settings.
+    const stableConfig = path.join(serenaHomeDir(options), 'serena_config.yml');
+    if (fs.existsSync(stableConfig)) fs.copyFileSync(stableConfig, path.join(probeHome, 'serena_config.yml'));
     const result = executable(paths.python, ['-I', '-B', '-c', script, JSON.stringify(SERENA_MCP_ARGS), path.resolve(__dirname, '../../../scripts/serena-session.py')], {
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout,
       cwd: probeHome, windowsHide: process.platform === 'win32',
@@ -252,6 +258,31 @@ function verifySerenaCli(paths, options = {}) {
     return !!result && !result.error && result.status === 0;
   } catch (_) { return false; }
   finally { if (probeHome) fs.rmSync(probeHome, { recursive: true, force: true }); }
+}
+
+/**
+ * Removes upgrade venvs other than the active one, the one it replaced and the Serena baseline, so weekly candidates (CRG is about
+ * 300MB) do not accumulate. The legacy CRG baseline lives outside crg-runtimes and is never removed. Best effort: a venv still locked
+ * by a running process is left for a later run.
+ * @returns {string[]} removed versions
+ * @example pruneRuntimeVersions('crg', { pluginDataDir }) // ['2.3.7']
+ */
+function pruneRuntimeVersions(kind, options = {}) {
+  const versions = readRuntimeVersions(options);
+  const keep = new Set([(versions.active || {})[kind], (versions.previous || {})[kind]].filter(Boolean));
+  if (kind === 'serena') keep.add(SERENA_VERSION);
+  const parent = path.join(options.pluginDataDir || pluginDataDir(options), kind === 'crg' ? 'crg-runtimes' : 'serena-runtime');
+  const removed = [];
+  let entries;
+  try { entries = fs.readdirSync(parent, { withFileTypes: true }); } catch (_) { return removed; }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !isRuntimeVersion(entry.name) || keep.has(entry.name)) continue;
+    try {
+      fs.rmSync(path.join(parent, entry.name), { recursive: true, force: true });
+      removed.push(entry.name);
+    } catch (_) {}
+  }
+  return removed;
 }
 
 function recordAttempt(state, kind, attempt) {
@@ -269,6 +300,7 @@ async function updateOne(kind, state, options = {}) {
     ? (options.currentCrgVersion || installedPackageVersion)(crgRuntimePaths(options), 'code-review-graph', options)
     : baseline);
   const packageName = kind === 'crg' ? 'code-review-graph' : 'serena-agent';
+  let candidateDir = '';
   try {
     const latest = await (options.fetchLatest || fetchPypiLatest)(packageName, options);
     if (!isRuntimeVersion(latest)) throw new Error(`Invalid candidate version: ${latest}`);
@@ -276,7 +308,7 @@ async function updateOne(kind, state, options = {}) {
       const next = recordAttempt(state, kind, { at: now, status: 'no-change', current, latest });
       return { state: next, result: { kind, status: 'no-change', current, latest } };
     }
-    const candidateDir = runtimeDir(kind, latest, options);
+    candidateDir = runtimeDir(kind, latest, options);
     const deadlineMs = now + MCP_BOOTSTRAP_BUDGET_MS;
     let installed = false;
     if (kind === 'crg') {
@@ -302,9 +334,12 @@ async function updateOne(kind, state, options = {}) {
     }
     if (!installed) throw new Error('Candidate runtime health or compatibility validation failed');
     (options.promote || promoteRuntimeVersion)(kind, latest, options);
+    const removed = (options.prune || pruneRuntimeVersions)(kind, options);
     const next = recordAttempt(state, kind, { at: now, status: 'promoted', current, latest });
-    return { state: next, result: { kind, status: 'promoted', current, latest } };
+    return { state: next, result: { kind, status: 'promoted', current, latest, removed } };
   } catch (error) {
+    // A rejected candidate is never used; it is installed again for the next attempt rather than kept on disk.
+    if (candidateDir) { try { fs.rmSync(candidateDir, { recursive: true, force: true }); } catch (_) {} }
     const next = recordAttempt(state, kind, { at: now, status: 'failed', current, reason: String(error.message || error).slice(0, 600) });
     return { state: next, result: { kind, status: 'failed', current, reason: next.attempts[kind].reason } };
   }
@@ -387,7 +422,7 @@ function scheduleRuntimeUpdates(options = {}) {
 
 module.exports = {
   UPDATE_LOCK_FILE, UPDATE_STATE_FILE, WEEK_MS,
-  acquireUpdateLock, adoptedUpdateLock, checkCrgAdapter, compareVersions,
+  acquireUpdateLock, adoptedUpdateLock, checkCrgAdapter, compareVersions, pruneRuntimeVersions,
   fetchPypiLatest, isUpdateDue, readUpdateState, releaseUpdateLock,
   runRuntimeUpdates, runtimeDir, runtimeUpdateDoctor, scheduleRuntimeUpdates, installedPackageVersion,
   updateLockPath, updateStatePath, updatesDisabled, verifySerenaCli, writeUpdateState,
