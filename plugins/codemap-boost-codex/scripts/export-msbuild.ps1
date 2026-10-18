@@ -316,6 +316,26 @@ try {
     if (!(Test-Path -LiteralPath (Join-Path $engine 'Microsoft.Build.dll'))) { throw 'missing_msbuild' }
     # Pin the host instance context so an external MSBUILD_EXE_PATH cannot make the same assembly use a different installation.
     [Environment]::SetEnvironmentVariable('MSBUILD_EXE_PATH', (Join-Path $engine 'MSBuild.exe'), 'Process')
+    # Outside MSBuild.exe there are no binding redirects, so MSBuild's own dependencies (for example System.Collections.Immutable)
+    # are resolved from the selected engine directory by name, like Microsoft.Build.Locator does. A compiled handler is used
+    # because a script-block handler fails when the runtime raises the event on a thread without a runspace.
+    Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Reflection;
+public static class CodemapMSBuildAssemblyResolver {
+    private static string directory;
+    public static void Register(string engineDirectory) {
+        directory = engineDirectory;
+        AppDomain.CurrentDomain.AssemblyResolve += Resolve;
+    }
+    private static Assembly Resolve(object sender, ResolveEventArgs args) {
+        string candidate = Path.Combine(directory, new AssemblyName(args.Name).Name + ".dll");
+        return File.Exists(candidate) ? Assembly.LoadFrom(candidate) : null;
+    }
+}
+'@
+    [CodemapMSBuildAssemblyResolver]::Register($engine)
     foreach ($assembly in @('Microsoft.Build.Framework.dll','Microsoft.Build.Utilities.Core.dll','Microsoft.Build.dll')) {
         [void][Reflection.Assembly]::LoadFrom((Join-Path $engine $assembly))
     }

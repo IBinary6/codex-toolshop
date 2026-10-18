@@ -161,11 +161,12 @@ function commandsFromEvaluation(evaluation) {
     // MSVC ordering: prepend CL environment options, then per-file options, then append _CL_ options; duplicate option names must be retained.
     appendCompileOptions(args, evaluation.clOptions, diagnostics);
     // The clang-cl /clang: wrapper applies Clang target and compatibility semantics even when using the native cl.exe driver identity.
-    if (item.LanguageStandard) {
+    // "Default" (the VS 2019+ project default) means no /std option, i.e. the compiler's own default standard.
+    if (item.LanguageStandard && item.LanguageStandard !== 'Default') {
       if (standards[item.LanguageStandard]) args.push(standards[item.LanguageStandard]);
       else diagnostics.push(diag('unsupported_standard', `Unsupported LanguageStandard=${item.LanguageStandard}.`));
     }
-    if (item.LanguageStandard_C) {
+    if (item.LanguageStandard_C && item.LanguageStandard_C !== 'Default') {
       if (standards[item.LanguageStandard_C]) args.push(standards[item.LanguageStandard_C]);
       else diagnostics.push(diag('unsupported_standard', `Unsupported LanguageStandard_C=${item.LanguageStandard_C}.`));
     }
@@ -252,7 +253,10 @@ async function runEvaluation(root, options, selection) {
   if (selection.platform) args.push('-Platform', selection.platform);
   return new Promise(resolve => {
     let output = '', settled = false, stopping = false;
-    const child = (options.spawn || spawn)(powershell, args, { cwd: root, env: options.env || process.env, windowsHide: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+    // A PSModulePath inherited from PowerShell 7 hides Windows PowerShell 5's own modules (Get-FileHash then fails to autoload);
+    // without it, Windows PowerShell uses its default module path.
+    const env = Object.fromEntries(Object.entries(options.env || process.env).filter(([name]) => name.toLowerCase() !== 'psmodulepath'));
+    const child = (options.spawn || spawn)(powershell, args, { cwd: root, env, windowsHide: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
     const exited = new Promise(resolveExit => child.once('exit', resolveExit));
     const finish = result => { if (!settled) { settled = true; clearTimeout(timer); resolve(result); } };
     const stop = async result => {
