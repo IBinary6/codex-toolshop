@@ -5,9 +5,27 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { prepareSerenaProject, serenaProjectPaths, commandsFromEvaluation } = require('../../../scripts/serena-project.cjs');
 const { killProcessTree } = require('../../../scripts/lazy-mcp.cjs');
+
+const vswhere = path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Microsoft Visual Studio', 'Installer', 'vswhere.exe');
+
+/** Default platform toolset of the newest Visual Studio with C++ tools; real projects declare it, and MSBuild falls back to v100 otherwise. */
+function installedToolset() {
+  if (!fs.existsSync(vswhere)) return '';
+  const result = spawnSync(vswhere, ['-latest', '-products', '*', '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-property', 'installationVersion'], { encoding: 'utf8', windowsHide: true });
+  return { 15: 'v141', 16: 'v142', 17: 'v143', 18: 'v145' }[parseInt(String(result.stdout || '').trim(), 10)] || '';
+}
+
+/** Newest installed Windows 10/11 SDK version with headers, or '' when there is none (export-msbuild.ps1 needs an exact version). */
+function installedWindowsSdk() {
+  const include = path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Windows Kits', '10', 'Include');
+  try {
+    return fs.readdirSync(include).filter(name => /^10\.0\.\d+\.\d+$/.test(name) && fs.existsSync(path.join(include, name, 'um', 'Windows.h')))
+      .sort((a, b) => Number(a.split('.')[2]) - Number(b.split('.')[2])).pop() || '';
+  } catch (_) { return ''; }
+}
 
 async function waitForTreeFixture(pidFile, parent) {
   const deadline = Date.now() + 30000;
@@ -212,6 +230,11 @@ async function main() {
     const defaultRuntime = commandsFromEvaluation({ ...evaluate(), sources: [{ FullPath: source, RuntimeLibrary: 'MultiThreadedDll' }] });
     assert.equal(defaultRuntime.status, 'ready');
     assert.ok(defaultRuntime.commands[0].arguments.includes('/MD'));
+    const defaults = commandsFromEvaluation({ ...evaluate(), sources: [{ FullPath: source, LanguageStandard: 'Default', LanguageStandard_C: 'Default' }] });
+    assert.equal(defaults.status, 'ready', 'VS 2019+ projects carry Default standards; they mean the compiler default, not an unknown value');
+    assert.ok(!defaults.commands[0].arguments.some(arg => arg.startsWith('/std:')));
+    const unknownStandard = commandsFromEvaluation({ ...evaluate(), sources: [{ FullPath: source, LanguageStandard: 'stdcpp99' }] });
+    assert.ok(unknownStandard.diagnostics.some(d => d.code === 'unsupported_standard'), 'an unknown standard is still rejected');
     const missingInclude = commandsFromEvaluation({ ...evaluate(), includePath: path.join(temp, 'missing-include') });
     assert.equal(missingInclude.status, 'unsupported');
     assert.ok(missingInclude.diagnostics.some(d => d.code === 'missing_include_directory'));
@@ -253,6 +276,46 @@ async function main() {
         assert.equal(cachedStandard.generation, standard.generation);
         console.log(`native GetTempPath validation ${JSON.stringify(nativeEvidence)}`);
       }
+      const toolset = installedToolset();
+      const sdk = installedWindowsSdk();
+      if (toolset && sdk) {
+        const nativeRoot = path.join(temp, 'native-project');
+        const include = path.join(nativeRoot, 'include');
+        fs.mkdirSync(include, { recursive: true });
+        fs.writeFileSync(path.join(include, 'api.h'), '#pragma once\nint feature_value();\n');
+        const nativeSource = path.join(nativeRoot, 'main.cpp');
+        fs.writeFileSync(nativeSource, '#include "api.h"\nint main() { return feature_value(); }\n');
+        fs.writeFileSync(path.join(nativeRoot, 'app.vcxproj'), '<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">'
+          + '<ItemGroup Label="ProjectConfigurations"><ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>'
+          + '<ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration></ItemGroup>'
+          + `<PropertyGroup Label="Globals"><WindowsTargetPlatformVersion>${sdk}</WindowsTargetPlatformVersion></PropertyGroup>`
+          + '<Import Project="$(VCTargetsPath)\\Microsoft.Cpp.Default.props" />'
+          + `<PropertyGroup Label="Configuration"><ConfigurationType>StaticLibrary</ConfigurationType><PlatformToolset>${toolset}</PlatformToolset><CharacterSet>Unicode</CharacterSet></PropertyGroup>`
+          + '<Import Project="$(VCTargetsPath)\\Microsoft.Cpp.props" />'
+          + '<ItemDefinitionGroup><ClCompile><PreprocessorDefinitions>FEATURE_X=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>'
+          + '<AdditionalIncludeDirectories>include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories><LanguageStandard>stdcpp17</LanguageStandard></ClCompile></ItemDefinitionGroup>'
+          + '<ItemGroup><ClCompile Include="main.cpp" /></ItemGroup>'
+          + '<Import Project="$(VCTargetsPath)\\Microsoft.Cpp.targets" /></Project>');
+        // The parent may be PowerShell 7; its module path must not break the Windows PowerShell 5 evaluator.
+        const nativeOptions = { pluginDataDir: data, env: { ...process.env, PSModulePath: 'C:\\Program Files\\PowerShell\\7\\Modules' } };
+        const native = await prepareSerenaProject(nativeRoot, nativeOptions);
+        assert.equal(native.status, 'ready', JSON.stringify(native));
+        assert.equal(native.source, 'msbuild');
+        assert.equal(native.configuration, 'Release', 'Release is preferred when no configuration is selected');
+        assert.equal(native.platform, 'x64');
+        const [row] = JSON.parse(fs.readFileSync(path.join(native.databaseDir, 'compile_commands.json'), 'utf8'));
+        assert.equal(path.resolve(row.file).toLowerCase(), path.resolve(nativeSource).toLowerCase());
+        assert.ok(row.arguments.includes('/DFEATURE_X=1'), JSON.stringify(row.arguments));
+        assert.ok(row.arguments.some(arg => arg.toLowerCase() === `/i${include}`.toLowerCase()), 'project-relative include directories become absolute');
+        assert.ok(row.arguments.includes('/std:c++17'));
+        assert.ok(row.arguments.includes('/imsvc'), 'the selected toolchain headers are passed explicitly because clangd does not inherit vcvars');
+        assert.equal(fs.existsSync(path.join(nativeRoot, 'x64')), false, 'evaluation never builds: no output directory appears');
+        fs.appendFileSync(nativeSource, '// edit\n');
+        assert.equal((await prepareSerenaProject(nativeRoot, nativeOptions)).generation, native.generation, 'a source edit reuses the evaluated database');
+        console.log(`native MSBuild evaluation ${JSON.stringify({ toolset, sdk, configuration: native.configuration, platform: native.platform })}`);
+      } else {
+        console.log('native MSBuild evaluation not applicable: no Visual Studio 2017-2026 with C++ tools or no Windows SDK with headers');
+      }
       // A native PowerShell parent creates a separate PowerShell child so Node job cleanup cannot hide a leaked process tree.
       const treeEvidence = [];
       for (const mode of ['timeout', 'output']) {
@@ -268,8 +331,11 @@ async function main() {
           const pids = await waitForTreeFixture(pidFile, parent);
           result = await prepareSerenaProject(root, { ...options, project: 'app.vcxproj', configuration: `Tree-${mode}`,
             evaluationTimeoutMs: 3500, maxEvaluationBytes: mode === 'output' ? 1024 : undefined,
-            spawn(executable) {
+            env: { ...process.env, PSModulePath: 'C:\\Program Files\\PowerShell\\7\\Modules' },
+            spawn(executable, args, spawnOptions) {
               assert.equal(executable, powershell);
+              assert.ok(!Object.keys(spawnOptions.env).some(name => name.toLowerCase() === 'psmodulepath'),
+                'a PowerShell 7 module path must not reach Windows PowerShell 5');
               // Release the ready fixture only after the evaluator listener is installed so output mode cannot lose the first data batch.
               setImmediate(() => parent.stdin.end('GO\n'));
               return parent;
