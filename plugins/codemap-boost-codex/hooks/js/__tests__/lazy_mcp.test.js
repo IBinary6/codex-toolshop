@@ -52,6 +52,27 @@ function backend() {
   return { child, messages };
 }
 async function main() {
+  // A host that skips PreToolUse must still be unable to read an unprepared graph.
+  {
+    let starts = 0;
+    const guarded = fixture(async () => { starts++; return backend().child; }, {
+      prepareToolCall: async () => { throw new Error('graph refresh failed'); },
+    });
+    guarded.send({ id: 'blocked', method: 'tools/call', params: { name: 'example' } });
+    assert.match((await guarded.response('blocked')).error.message, /graph refresh failed/);
+    assert.equal(starts, 0, 'failed preparation must not reach the backend');
+    guarded.input.end(); await guarded.completion;
+  }
+  {
+    const b = backend();
+    const guarded = fixture(async () => b.child, {
+      prepareToolCall: async (params) => ({ ...params, arguments: { repo_root: '/canonical/repo' } }),
+    });
+    guarded.send({ id: 'canonical', method: 'tools/call', params: { name: 'example' } });
+    await guarded.response('canonical');
+    assert.equal(b.messages.find((m) => m.method === 'tools/call').params.arguments.repo_root, '/canonical/repo');
+    guarded.input.end(); await guarded.completion;
+  }
   let starts = 0;
   const b = backend();
   const f = fixture(async () => { starts++; await new Promise((resolve) => setTimeout(resolve, 30)); return b.child; });

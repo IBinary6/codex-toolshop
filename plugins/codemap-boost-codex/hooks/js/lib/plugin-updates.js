@@ -83,6 +83,23 @@ function publishedVersion(market, name) {
   return manifest.version;
 }
 
+/** An unrelated broken marketplace must not disable updates of this verified source. */
+function scopedMarketplace(options) {
+  const listing = runJson(['plugin', 'list', '--marketplace', MARKETPLACE, '--json'], options);
+  for (const item of listing.installed || []) {
+    if (item.marketplaceName !== MARKETPLACE || item.marketplaceSource?.sourceType !== 'git'
+      || String(item.marketplaceSource.source).replace(/\.git\/?$/, '').replace(/\/$/, '') !== SOURCE
+      || item.source?.source !== 'local' || !path.isAbsolute(item.source.path || '')
+      || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(item.name)) continue;
+    const root = fs.realpathSync(path.resolve(item.source.path, '..', '..'));
+    if (fs.realpathSync(item.source.path) !== fs.realpathSync(path.join(root, 'plugins', item.name))) continue;
+    const catalog = JSON.parse(fs.readFileSync(path.join(root, '.agents/plugins/marketplace.json'), 'utf8'));
+    if (catalog.name !== MARKETPLACE || !catalog.plugins?.some(entry => entry.name === item.name)) continue;
+    return { name: MARKETPLACE, root, marketplaceSource: item.marketplaceSource };
+  }
+  throw new Error('Cannot verify the official marketplace from its scoped plugin listing.');
+}
+
 /** The host maintains the plugin cache. Update only installed and enabled plugins; do not create registrations or forcibly unlock the cache. */
 function checkPluginUpdates(options = {}) {
   if (disabled(options)) return { ...readState(options), status: 'disabled' };
@@ -91,8 +108,13 @@ function checkPluginUpdates(options = {}) {
   let state = { ...readState(options), lastAttemptAt: options.now ?? Date.now(), status: 'checking' };
   try {
     writeState(state, options);
-    const marketplaces = runJson(['plugin', 'marketplace', 'list', '--json'], options).marketplaces || [];
-    const market = marketplaces.find(item => item.name === MARKETPLACE);
+    let market;
+    try {
+      const marketplaces = runJson(['plugin', 'marketplace', 'list', '--json'], options).marketplaces || [];
+      market = marketplaces.find(item => item.name === MARKETPLACE);
+    } catch (_) {
+      market = scopedMarketplace(options);
+    }
     if (!market || market.marketplaceSource?.sourceType !== 'git'
       || String(market.marketplaceSource.source).replace(/\.git\/?$/, '').replace(/\/$/, '') !== SOURCE) {
       throw new Error('The official codex-toolshop Git marketplace is not configured; local and other sources were left unchanged.');

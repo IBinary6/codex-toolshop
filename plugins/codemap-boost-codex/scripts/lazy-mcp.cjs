@@ -284,6 +284,12 @@ class LazyMcpProxy {
         const notify = () => this.send({ method: 'notifications/progress', params: { progressToken: token, progress: ++record.coldProgress, message: 'Preparing and starting the CRG runtime (preserving Windows model warmup)' } });
         notify(); record.progressTimer = setInterval(notify, this.options.progressIntervalMs || 5000);
       }
+      // Enforce project readiness at the transport boundary as well as in host hooks.
+      // Code-mode hosts may not dispatch an inner MCP call through PreToolUse.
+      if (message.method === 'tools/call' && this.options.prepareToolCall) {
+        message = { ...message, params: await this.options.prepareToolCall(message.params, this.abortController.signal) };
+        if (record.cancelled || this.closed) return;
+      }
       await this.ensureBackend();
       clearInterval(record.progressTimer);
       if (record.cancelled || this.closed) return;

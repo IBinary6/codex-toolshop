@@ -58,6 +58,18 @@ try {
   assert.strictEqual(failed.lastSuccessAt, success.lastSuccessAt, 'failure preserves the last successful check');
   const alien = api.checkPluginUpdates({ ...options, runCodex: () => ({ status: 0, stdout: JSON.stringify({ marketplaces: [{ ...source, marketplaceSource: { sourceType: 'local' } }] }) }) });
   assert.strictEqual(alien.status, 'failed', 'local and unrelated sources are not upgraded');
+  fs.mkdirSync(path.join(market, '.agents/plugins'), { recursive: true });
+  fs.writeFileSync(path.join(market, '.agents/plugins/marketplace.json'), JSON.stringify({
+    name: 'codex-toolshop', plugins: [{ name: 'codemap-boost-codex' }],
+  }));
+  installed[0] = { ...installed[0], marketplaceName: 'codex-toolshop',
+    marketplaceSource: source.marketplaceSource,
+    source: { source: 'local', path: path.join(market, 'plugins/codemap-boost-codex') } };
+  const brokenOtherMarket = args => args[1] === 'marketplace' && args[2] === 'list'
+    ? { status: 1, stderr: 'unrelated marketplace has no manifest' } : runCodex(args);
+  assert.strictEqual(api.checkPluginUpdates({ ...options, runCodex: brokenOtherMarket }).status, 'ready');
+  installed[0].marketplaceSource = { sourceType: 'git', source: 'https://example.invalid/other' };
+  assert.strictEqual(api.checkPluginUpdates({ ...options, runCodex: brokenOtherMarket }).status, 'failed');
 } finally {
   fs.rmSync(home, { recursive: true, force: true });
 }

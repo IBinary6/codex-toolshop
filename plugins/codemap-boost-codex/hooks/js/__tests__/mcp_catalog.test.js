@@ -24,9 +24,99 @@ function catalogFor(version) {
   return { ...bundled, version, serverInfo: { ...bundled.serverInfo, version }, tools: bundled.tools.map((tool) => ({ ...tool, annotations: { readOnlyHint: true } })) };
 }
 
+function testRuntimeMigration(data) {
+  const options = { pluginDataDir: data };
+  const legacyDir = crgRuntimePaths(options).dir;
+  metadata(legacyDir, '2.3.7');
+  const marker = path.join(legacyDir, 'preserve.txt');
+  fs.writeFileSync(marker, 'old runtime remains available');
+  const selected = selectCrgRuntime(options);
+  assert.equal(selected.version, '', 'ordinary migration requests latest stable CRG without a version pin');
+  assert.equal(selected.expectedVersion, '');
+  assert.equal(selected.runtimeDir, path.join(data, 'crg-compatible-runtime'));
+  assert.equal(fs.existsSync(selected.runtimeDir), false, 'selection never installs or overwrites a runtime');
+  assert.equal(recordSelectedCrgRuntime(selected), false, 'unprepared migration must not publish');
+  const preparation = { ...selected, enableCodeMap: () => {}, scheduleRuntimeUpdates: () => {} };
+  assert.equal(prepareMcpServer({ ...preparation, ensureCrg: () => false, readBootstrapFailure: () => '' }).ok, false);
+  assert.equal(readRuntimeVersions(options).active, undefined, 'failed preparation retains old pointer');
+  assert.equal(prepareMcpServer({ ...preparation, ensureCrg(runtimeOptions) {
+    assert.equal(runtimeOptions.runtimeDir, selected.runtimeDir);
+    assert.equal(runtimeOptions.expectedVersion, '');
+    metadata(runtimeOptions.runtimeDir, '2.10.0');
+    return true;
+  } }).ok, true);
+  assert.equal(readRuntimeVersions(options).active, undefined, 'nonversioned directory cannot publish a versioned pointer');
+  assert.equal(selectCrgRuntime(options).version, '2.10.0', 'next connection reuses actual compatible metadata');
+  assert.equal(fs.readFileSync(marker, 'utf8'), 'old runtime remains available');
+  assert.equal(diskRuntimeVersion(legacyDir), '2.3.7');
+
+  const oldActiveDir = crgRuntimePaths({ ...options, version: '2.3.7' }).dir;
+  metadata(oldActiveDir, '2.3.7');
+  promoteRuntimeVersion('serena', '1.7.0', options);
+  promoteRuntimeVersion('crg', '2.3.7', options);
+  const migration = selectCrgRuntime(options);
+  assert.equal(migration.version, '2.10.0', 'old active pointer selects the existing compatible runtime');
+  assert.equal(migration.runtimeDir, selected.runtimeDir);
+  assert.equal(selectCrgRuntime(migration).version, '2.10.0', 'repeat selection keeps connection snapshot');
+  assert.equal(recordSelectedCrgRuntime(migration), false, 'compatible directory must not create a missing versioned pointer');
+  const absentMigrationDir = path.join(data, 'candidate-check');
+  const explicitMissing = selectCrgRuntime({ ...options, runtimeDir: absentMigrationDir });
+  assert.equal(explicitMissing.version, '', 'explicit missing directory must not inherit incompatible active version');
+  assert.equal(explicitMissing.expectedVersion, '');
+  assert.equal(selectCrgRuntime(explicitMissing).version, '');
+  const candidate = selectCrgRuntime({ ...options, version: '2.4.0' });
+  metadata(candidate.runtimeDir, '2.4.0');
+  const held = acquireUpdateLock(options);
+  assert.equal(recordSelectedCrgRuntime(candidate), false, 'versioned activation shares updater lock');
+  releaseUpdateLock(held);
+  assert.equal(recordSelectedCrgRuntime(candidate), true, 'verified versioned candidate replaces old incompatible pointer');
+  assert.equal(readRuntimeVersions(options).active.serena, '1.7.0');
+  assert.equal(diskRuntimeVersion(oldActiveDir), '2.3.7');
+  promoteRuntimeVersion('crg', '2.3.7', options);
+  const stale = selectCrgRuntime({ ...options, version: '2.4.0' });
+  promoteRuntimeVersion('crg', '2.10.0', options);
+  assert.equal(recordSelectedCrgRuntime(stale), false, 'concurrent newer promotion cannot be rolled back');
+  assert.equal(readRuntimeVersions(options).active.crg, '2.10.0');
+
+  for (const version of ['2.3.8', '2.3.9', '2.10.0']) {
+    const runtimeDir = crgRuntimePaths({ ...options, version }).dir;
+    metadata(runtimeDir, version);
+    promoteRuntimeVersion('crg', version, options);
+    const healthy = selectCrgRuntime(options);
+    assert.equal(healthy.version, version);
+    assert.equal(healthy.runtimeDir, runtimeDir, 'compatible active runtime keeps its exact path');
+  }
+  const diagnostics = [];
+  const explicitVersion = selectCrgRuntime({ ...options, version: '2.3.7', diagnostics });
+  assert.equal(explicitVersion.version, '2.3.7');
+  assert.equal(explicitVersion.runtimeDir, oldActiveDir);
+  assert.match(explicitVersion.compatibilityDiagnostic, /2\.3\.7.*2\.3\.8/);
+  assert.ok(diagnostics.includes(explicitVersion.compatibilityDiagnostic));
+  const explicitDirectory = selectCrgRuntime({ ...options, runtimeDir: legacyDir });
+  assert.equal(explicitDirectory.runtimeDir, legacyDir);
+  assert.equal(explicitDirectory.version, '2.3.7', 'explicit doctor directory uses its own metadata, not active pointer');
+  assert.match(explicitDirectory.compatibilityDiagnostic, /2\.3\.7.*2\.3\.8/);
+  assert.equal(recordSelectedCrgRuntime(explicitVersion), false, 'incompatible explicit candidate cannot be activated');
+
+  // An active pointer alone must not hide incompatible metadata in its runtime directory.
+  const mismatchedData = path.join(data, 'mismatch');
+  const mismatchOptions = { pluginDataDir: mismatchedData };
+  promoteRuntimeVersion('crg', '2.4.0', mismatchOptions);
+  metadata(crgRuntimePaths(mismatchOptions).dir, '2.3.7');
+  const mismatch = selectCrgRuntime(mismatchOptions);
+  assert.equal(mismatch.version, '');
+  assert.equal(mismatch.runtimeDir, path.join(mismatchedData, 'crg-compatible-runtime'));
+  assert.equal(selectCrgRuntime(mismatch).version, '', 'repeated migration selection cannot inherit old active pointer');
+  metadata(mismatch.runtimeDir, '2.3.7');
+  assert.throws(() => selectCrgRuntime(mismatchOptions), /CRG 2\.3\.7.*crg-compatible-runtime.*requires CRG >= 2\.3\.8/,
+    'incompatible compatibility-directory metadata must fail clearly instead of passing generic grammar probes');
+  assert.equal(diskRuntimeVersion(mismatch.runtimeDir), '2.3.7', 'failed migration does not overwrite existing directory');
+}
+
 async function main() {
   const data = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-catalog-')));
   try {
+    testRuntimeMigration(path.join(data, 'migration'));
     let starts = 0;
     const exportedVersions = [];
     // Fake metadata exporter: prints the catalog for the version recorded in the runtime's installation metadata.

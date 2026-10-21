@@ -32,7 +32,100 @@ function fakeClient(read) {
   };
 }
 
+function recoveryInput(sessionId, observedAt = Date.now()) {
+  return { sessionId, recovery: { prompt: '\u89e3\u91ca RAII', observedAt } };
+}
+
+function recoveryClient(input, overrides = {}) {
+  const client = fakeClient(() => '\u89e3\u91ca RAII');
+  client.readThread = async (id) => {
+    client.count.reads += 1;
+    return { id, createdAt: Math.floor(input.recovery.observedAt / 1000), source: 'cli', name: null,
+      turns: [{ items: [{ type: 'userMessage', content: [{ type: 'text', text: input.recovery.prompt }] }] }],
+      ...overrides };
+  };
+  client.readThreadName = async () => ({ originalTitle: null });
+  client.writeThreadName = async (id, title) => {
+    client.count.writes += 1;
+    client.readThreadName = async () => ({ originalTitle: title });
+  };
+  return client;
+}
+
 async function main() {
+  // A missing SessionStart can recover from a zero-turn snapshot and temporary persistence errors.
+  const missed = recoveryInput('missing-startup');
+  const recovered = recoveryClient(missed);
+  const readRecovered = recovered.readThread;
+  let recoveryReads = 0;
+  recovered.readThread = async (id) => {
+    recoveryReads += 1;
+    assert.equal(readState(id, env), null, 'RPC retries must not arm or claim the session');
+    if (recoveryReads === 1) throw new Error('app_server_rpc_failed');
+    const thread = await readRecovered(id);
+    return recoveryReads === 2 ? { ...thread, turns: [] } : thread;
+  };
+  assert.equal(await observeStartup(missed, {
+    env: { ...env, CONVERSATION_NAMER_WORKER: '1' }, clientFactory: () => recovered, sleep: async () => {},
+  }), 'attempted');
+  assert.equal(recoveryReads, 3);
+  assert.equal(recovered.count.generations, 1);
+  assert.equal(recovered.count.writes, 1);
+  assert.equal(readState(missed.sessionId, env).status, 'done');
+  assert.doesNotMatch(fs.readFileSync(stateFile(missed.sessionId, env), 'utf8'), /\u89e3\u91ca RAII|prompt|observedAt/);
+
+  for (const [name, overrides] of [
+    ['old', { createdAt: Math.floor(Date.now() / 1000) - 301 }],
+    ['future', { createdAt: Math.floor(Date.now() / 1000) + 2 }],
+    ['manual-title', { name: 'My chosen title' }],
+    ['default-title', { name: 'New conversation' }],
+    ['subagent', { source: { subAgent: 'review' } }],
+    ['parent', { parentThreadId: 'parent' }], ['ephemeral', { ephemeral: true }],
+    ['unknown-source', { source: 'unknown' }], ['missing-time', { createdAt: undefined }],
+    ['multiple-turns', { turns: [{ items: [] }, { items: [] }] }],
+    ['different-prompt', { turns: [{ items: [{ type: 'userMessage',
+      content: [{ type: 'text', text: 'a previous request' }] }] }] }],
+  ]) {
+    const input = recoveryInput(`rejected-${name}`);
+    const rejected = recoveryClient(input, overrides);
+    assert.equal(await observeStartup(input, { env, clientFactory: () => rejected }), 'ineligible', name);
+    assert.equal(rejected.count.generations, 0, name);
+    assert.equal(rejected.count.writes, 0, name);
+    assert.equal(readState(input.sessionId, env), null, name);
+    assert.equal(fs.existsSync(`${stateFile(input.sessionId, env)}.claimed`), false, name);
+  }
+
+  // The age limit is relative to the hook, so persistence retries cannot make an old thread eligible.
+  const cold = recoveryInput('cold-start', Date.now());
+  const coldClient = recoveryClient(cold, { createdAt: Math.floor(cold.recovery.observedAt / 1000) - 240 });
+  assert.equal(await observeStartup(cold, { env, clientFactory: () => coldClient }), 'attempted');
+
+  const transient = recoveryInput('transient-timeout');
+  const transientClient = recoveryClient(transient);
+  transientClient.readThread = async () => { throw new Error('app_server_rpc_failed'); };
+  assert.equal(await observeStartup(transient, { env, clientFactory: () => transientClient, timeoutMs: 15 }), 'timeout');
+  assert.equal(readState(transient.sessionId, env), null);
+  assert.equal(fs.existsSync(`${stateFile(transient.sessionId, env)}.claimed`), false);
+  // A later hook can retry successfully; no permanent failed/claimed marker was written by transient reads.
+  const retryClient = recoveryClient(transient);
+  assert.equal(await observeStartup(transient, { env, clientFactory: () => retryClient }), 'attempted');
+
+  // Concurrent missing-startup observers may both read, but only one can register, claim and infer.
+  const race = recoveryInput('recovery-race');
+  const racers = [recoveryClient(race), recoveryClient(race)];
+  const raceResults = await Promise.all(racers.map((racer) => observeStartup(race, { env, clientFactory: () => racer })));
+  assert.equal(raceResults.filter((result) => result === 'attempted').length, 1);
+  assert.equal(racers.reduce((sum, racer) => sum + racer.count.generations, 0), 1);
+  assert.equal(racers.reduce((sum, racer) => sum + racer.count.writes, 0), 1);
+  assert.equal(await observeStartup(race, { env }), 'inactive');
+
+  const renamed = recoveryInput('manual-during-generation');
+  const renamedClient = recoveryClient(renamed);
+  renamedClient.readThreadName = async () => ({ originalTitle: 'A title set while inference ran' });
+  assert.equal(await observeStartup(renamed, { env, clientFactory: () => renamedClient }), 'attempted');
+  assert.deepEqual(readState(renamed.sessionId, env), { status: 'skipped', reason: 'existing_title' });
+  assert.equal(renamedClient.count.writes, 0);
+
   arm('delayed');
   const client = fakeClient((id, reads) => {
     assert.equal(id, 'delayed');
@@ -114,6 +207,17 @@ async function main() {
     spawnWorker() { throw new Error('must not recursively launch'); },
   });
   assert.equal(queued, 1);
+  const queuedRecovery = recoveryInput('queued-recovery').recovery;
+  queueStartupObservation('queued-recovery', { env, recovery: queuedRecovery,
+    spawnWorker(command, args, options) {
+      assert.deepEqual(args, [path.resolve(__dirname, '../startup_observer.js')]);
+      assert.equal(options.env.CONVERSATION_NAMER_WORKER, '1');
+      return { on() {}, unref() {}, stdin: { on() {}, end(value, done) {
+        assert.deepEqual(JSON.parse(value), { sessionId: 'queued-recovery', recovery: queuedRecovery });
+        done();
+      } } };
+    },
+  });
 
   // Two independent processes claiming the same session must yield only one winner.
   arm('process-race');

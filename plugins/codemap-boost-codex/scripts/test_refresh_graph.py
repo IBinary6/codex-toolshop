@@ -21,6 +21,28 @@ SPEC.loader.exec_module(ADAPTER)
 
 
 class RefreshTest(unittest.TestCase):
+    def test_parallel_cpp_build_keeps_adapter_resolution(self):
+        # Cross the upstream parallel threshold; spawned upstream workers used
+        # to lose the adapter although single-file parser tests passed.
+        for index in range(10):
+            (self.root / f"anonymous{index}.cc").write_text(
+                "namespace {int helper(){return 1;}} int run(){return helper();}",
+                encoding="utf-8")
+        self.git("add", ".")
+        with patch.dict(os.environ, {"CRG_PARSE_EXECUTOR": "process"}):
+            ADAPTER.refresh(self.root, full=True)
+        store, _ = _get_store(str(self.root))
+        try:
+            calls = store._conn.execute(
+                "SELECT target_qualified, extra FROM edges WHERE kind='CALLS' "
+                "AND file_path LIKE '%anonymous%.cc'").fetchall()
+            self.assertEqual(len(calls), 10)
+            for target, extra in calls:
+                self.assertIn('(anonymous).helper()', target)
+                self.assertNotIn('unresolved_targets', json.loads(extra))
+        finally:
+            store.close()
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="codemap-real-refresh-")
         self.addCleanup(self.temp.cleanup)

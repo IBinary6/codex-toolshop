@@ -7,8 +7,9 @@ const { loadConfig, readState, writeState } = require('./lib/state');
 /** Generate, verify, and write the current title; state stores neither user messages nor underlying service errors. */
 async function nameSession(input, { env = process.env, clientFactory } = {}) {
   const sessionId = input && input.sessionId;
-  if (!validatedSessionId({ session_id: sessionId })
-      || readState(sessionId, env)?.status !== 'started') return;
+  if (!validatedSessionId({ session_id: sessionId })) return;
+  const state = readState(sessionId, env);
+  if (state?.status !== 'started') return;
   let client;
   try {
     const createClient = clientFactory || require('./lib/naming').createNamingClient;
@@ -16,12 +17,18 @@ async function nameSession(input, { env = process.env, clientFactory } = {}) {
     const result = await client.generateName({
       sessionId,
       prompt: input.prompt,
+      ...(state.recovered ? { preserveExistingTitle: true } : {}),
     });
     if (result.skipped) {
       writeState(sessionId, { status: 'skipped', reason: result.skipped }, env);
       return;
     }
     const current = await client.readThreadName(sessionId);
+    // A recovered task was accepted only while untitled. Preserve any title supplied during inference.
+    if (state.recovered && current.originalTitle !== null && current.originalTitle !== '') {
+      writeState(sessionId, { status: 'skipped', reason: 'existing_title' }, env);
+      return;
+    }
     // Notifications from an independent App Server do not reach the desktop connection; the current task uses the host tool to write.
     if (current.source === 'vscode') {
       writeState(sessionId, { status: 'ready', title: result.title, model: result.model,
@@ -40,7 +47,12 @@ async function nameSession(input, { env = process.env, clientFactory } = {}) {
   } catch (error) {
     const reason = /^(?:app_server|naming|invalid)_[a-z_]+$/.test(error.message)
       ? error.message : 'naming_failed';
-    writeState(sessionId, { status: 'failed', reason }, env);
+    const diagnostic = {};
+    // Store only known naming RPC names and numeric codes; raw service errors may contain secrets.
+    if (['initialize', 'thread/read', 'model/list', 'config/read', 'thread/start',
+      'turn/start', 'thread/name/set'].includes(error.rpcMethod)) diagnostic.rpcMethod = error.rpcMethod;
+    if (Number.isInteger(error.rpcCode)) diagnostic.rpcCode = error.rpcCode;
+    writeState(sessionId, { status: 'failed', reason, ...diagnostic }, env);
   } finally {
     if (client) await client.close();
   }

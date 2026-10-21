@@ -330,7 +330,14 @@ async function main() {
   const wrong = fakeServer({ thread: { id: 'another-task', turns: [{ items: [] }] } });
   const wrongReader = createNamingClient({ appServerFactory: wrong.appServerFactory });
   await assert.rejects(wrongReader.readFirstPrompt('current'), /thread_mismatch/);
+  await assert.rejects(wrongReader.readThread('current'), /thread_mismatch/);
   await wrongReader.close();
+
+  const titled = fakeServer();
+  assert.deepEqual(await generateName({ sessionId: 'current', prompt: 'Name this task',
+    preserveExistingTitle: true, appServerFactory: titled.appServerFactory }), { skipped: 'existing_title' });
+  assert.equal(titled.calls.some((call) => call.method === 'model/list'), false,
+    'Recovered tasks must preserve titles written before inference begins');
 
   for (const thread of [{ ephemeral: true }, { source: { subAgent: 'review' } }, { parentThreadId: 'parent' }]) {
     const stub = fakeServer({ thread });

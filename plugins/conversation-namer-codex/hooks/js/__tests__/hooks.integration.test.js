@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { armSession, claimSession, readState, loadConfig, stateFile } = require('../lib/state');
+const { armSession, armRecoveredSession, claimSession, readState, loadConfig, stateFile } = require('../lib/state');
 const { queueNaming } = require('../user_prompt_submit');
 const { nameSession } = require('../name_worker');
 const { main: sessionStart } = require('../session_start');
@@ -15,8 +15,13 @@ const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'conversation-namer-hook
 const env = { ...process.env, PLUGIN_DATA: temporary, PLUGIN_ROOT: pluginRoot };
 delete env.CONVERSATION_NAMER_WORKER;
 let observations = 0;
+let recoveries = 0;
 
 function runHook(name, input) {
+  if (name === 'user_prompt_submit') {
+    queueNaming(input, { env, observe() { recoveries += 1; } });
+    return '';
+  }
   if (name === 'session_start' && input.source === 'startup') {
     let output = '';
     sessionStart(input, { env,
@@ -48,6 +53,8 @@ async function main() {
   runHook('session_start', { source: 'startup', session_id: 'task-startup' });
   assert.equal(observations, 1, 'Only the first startup launches an observer; repeated startup and resume do not');
   assert.equal(runHook('user_prompt_submit', { session_id: 'old-task', prompt: '\u540e\u7eed\u6d88\u606f' }), '');
+  assert.equal(recoveries, 1, 'A missing startup queues verification, without directly claiming an old task');
+  assert.equal(readState('old-task', env), null);
   assert.equal(runHook('user_prompt_submit', { session_id: 'task-startup', prompt: '' }), '');
   assert.equal(readState('task-startup', env).status, 'skipped');
 
@@ -77,8 +84,34 @@ async function main() {
   armSession({ source: 'startup', session_id: 'recursive' }, { ...env, CONVERSATION_NAMER_WORKER: '1' });
   assert.equal(readState('recursive', env), null);
 
+  // The hook passes missing-startup verification to a detached observer, using a fixed trigger time.
+  let recoveryInput;
+  const observe = (id, options) => { recoveryInput = { id, ...options.recovery }; };
+  queueNaming({ session_id: 'missing-startup', prompt: 'first request' }, {
+    env, observe, now: () => 123000,
+  });
+  assert.deepEqual(recoveryInput, { id: 'missing-startup', prompt: 'first request', observedAt: 123000 });
+  assert.equal(readState('missing-startup', env), null, 'Registration must wait for the real thread snapshot');
+  recoveryInput = null;
+  for (const input of [
+    { session_id: 'missing-startup', prompt: '' }, { session_id: '../invalid', prompt: 'first request' },
+    { session_id: 'missing-startup', prompt: 'x'.repeat(20001) },
+  ]) queueNaming(input, { env, observe });
+  queueNaming({ session_id: 'missing-startup', prompt: 'first request' }, {
+    env: { ...env, CONVERSATION_NAMER_WORKER: '1' }, observe,
+  });
+  assert.equal(recoveryInput, null, 'Invalid input and naming workers must not launch recovery');
+  armRecoveredSession('observer-owned', env);
+  queueNaming({ session_id: 'observer-owned', prompt: 'a concurrent later prompt' }, {
+    env, observe() { throw new Error('observer already owns recovery'); },
+    spawnWorker() { throw new Error('must not replace the verified first prompt'); },
+  });
+  assert.deepEqual(readState('observer-owned', env), { status: 'pending', recovered: true });
+  assert.equal(claimSession('observer-owned', env), true);
+  assert.deepEqual(readState('observer-owned', env), { status: 'started', recovered: true });
+
   // Write even if the host assigns a default title during inference; also verify deduplication, failure, and user skips.
-  for (const scenario of ['normal', 'changed', 'same', 'model-failed', 'write-failed', 'skip']) {
+  for (const scenario of ['normal', 'changed', 'same', 'model-failed', 'rpc-failed', 'write-failed', 'skip']) {
     const sessionId = `result-${scenario}`;
     armSession({ source: 'startup', session_id: sessionId }, env);
     claimSession(sessionId, env);
@@ -90,6 +123,9 @@ async function main() {
       async generateName(input) {
         assert.equal(input.sessionId, sessionId);
         if (scenario === 'model-failed') throw new Error('secret service payload');
+        if (scenario === 'rpc-failed') throw Object.assign(new Error('app_server_rpc_failed'), {
+          rpcMethod: 'thread/read', rpcCode: -32600, privateDetails: 'secret service payload',
+        });
         if (scenario === 'skip') return { skipped: 'user_intent' };
         return { title, model: 'test-mini', originalTitle: '\u65e7\u6807\u9898' };
       },
@@ -104,9 +140,13 @@ async function main() {
     await nameSession({ sessionId, prompt: '\u4fee\u590d\u767b\u5f55\u9519\u8bef' }, { env, clientFactory });
     const expected = {
       normal: 'done', changed: 'done', same: 'done', 'model-failed': 'failed',
+      'rpc-failed': 'failed',
       'write-failed': 'failed', skip: 'skipped',
     };
     assert.equal(readState(sessionId, env).status, expected[scenario]);
+    if (scenario === 'rpc-failed') assert.deepEqual(readState(sessionId, env), {
+      status: 'failed', reason: 'app_server_rpc_failed', rpcMethod: 'thread/read', rpcCode: -32600,
+    });
     assert.equal(writes, ['normal', 'changed', 'write-failed'].includes(scenario) ? 1 : 0);
     if (expected[scenario] === 'done') assert.equal(current, title);
     assert.equal(closes, 1);

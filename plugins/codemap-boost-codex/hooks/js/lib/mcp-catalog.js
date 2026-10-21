@@ -4,13 +4,20 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { crgRuntimePaths } = require('./bootstrap');
-const { activeRuntimeVersion, isRuntimeVersion, promoteRuntimeVersion } = require('./runtime-versions');
+const { activeRuntimeVersion, compareVersions, isRuntimeVersion, promoteRuntimeVersion } = require('./runtime-versions');
 const { pluginDataDir } = require('./runtime');
 const { acquireUpdateLock, releaseUpdateLock } = require('./update-lock');
 
 // The Python exporter and the bundled catalogs ship in the plugin's scripts directory.
-// CRG itself is never pinned: a bundled catalog is used only when its version exactly matches the installed runtime.
+// A bundled catalog is used only when its version exactly matches the selected runtime.
 const SCRIPTS_DIR = path.join(__dirname, '..', '..', '..', 'scripts');
+// Scoped C++ lookup needs parser APIs introduced in 2.3.8. This is a compatibility floor, not an install pin.
+const MIN_CRG_VERSION = '2.3.8';
+const COMPATIBLE_CRG_RUNTIME_DIR = 'crg-compatible-runtime';
+
+function incompatibleRuntimeVersion(version) {
+  return isRuntimeVersion(version) && compareVersions(version, MIN_CRG_VERSION) < 0;
+}
 
 // Read installation metadata only; do not start interpreters, CLI probes, or models.
 function diskRuntimeVersion(runtimeDir) {
@@ -37,23 +44,44 @@ function diskRuntimeVersion(runtimeDir) {
 }
 
 /**
- * Freeze runtime selection without pinning CRG. An active pointer or an already installed runtime keeps its exact version
- * (repairs rebuild that version); with neither, the version stays empty so the first install requests the latest stable CRG
- * into the legacy runtime directory, and the weekly updater promotes later versions.
+ * Freeze one connection's runtime selection. Compatible installs retain their version; incompatible automatic choices
+ * migrate into a separate directory that installs the latest stable package. Explicit doctor/candidate paths and
+ * versions are never redirected.
+ * With no install or pointer, the empty version still requests the latest stable CRG in the legacy directory.
  */
 function selectCrgRuntime(options = {}) {
   const data = options.pluginDataDir || pluginDataDir(options);
-  const version = options.version || activeRuntimeVersion('crg', { ...options, pluginDataDir: data });
+  const version = options.version || (!options.runtimeDir && activeRuntimeVersion('crg', { ...options, pluginDataDir: data })) || '';
   const paths = crgRuntimePaths({ ...options, pluginDataDir: data, version });
   const installed = diskRuntimeVersion(paths.dir);
   const selected = version || installed || '';
   const runtimeDir = options.runtimeDir || paths.dir;
+  const incompatible = [selected, installed].find(incompatibleRuntimeVersion);
+  if (incompatible) {
+    if (!options.runtimeDir && !options.version) {
+      const migrationDir = path.resolve(data, COMPATIBLE_CRG_RUNTIME_DIR);
+      const migrationVersion = diskRuntimeVersion(migrationDir);
+      // Never let a generic parser probe accept an incompatible installation in the migration directory.
+      // Preserve it for diagnosis rather than claiming that an empty expectedVersion forces an upgrade.
+      if (incompatibleRuntimeVersion(migrationVersion)) {
+        throw new Error(`CRG ${migrationVersion} in ${migrationDir} is incompatible; requires CRG >= ${MIN_CRG_VERSION}. The compatibility runtime needs repair before startup.`);
+      }
+      // Freeze an already compatible installation for this connection; an absent installation requests latest.
+      return { ...options, pluginDataDir: data, version: migrationVersion,
+        expectedVersion: migrationVersion, runtimeDir: migrationDir };
+    }
+    const compatibilityDiagnostic = `CRG ${incompatible} is incompatible with scoped C++ lookup; requires CRG >= ${MIN_CRG_VERSION}. Explicit runtime selection was preserved.`;
+    if (Array.isArray(options.diagnostics)) options.diagnostics.push(compatibilityDiagnostic);
+    return { ...options, pluginDataDir: data, version: selected, expectedVersion: selected, runtimeDir, compatibilityDiagnostic };
+  }
   return { ...options, pluginDataDir: data, version: selected, expectedVersion: selected, runtimeDir };
 }
 
-/** Publish selection after the first verified versioned install; preserve legacy and existing active selections. */
+/** Publish only after successful preparation; replace absent/incompatible pointers without rolling back an updater. */
 function recordSelectedCrgRuntime(options = {}) {
-  if (!isRuntimeVersion(options.version) || activeRuntimeVersion('crg', options)) return false;
+  if (!isRuntimeVersion(options.version) || incompatibleRuntimeVersion(options.version)) return false;
+  const previous = activeRuntimeVersion('crg', options);
+  if (previous && !incompatibleRuntimeVersion(previous)) return false;
   const expected = crgRuntimePaths({ ...options, runtimeDir: undefined, version: options.version }).dir;
   if (!options.runtimeDir || path.resolve(options.runtimeDir) !== path.resolve(expected)
       || diskRuntimeVersion(options.runtimeDir) !== options.version) return false;
@@ -63,7 +91,8 @@ function recordSelectedCrgRuntime(options = {}) {
   const lock = acquireUpdateLock(lockOptions);
   if (!lock) return false;
   try {
-    if (activeRuntimeVersion('crg', options)) return false;
+    // Compare again while holding the updater lock: a concurrent promotion must keep its pointer.
+    if (activeRuntimeVersion('crg', options) !== previous) return false;
     promoteRuntimeVersion('crg', options.version, options);
     return true;
   } finally { releaseUpdateLock(lock); }

@@ -46,7 +46,7 @@ async function runHook(eventArgument, input = {}, api = tgrep, write = console.l
   if (!state) api.start(ctx);
   if (event === 'UserPromptSubmit') return;
   const cli = cliArgument(cliFile);
-  emit(write, event, `${guidance} Status ${state?.phase || 'starting/pending'}; --fresh scans disk directly. Initial indexing, errors, and zero matches trigger live-scan verification. Prefer CodeMap for symbols, call chains, and impact; read known files directly. Diagnostics: node ${cli} doctor.`);
+  emit(write, event, `${guidance} Startup status for ${JSON.stringify(ctx.root)} only: ${state?.phase || 'starting/pending'}; this is a snapshot, not the status of other target worktrees. --fresh scans disk directly. Initial indexing, errors, and zero matches trigger live-scan verification. Prefer CodeMap for symbols, call chains, and impact; read known files directly. Diagnostics: run node ${cli} doctor in the target workdir.`);
 }
 
 async function main() {

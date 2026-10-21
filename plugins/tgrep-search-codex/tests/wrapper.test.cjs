@@ -258,6 +258,13 @@ test('hook entry events share CLI guidance while SubagentStart returns before si
   await runHook('user_prompt_submit', { cwd: root }, api, value => promptOutput.push(value));
   assert.deepEqual(calls, ['context', 'update', 'managed']);
   assert.deepEqual(promptOutput, []);
+  const startupOutput = [];
+  api.context = () => ({ git: true, root });
+  await runHook('session_start', { cwd: root }, api, value => startupOutput.push(JSON.parse(value)));
+  const guidance = startupOutput[0].hookSpecificOutput.additionalContext;
+  assert.ok(guidance.includes(JSON.stringify(root)));
+  assert.match(guidance, /only: ready/);
+  assert.match(guidance, /snapshot, not the status of other target worktrees/);
 });
 test('hook manifests register SubagentStart with the dedicated event argument', () => {
   for (const name of ['hooks.json', 'codex-hooks.json']) {

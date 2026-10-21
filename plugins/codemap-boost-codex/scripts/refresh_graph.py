@@ -14,11 +14,87 @@ import tempfile
 VERIFIED_KEY = "codemap_verified_inventory_v2"
 
 
+def install_cpp_anonymous_resolution() -> None:
+    """Apply unnamed-namespace lookup only inside the managed parse process.
+
+    CRG 2.3.9 omits the implicit using-directive of an unnamed namespace.
+    Work with parsed same-file declarations, preserve overload ambiguity, and
+    never infer an object receiver or bind a symbol from another translation unit.
+    Upstream package files are not modified.
+    """
+    from dataclasses import replace
+    import concurrent.futures
+    from code_review_graph import incremental
+    from code_review_graph.parser import CodeParser
+
+    if not callable(getattr(CodeParser, '_node_qualified', None)):
+        raise RuntimeError('CodeMap requires CRG >= 2.3.8 with scoped C++ symbols; upgrade the managed runtime')
+    # Spawned process workers import upstream afresh and lose this adapter.
+    # Thread workers retain it and upstream keeps each parser thread-local.
+    incremental._make_executor = lambda max_workers: concurrent.futures.ThreadPoolExecutor(
+        max_workers=max_workers)
+    original = CodeParser._resolve_call_targets
+    if getattr(original, '_codemap_anonymous_lookup', False):
+        return
+
+    def resolve(self, nodes, edges, file_path):
+        resolved = original(self, nodes, edges, file_path)
+        if len(resolved) != len(edges):
+            return resolved
+        functions = [n for n in nodes if n.language == 'cpp'
+                     and n.kind in ('Function', 'Test') and n.file_path == file_path]
+        if not any('(anonymous)' in (n.parent_name or '') for n in functions):
+            return resolved
+        scopes = {self._node_qualified(n): n.parent_name for n in functions}
+        declarations = {}
+        for node in functions:
+            declarations.setdefault(node.name, {})[self._node_qualified(node)] = node
+
+        def visible(parent, scope):
+            # Only trailing anonymous namespaces inject declarations into their
+            # parent. A named child or class inside one is not a free function.
+            while parent != scope and parent and parent.split('.')[-1] == '(anonymous)':
+                parent = parent.rsplit('.', 1)[0] if '.' in parent else None
+            return parent == scope
+
+        replacements = {}
+        for index, edge in enumerate(edges):
+            if (edge.kind != 'CALLS' or edge.source not in scopes or '::' in edge.target
+                    or edge.extra.get('receiver') or edge.extra.get('receiver_form')):
+                continue
+            entries = declarations.get(edge.target, {})
+            if not any('(anonymous)' in (n.parent_name or '') for n in entries.values()):
+                continue
+            scope = scopes[edge.source]
+            while True:
+                matches = [qn for qn, n in entries.items() if visible(n.parent_name, scope)]
+                if matches or scope is None:
+                    break
+                scope = scope.rsplit('.', 1)[0] if '.' in scope else None
+            if not matches:
+                continue
+            extra = {k: v for k, v in edge.extra.items()
+                     if not k.startswith(('unresolved_target', 'ambiguous_target'))}
+            if len(matches) > 1:
+                extra.update(ambiguous_targets=sorted(matches)[:20],
+                             ambiguous_target_count=len(matches),
+                             ambiguous_targets_truncated=len(matches) > 20)
+            replacements[index] = replace(
+                edge, target=matches[0] if len(matches) == 1 else edge.target, extra=extra)
+        # One output per original edge: file/line alone cannot distinguish two
+        # different calls, or a free call and receiver call, on the same line.
+        return [replacements.get(index, edge) for index, edge in enumerate(resolved)]
+
+    resolve._codemap_anonymous_lookup = True
+    CodeParser._resolve_call_targets = resolve
+
+
 def runtime_identity() -> dict[str, str]:
     """Return the identity of the imported CRG package without inferring it from directories or version branches."""
     from importlib.metadata import version
 
-    return {"package": "code-review-graph", "version": version("code-review-graph")}
+    return {"package": "code-review-graph", "version": version("code-review-graph"),
+            "adapter": "cpp-anonymous-lookup-v2"}
 
 
 def check_runtime() -> dict:
@@ -30,7 +106,9 @@ def check_runtime() -> dict:
     from code_review_graph.tools._common import _get_store
     from code_review_graph.tools.build import build_or_update_graph
 
+    install_cpp_anonymous_resolution()
     for member in (collect_all_files, _get_store, build_or_update_graph,
+                   CodeParser._resolve_call_targets, CodeParser._node_qualified,
                    GraphStore.get_all_files, GraphStore.get_nodes_by_file,
                    GraphStore.remove_file_data,
                    GraphStore.store_file_nodes_edges,
@@ -42,6 +120,13 @@ def check_runtime() -> dict:
                                   b"function codemapRuntimeProbe() { return 1; }\n")
     if not any(node.name == "codemapRuntimeProbe" for node in nodes):
         raise RuntimeError("CRG refresh parser probe did not produce expected nodes")
+    cpp_nodes, cpp_edges = parser.parse_bytes(
+        Path.cwd() / "codemap_runtime_probe.cc",
+        b"namespace { int helper(){return 1;} } int run(){return helper();}")
+    helper = next((n for n in cpp_nodes if n.name == "helper"), None)
+    if helper is None or not any(e.kind == "CALLS" and e.target == parser._node_qualified(helper)
+                                 for e in cpp_edges):
+        raise RuntimeError("CRG C++ unnamed namespace lookup probe failed")
     # Raw-path cleanup depends on existing SQLite columns; validate this contract in a temporary database
     # across 2.3.x without opening, creating, or refreshing user repository graphs.
     with tempfile.TemporaryDirectory(prefix="codemap-runtime-contract-") as target:
@@ -325,6 +410,8 @@ def refresh(root: Path, full: bool = False, verify: bool = False) -> dict:
     """Success guarantees a stable source snapshot and consistent graph; commit advancement does not require full reparsing."""
     from code_review_graph.tools._common import _get_store
     from code_review_graph.tools.build import build_or_update_graph
+
+    install_cpp_anonymous_resolution()
 
     # Git identifies ordinary/parent repositories and linked worktree .git files.
     # Exit non-Git directories before collecting source or opening the graph database.

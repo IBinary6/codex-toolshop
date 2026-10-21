@@ -53,27 +53,38 @@ function writeState(sessionId, value, env = process.env) {
   }
 }
 
-/** Register only once at startup; resume, compaction, and repeated startup do not reset naming state. */
-function armSession(input, env = process.env) {
-  const sessionId = validatedSessionId(input);
-  if (!sessionId || input.source !== 'startup' || env.CONVERSATION_NAMER_WORKER === '1') return false;
+function registerSession(sessionId, value, env) {
   const file = stateFile(sessionId, env);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   try {
-    fs.writeFileSync(file, JSON.stringify({ status: 'pending' }), { flag: 'wx', mode: 0o600 });
+    fs.writeFileSync(file, JSON.stringify({ status: 'pending', ...value }), { flag: 'wx', mode: 0o600 });
     return true;
   } catch (error) { if (error.code !== 'EEXIST') throw error; }
   return false;
 }
 
+/** Register only once at startup; resume, compaction, and repeated startup do not reset naming state. */
+function armSession(input, env = process.env) {
+  const sessionId = validatedSessionId(input);
+  if (!sessionId || input.source !== 'startup' || env.CONVERSATION_NAMER_WORKER === '1') return false;
+  return registerSession(sessionId, {}, env);
+}
+
+/** Only the background observer may call this after verifying an untitled new main task's first prompt. */
+function armRecoveredSession(sessionId, env = process.env) {
+  if (!validatedSessionId({ session_id: sessionId })) return false;
+  return registerSession(sessionId, { recovered: true }, env);
+}
+
 /** Atomically claim the first message; concurrent hooks, resume, and worker failures cannot trigger another model call. */
 function claimSession(sessionId, env = process.env) {
-  if (readState(sessionId, env)?.status !== 'pending') return false;
+  const state = readState(sessionId, env);
+  if (state?.status !== 'pending') return false;
   try {
     const fd = fs.openSync(`${stateFile(sessionId, env)}.claimed`, 'wx', 0o600);
     fs.closeSync(fd);
   } catch (error) { if (error.code === 'EEXIST') return false; throw error; }
-  writeState(sessionId, { status: 'started' }, env);
+  writeState(sessionId, { status: 'started', ...(state.recovered ? { recovered: true } : {}) }, env);
   return true;
 }
 
@@ -91,4 +102,4 @@ function loadConfig(env = process.env) {
   return { model, timeoutMs: timeoutSeconds * 1000 };
 }
 
-module.exports = { dataDirectory, stateFile, readState, writeState, armSession, claimSession, loadConfig };
+module.exports = { dataDirectory, stateFile, readState, writeState, armSession, armRecoveredSession, claimSession, loadConfig };

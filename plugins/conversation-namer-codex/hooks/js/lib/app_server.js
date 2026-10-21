@@ -187,9 +187,15 @@ function createAppServer({ cwd, timeoutMs = 60000, command, spawnImpl = spawn, e
         }
         for (const listener of notifications) listener(message.method, message.params || {});
       } else if (pending.has(message.id)) {
-        const { resolve, reject } = pending.get(message.id);
+        const { resolve, reject, method } = pending.get(message.id);
         pending.delete(message.id);
-        if (message.error) reject(new Error('app_server_rpc_failed'));
+        if (message.error) {
+          // Preserve only the operation and numeric code, never provider text or request content.
+          const error = new Error('app_server_rpc_failed');
+          error.rpcMethod = method;
+          if (Number.isInteger(message.error.code)) error.rpcCode = message.error.code;
+          reject(error);
+        }
         else if (Object.hasOwn(message, 'result')) resolve(message.result);
         else reject(new Error('app_server_invalid_response'));
       }
@@ -202,7 +208,7 @@ function createAppServer({ cwd, timeoutMs = 60000, command, spawnImpl = spawn, e
       if (failure) return Promise.reject(failure);
       const id = ++sequence;
       return new Promise((resolve, reject) => {
-        pending.set(id, { resolve, reject });
+        pending.set(id, { resolve, reject, method });
         try {
           send({ id, method, params });
         } catch {

@@ -210,6 +210,14 @@ jobs:
       - name: Install CodeMap integration test runtime
         run: python -m pip install "code-review-graph[communities,enrichment]==${{ matrix.crg }}"
       - name: Verify refresh adapter runtime
+        if: matrix.crg != '2.3.7'
         run: python -I -B plugins/codemap-boost-codex/scripts/refresh_graph.py --check-runtime
       - name: Verify CodeMap against real CRG
+        if: matrix.crg != '2.3.7'
         run: python -I -B plugins/codemap-boost-codex/scripts/test_refresh_graph.py
+      - name: Verify C++ unnamed namespace call resolution
+        if: matrix.crg != '2.3.7'
+        run: python -I -B plugins/codemap-boost-codex/scripts/test_cpp_anonymous.py
+      - name: Verify legacy runtime requires migration instead of silently losing C++ scope
+        if: matrix.crg == '2.3.7'
+        run: python -I -B plugins/codemap-boost-codex/scripts/test_legacy_runtime.py

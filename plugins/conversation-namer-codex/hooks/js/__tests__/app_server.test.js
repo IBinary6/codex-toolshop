@@ -197,7 +197,13 @@ async function main() {
 
   const errorChild = fakeProcess((message, process) => process.reply({ id: message.id, error: { code: 123, message: 'private-provider-details' } }));
   const errorRpc = createAppServer({ timeoutMs: 1000, command: 'codex', spawnImpl: () => errorChild });
-  await assert.rejects(errorRpc.request('broken'), (error) => error.message === 'app_server_rpc_failed');
+  await assert.rejects(errorRpc.request('broken'), (error) => {
+    assert.equal(error.message, 'app_server_rpc_failed');
+    assert.equal(error.rpcMethod, 'broken');
+    assert.equal(error.rpcCode, 123);
+    assert.ok(!JSON.stringify(error).includes('private-provider-details'));
+    return true;
+  });
   await errorRpc.close();
 
   const hung = fakeProcess(null, { stubborn: true });

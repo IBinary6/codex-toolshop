@@ -212,14 +212,20 @@ function createNamingClient(options = {}) {
     };
   }
 
+  async function readThread(sessionId) {
+    if (!validatedSessionId({ session_id: sessionId })) throw new Error('invalid_session_id');
+    const client = await start();
+    const result = await client.request('thread/read', { threadId: sessionId, includeTurns: true });
+    if (!result.thread || result.thread.id !== sessionId) throw new Error('thread_mismatch');
+    return result.thread;
+  }
+
   return {
     readThreadName,
+    // Recovery needs metadata and first-turn input from one snapshot, rather than racing two reads.
+    readThread,
     async readFirstPrompt(sessionId) {
-      if (!validatedSessionId({ session_id: sessionId })) throw new Error('invalid_session_id');
-      const client = await start();
-      const result = await client.request('thread/read', { threadId: sessionId, includeTurns: true });
-      if (!result.thread || result.thread.id !== sessionId) throw new Error('thread_mismatch');
-      return firstPrompt(result.thread);
+      return firstPrompt(await readThread(sessionId));
     },
     async writeThreadName(sessionId, title) {
       if (!validatedSessionId({ session_id: sessionId }) || !validTitleText(title, 120)) {
@@ -233,6 +239,9 @@ function createNamingClient(options = {}) {
       if (typeof settings.prompt !== 'string' || !settings.prompt.trim()) return { skipped: 'empty_prompt' };
       if (settings.prompt.length > 20000) return { skipped: 'prompt_too_long' };
       const original = await readThreadName(settings.sessionId);
+      if (settings.preserveExistingTitle && original.originalTitle !== null && original.originalTitle !== '') {
+        return { skipped: 'existing_title' };
+      }
       if (original.ephemeral || original.parentThreadId
         || (original.source && typeof original.source === 'object' && 'subAgent' in original.source)) {
         return { skipped: 'not_main_thread' };

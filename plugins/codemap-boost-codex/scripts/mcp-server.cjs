@@ -102,6 +102,7 @@ async function runMcpServer(options = {}) {
   if (!status.ok) { stderr.write(`[codemap-boost-codex] Node.js ${status.version} is unsupported; requires ${status.requirement}.\n`); return 1; }
   const proxy = new LazyMcpProxy({
     ...resolved,
+    prepareToolCall: options.prepareToolCall || ((params, signal) => require('./mcp-read-barrier.cjs').prepareToolCall(params, { ...resolved, signal })),
     catalog: options.catalog || ((signal) => loadCatalog({ ...resolved, signal })),
     launchBackend: options.launchBackend || (async (signal) => {
       const prepared = await prepareMcpServerAsync(resolved, signal);
