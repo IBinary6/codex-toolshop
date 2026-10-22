@@ -5,7 +5,7 @@ description: Inspect or immediately check CodeMap Boost's managed CRG and Serena
 
 # CodeMap Runtime Updates
 
-CRG and Serena check official stable releases automatically, at most once every seven days when the plugin is used. A healthy runtime keeps serving while a candidate is prepared in a separate version directory. Successful compatibility checks publish a version pointer for later launches. Failed checks retain the previous runtime and record the error.
+CRG and Serena check official stable releases automatically, at most once every seven days when the plugin is used. A healthy runtime keeps serving while a candidate is prepared in a separate version directory. Successful compatibility checks publish a version pointer for later launches. Failed checks retain the previous runtime, delete the rejected candidate and record the error. A Serena 2 candidate is refused when the stable `serena_config.yml` sets `agent_interface: REPL`, because the frontend needs one MCP tool per operation; without that setting Serena 2 uses the tool interface. After a promotion only the active venv, the replaced one and the baselines remain.
 
 ## Inspect or check now
 

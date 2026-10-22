@@ -51,8 +51,12 @@ function promoteRuntimeVersion(kind, version, options = {}) {
   const current = readRuntimeVersions(options);
   const active = current.active && typeof current.active === 'object' && !Array.isArray(current.active)
     ? { ...current.active } : {};
+  // Remember the replaced version: sessions that started on it keep using its venv, so pruning must keep it.
+  const previous = current.previous && typeof current.previous === 'object' && !Array.isArray(current.previous)
+    ? { ...current.previous } : {};
+  previous[kind] = active[kind] || '';
   active[kind] = version;
-  writeRuntimeVersions({ ...current, active }, options);
+  writeRuntimeVersions({ ...current, active, previous }, options);
 }
 
 function compareVersions(left, right) {
