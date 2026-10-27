@@ -33,7 +33,7 @@ On Windows, the `dbg` entry point is automatically added to the current user's P
 | --- | --- | --- |
 | x64dbg | Native duty1g x32/x64 extensions, loopback and token configuration, and an HTTP-to-stdio proxy | Windows; open the debugger with the deployed plugin |
 | Ghidra | Extension compiled against the local Ghidra API, plus an isolated Python MCP bridge | Installed Ghidra and JDK 21+; enable GhidraMCPPlugin inside Ghidra on first use |
-| WinDbg | mcp-windbg in an isolated environment, with automatic cdb/kd and symbol-cache configuration | Windows; Debugging Tools cdb.exe or kd.exe is required; GUI WinDbg alone cannot run this backend |
+| WinDbg | Official `DbgX.Mcp.Proxy.exe` preferred; legacy mcp-windbg/cdb/kd compatibility backend available | Windows; current WinDbg with MCP Service for native; Debugging Tools cdb.exe or kd.exe for legacy |
 | IDA MCP | ida-pro-mcp 1.4.0 GUI plugin and isolated stdio service | IDA 8.3+; the idalib service, which has a different deployment model, is not installed |
 | IDA-NO-MCP | Upstream Python export plugin | Deployed only for IDA versions confirmed by the adapter; export is not an MCP service |
 
@@ -55,6 +55,28 @@ Ghidra builds also support installed Homebrew OpenJDK that is not on PATH and co
 ```
 
 `paths` accepts `x64dbg`, `ghidra`, `windbg`, and `ida`. `disabled` accepts component names `x64dbg`, `ghidra`, `windbg`, `ida-mcp`, and `ida-export`. Disabling affects future deployment and MCP startup; it does not delete installed files.
+
+### WinDbg native and compatibility backends
+
+The existing `dbg-windbg` MCP entry point launches the official proxy over stdio with no arguments. Discovery checks the stable `%LOCALAPPDATA%/Microsoft/WindowsApps/Microsoft.WinDbg_8wekyb3d8bbwe/DbgX.Mcp.Proxy.exe` app execution alias and PATH. `paths.windbg` can also name the proxy executable or its directory. Dbg uses the installed Microsoft executable in place; doctor records launch metadata without launching WinDbg, starting MCP Service, or copying Microsoft files. The official proxy needs WinDbg 1.2610.1001.0 or later. The app alias does not encode a version, so a blank deployment version means it was not determined; the MCP `serverInfo.version` is a separate value.
+
+Select a backend in the Dbg data directory's `config.json`, then run `dbg doctor --tool windbg`:
+
+```json
+{"windbg":{"backend":"auto"}}
+```
+
+- `auto` (default): prefer the official proxy. If it is absent, deploy the legacy cdb/kd backend. When selecting native, retain an already deployed, usable legacy runtime as backup; do not download mcp-windbg or build its isolated Python environment merely to prepare a backup.
+- `native`: require the official proxy. Missing proxy or unsupported platform reports `unsupported`, and startup never falls back to legacy.
+- `legacy`: explicitly deploy and use mcp-windbg with cdb/kd and its existing symbol-path configuration.
+
+In `auto`, a saved backup is used only if the native executable has disappeared or Windows fails to create the proxy process. The interpreter and at least one cdb/kd executable must still exist. A diagnostic on stderr identifies the switch. Once the official process has been created, its exit code and protocol behavior are preserved: there is no automatic retry or command replay through legacy. Session availability, another connected client, secure-mode restrictions, and sampling failures do not trigger fallback. To choose legacy after such a failure, set `windbg.backend` explicitly and run doctor. A backup is a separate cdb/kd backend; it does not attach to the selected GUI session automatically.
+
+In WinDbg, enable and start MCP Service for the intended window using WinDbg's normal confirmation flow. The proxy connects to that window's per-process named pipe. With exactly one available session it connects automatically; otherwise use `list_sessions`, `connect_session` with the intended process ID, and `disconnect_session` to switch. Each session permits one active MCP client. Verify the target type and execution state against WinDbg before issuing debugging commands. Dbg does not disconnect other clients or change WinDbg's default secure mode.
+
+Microsoft officially supports VS Code with GitHub Copilot and GitHub Copilot CLI. Codex uses the generic stdio interface on a best-effort basis. Some protected operations require MCP sampling for prompt-injection classification; a client or policy that cannot provide sampling may fail those operations. Proxy discovery or an MCP handshake does not establish support for every debugging command or a live target.
+
+See Microsoft's [WinDbg MCP overview](https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/windbg-mcp-overview), [setup](https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/set-up-windbg-mcp), and [connection troubleshooting](https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/troubleshoot-windbg-mcp-setup-connection-issues).
 
 ## Data, updates, and recovery
 
@@ -90,5 +112,6 @@ Upstream code is downloaded at runtime and remains subject to each repository's 
 - [duty1g/x64dbg-mcp-server](https://github.com/duty1g/x64dbg-mcp-server)
 - [LaurieWired/GhidraMCP](https://github.com/LaurieWired/GhidraMCP)
 - [svnscha/mcp-windbg](https://github.com/svnscha/mcp-windbg)
+- [Microsoft WinDbg MCP](https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/windbg-mcp-overview) (installed with WinDbg; not downloaded by Dbg)
 - [mrexodia/ida-pro-mcp](https://github.com/mrexodia/ida-pro-mcp)
 - [P4nda0s/IDA-NO-MCP](https://github.com/P4nda0s/IDA-NO-MCP)

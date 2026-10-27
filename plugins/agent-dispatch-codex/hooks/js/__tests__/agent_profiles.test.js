@@ -22,7 +22,7 @@ const { resolveModelCandidates } = require('../lib/model_candidates');
 try {
   const config = loadDefaults();
   const first = ensureAgentProfiles(root, config);
-  assert.equal(first.written.length, 12);
+  assert.equal(first.written.length, 13);
 
   const worker = path.join(root, '.codex', 'agents', 'dispatch_worker.toml');
   const content = fs.readFileSync(worker, 'utf8');
@@ -61,6 +61,7 @@ try {
     dispatch_deep_reviewer: ['gpt-6-astra', 'high', 'read-only'],
     dispatch_luna_worker: ['gpt-6-luna', 'max', 'workspace-write'],
     dispatch_sol_worker: ['gpt-6-sol', 'high', 'workspace-write'],
+    dispatch_terra_worker: ['gpt-6.1-terra', 'medium', 'workspace-write'],
     dispatch_astra_worker: ['gpt-6-astra', 'medium', 'workspace-write'],
     dispatch_tester: ['gpt-6-luna', 'medium', 'workspace-write'],
     dispatch_researcher: ['gpt-6-luna', 'medium', 'read-only'],
@@ -147,10 +148,10 @@ try {
   ensureAgentProfiles(root, config);
   assert.equal(fs.readFileSync(empty, 'utf8'), '', 'an empty user file is not a missing generated file');
 
-  const stale = path.join(root, '.codex', 'agents', 'dispatch_terra_worker.toml');
-  fs.writeFileSync(stale, renderAgentProfile('dispatch_terra_worker', {}));
+  const stale = path.join(root, '.codex', 'agents', 'dispatch_retired_worker.toml');
+  fs.writeFileSync(stale, renderAgentProfile('dispatch_retired_worker', {}));
   const staleResult = ensureAgentProfiles(root, config);
-  assert.ok(staleResult.removed.includes('.codex/agents/dispatch_terra_worker.toml'));
+  assert.ok(staleResult.removed.includes('.codex/agents/dispatch_retired_worker.toml'));
   assert.equal(fs.existsSync(stale), false, 'retired managed roles must not remain loadable');
 
   // Losing the catalog must remove only old plugin-owned pins, preserving every user-owned boundary.

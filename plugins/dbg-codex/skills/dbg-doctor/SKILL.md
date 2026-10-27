@@ -19,4 +19,8 @@ Pass `--json` for machine-readable output. Exit code 0 means this deployment che
 
 Explicit paths may be set in the `paths` object of `config.json` in the Dbg data directory, such as `{"paths":{"ida":["D:/Tools/IDA 9.0"]}}`. Use this only when the user supplied a path or automatic discovery is insufficient; do not require every user to configure paths in advance.
 
+For WinDbg, `windbg.backend` in that same configuration accepts `auto` (default), `native`, or `legacy`. Native uses the installed official `DbgX.Mcp.Proxy.exe`; `paths.windbg` accepts its executable or directory. Auto prefers native and retains an existing usable legacy runtime without downloading a backup. It falls back only when the native executable is missing or its process cannot be created. A successfully created proxy's exit, missing or occupied sessions, and secure/sampling failures require diagnosis, not automatic backend switching. Explicit native never falls back. Run `doctor --tool windbg` after changing the selection.
+
+Native deployment is metadata only. To connect, the user starts MCP Service in the intended WinDbg window, retaining default secure mode. Use `list_sessions`, `connect_session`, and `disconnect_session` to select the intended session; verify its target and state. Codex compatibility is best-effort, and protected operations may require MCP sampling. Report those limits without changing security settings or disconnecting another client. See the plugin README's WinDbg section for official setup links.
+
 Launching a tool and enabling an extension for the first time may require user action inside that application. Report the specific script status. Do not delete project databases, end user debugging sessions, or modify software licenses as unrelated actions.

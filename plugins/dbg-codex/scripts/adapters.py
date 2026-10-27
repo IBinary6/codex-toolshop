@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import re
 import secrets
 import shutil
@@ -255,6 +256,37 @@ def _windbg_runtime(installation: Any, python: Path, ctx: Any) -> dict[str, Any]
 
 
 def install_windbg(installations: list[Any], ctx: Any) -> dict[str, Any]:
+    from windbg import backend_mode, legacy_available
+    mode = backend_mode(getattr(ctx, "config", {}))
+    native = [item for item in installations if (Path(item.root) / "DbgX.Mcp.Proxy.exe").is_file()]
+    legacy = [item for item in installations if any((Path(item.root) / name).is_file() for name in ("cdb.exe", "kd.exe"))]
+    if mode != "legacy" and native and platform.system() == "Windows":
+        item = native[0]
+        previous = ctx.state.get("tools", {}).get("windbg", {})
+        backup = previous.get("legacy_runtime", previous.get("runtime", {}))
+        metadata = {
+            "backend": "native", "backend_mode": mode, "version": item.version or "",
+            "source": "https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/windbg-mcp-overview",
+            "runtime": {"type": "stdio", "command": [str(Path(item.root) / "DbgX.Mcp.Proxy.exe")], "env": {}},
+            "files": [],
+            "message": "Official WinDbg MCP proxy ready; enable MCP Service in the intended WinDbg window. Codex support is best-effort.",
+        }
+        if legacy_available(backup):
+            metadata["legacy_runtime"] = backup
+            metadata["legacy_version"] = previous.get("legacy_version", previous.get("version", ""))
+        return metadata
+    if mode == "native":
+        return {"status": "unsupported", "backend_mode": mode, "message": "Official DbgX.Mcp.Proxy.exe not found or platform unsupported; native mode does not fall back. Install current WinDbg or configure paths.windbg."}
+    if not legacy:
+        return {"status": "unsupported", "backend_mode": mode, "message": "No usable WinDbg backend: official proxy unavailable and legacy requires cdb.exe or kd.exe."}
+    result = _install_windbg_legacy(legacy, ctx)
+    result.update({"backend": "legacy", "backend_mode": mode})
+    if mode == "auto":
+        result["message"] = "Official WinDbg proxy unavailable; deployed the legacy cdb/kd compatibility backend."
+    return result
+
+
+def _install_windbg_legacy(installations: list[Any], ctx: Any) -> dict[str, Any]:
     payload = ctx.downloader.json(WINDBG_PYPI)
     version = _pypi_stable_version(payload)
     python = ctx.ensure_runtime(f"windbg-{version}", [f"mcp-windbg=={version}"])

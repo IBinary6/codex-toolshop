@@ -53,6 +53,27 @@ class DetectAtTests(unittest.TestCase):
             (root / "WinDbg.exe").touch()
             self.assertIsNone(discovery.detect_at("windbg", root, "appx"))
 
+    def test_windbg_native_proxy_accepts_directory_or_executable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "Microsoft.WinDbg_8wekyb3d8bbwe"
+            root.mkdir()
+            proxy = root / "DbgX.Mcp.Proxy.exe"
+            proxy.touch()
+            for supplied in (root, proxy):
+                found = discovery.detect_at("windbg", supplied, "override")
+                self.assertEqual(found.backend, "native")
+                self.assertEqual(found.root, root.absolute())
+
+    def test_windowsapps_stable_package_alias_is_an_automatic_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch("discovery.platform.system", return_value="Windows"), \
+                 mock.patch.dict(os.environ, {"LOCALAPPDATA": directory}), \
+                 mock.patch("discovery._scoop_roots", return_value=[]), \
+                 mock.patch("discovery._windows_registry_candidates", return_value={}), \
+                 mock.patch("discovery._path_candidates", return_value={}):
+                paths = discovery._automatic_candidates()["windbg"]
+            self.assertIn((Path(directory) / "Microsoft/WindowsApps/Microsoft.WinDbg_8wekyb3d8bbwe").resolve(), paths)
+
     def test_normalizes_x64dbg_release_root(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
             root = Path(raw_dir)

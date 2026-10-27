@@ -217,6 +217,53 @@ class X64dbgAdapterTests(unittest.TestCase):
 
 
 class WinDbgAdapterTests(unittest.TestCase):
+    def test_native_preferred_without_download_or_isolated_python_and_backup_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            native = root / "native"
+            native.mkdir()
+            (native / "DbgX.Mcp.Proxy.exe").touch()
+            legacy = root / "legacy"
+            legacy.mkdir()
+            (legacy / "cdb.exe").touch()
+            backup = {"command": [sys.executable, "-m", "mcp_windbg"], "env": {"CDB_PATH": str(legacy / "cdb.exe"), "_NT_SYMBOL_PATH": "kept"}}
+            ctx = FakeContext(root, FakeDownloader())
+            ctx.state = {"tools": {"windbg": {"version": "1.2.2", "runtime": backup}}}
+            with mock.patch("adapters.platform.system", return_value="Windows"):
+                result = adapters.install_windbg([Installation("windbg", legacy), Installation("windbg", native)], ctx)
+            self.assertEqual(result["backend"], "native")
+            self.assertEqual(result["runtime"]["command"], [str(native / "DbgX.Mcp.Proxy.exe")])
+            self.assertEqual(result["runtime"]["env"], {})
+            self.assertEqual(result["legacy_runtime"], backup)
+            self.assertEqual(result["legacy_version"], "1.2.2")
+            self.assertEqual(ctx.runtime_calls, [])
+            self.assertEqual(ctx.deploy_calls, 0)
+
+    def test_explicit_native_missing_reports_unsupported_without_legacy_download(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "cdb.exe").touch()
+            ctx = FakeContext(root, FakeDownloader())
+            ctx.config = {"windbg": {"backend": "native"}}
+            result = adapters.install_windbg([Installation("windbg", root)], ctx)
+            self.assertEqual(result["status"], "unsupported")
+            self.assertNotIn("runtime", result)
+            self.assertEqual(ctx.runtime_calls, [])
+
+    def test_explicit_legacy_ignores_native_and_invalid_policy_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "cdb.exe").touch()
+            (root / "DbgX.Mcp.Proxy.exe").touch()
+            ctx = FakeContext(root, FakeDownloader(json_value={"info": {"version": "1.2.2"}, "urls": [{"yanked": False}]}))
+            ctx.config = {"windbg": {"backend": "legacy"}}
+            result = adapters.install_windbg([Installation("windbg", root)], ctx)
+            self.assertEqual(result["backend"], "legacy")
+            self.assertEqual(result["runtime"]["command"][1:], ["-m", "mcp_windbg"])
+            ctx.config = {"windbg": {"backend": "typo"}}
+            with self.assertRaisesRegex(dbg_core.DbgError, "windbg.backend"):
+                adapters.install_windbg([Installation("windbg", root)], ctx)
+
     def test_uses_exact_pypi_version_and_supported_cdb_kd_environment(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
             root = Path(raw_dir)

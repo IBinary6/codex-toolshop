@@ -119,6 +119,36 @@ class DoctorTests(unittest.TestCase):
             self.run_case()
         self.assertEqual(p.read_text(), '{"broken":')
 
+    def test_windbg_native_missing_and_disabled_do_not_use_previous_runtime(self):
+        atomic_json(self.root / "config.json", {"windbg": {"backend": "native"}})
+        atomic_json(self.root / "state.json", {"tools": {"windbg": {"runtime": {"command": [sys.executable]}}}})
+        entries = {"windbg": ("windbg", self.install)}
+        result = run_doctor(self.root, recipe_map=entries, discover_fn=lambda paths: [], context_type=FakeContext)
+        self.assertEqual(result["tools"]["windbg"]["status"], "unsupported")
+        self.assertEqual(self.calls, [])
+        self.assertNotIn("runtime", load_json(self.root / "state.json")["tools"]["windbg"])
+        atomic_json(self.root / "config.json", {"windbg": {"backend": "auto"}, "disabled": ["windbg"]})
+        result = run_doctor(self.root, recipe_map=entries, discover_fn=lambda paths: [], context_type=FakeContext)
+        self.assertEqual(result["tools"]["windbg"]["status"], "disabled")
+
+    def test_selected_windbg_preserves_other_tool_records_and_reports_backend(self):
+        other = {"status": "deployed", "runtime": {"command": ["keep-other"], "env": {"TOKEN": "kept"}}}
+        atomic_json(self.root / "state.json", {"tools": {"ghidra": other}})
+        def install(installs, ctx):
+            self.assertEqual(ctx.config["windbg"]["backend"], "native")
+            return {"backend": "native", "backend_mode": "native", "runtime": {"command": ["proxy"]}}
+        atomic_json(self.root / "config.json", {"windbg": {"backend": "native"}})
+        result = run_doctor(self.root, selected="windbg", recipe_map={"windbg": ("windbg", install)},
+                            discover_fn=lambda paths: [Installation("windbg", self.root, backend="native")], context_type=FakeContext)
+        self.assertEqual(result["tools"]["windbg"]["backend"], "native")
+        self.assertEqual(load_json(self.root / "state.json")["tools"]["ghidra"], other)
+
+    def test_changed_windbg_selection_bypasses_completed_auto_shortcut(self):
+        self.run_case(auto=True)
+        atomic_json(self.root / "config.json", {"windbg": {"backend": "legacy"}})
+        self.assertEqual(self.run_case(auto=True)["status"], "complete")
+        self.assertEqual(len(self.calls), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

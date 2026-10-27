@@ -46,7 +46,7 @@ const PLAN_CREATION_PATTERN = new RegExp(
 );
 const VERIFICATION_TERMS = [
   '\u9a8c\u8bc1', '\u9a8c\u6536', '\u6d4b\u8bd5', '\u590d\u73b0', '\u6838\u9a8c', '\u8d28\u68c0', '\u8d28\u91cf\u68c0\u67e5', 'qa', 'test',
-  'verify', 'validate', 'verification', 'acceptance check', 'reproduce',
+  'verify', 'validate', 'verification', 'acceptance check', 'reproduce', 'tests',
 ];
 const VERIFICATION_ACTION_TERMS = [
   '\u8fd0\u884c\u6d4b\u8bd5', '\u6267\u884c\u6d4b\u8bd5', '\u5f00\u59cb\u6d4b\u8bd5', '\u6267\u884c\u9a8c\u8bc1', '\u6309\u5df2\u6709\u7528\u4f8b', '\u6309\u65e2\u6709\u7528\u4f8b',
@@ -141,6 +141,21 @@ const TRIVIAL_EDIT_TERMS = [
   'getter', 'setter', '\u62fc\u5199', 'typo', '\u52a0\u4e2a\u6ce8\u91ca', '\u6dfb\u52a0\u6ce8\u91ca', '\u8865\u4e2a\u6ce8\u91ca',
   '\u7c7b\u578b\u5b9a\u4e49', '\u8fd9\u4e00\u884c', '\u4e00\u884c\u4ee3\u7801', '\u5355\u884c\u4fee\u6539', 'one-line', 'single-line',
 ];
+const VISUAL_ARTIFACT_TERMS = [
+  '截图', '图片', '图像', '图纸', '扫描件', '屏幕', 'screenshot', 'screenshots', 'image', 'images', 'drawing', 'drawings',
+  'scanned document', 'screen',
+];
+const VISUAL_ACTION_TERMS = [
+  '识别', '理解', '分析', '比对', '对比', '比较', '读取', '提取', '找出', '辨认', '解读',
+  'recognize', 'understand', 'analyze', 'compare', 'read', 'extract', 'identify', 'interpret',
+];
+const COMPUTER_SURFACE_TERMS = [
+  '浏览器', '桌面', '界面', '网页', '窗口', 'browser', 'desktop', 'interface', 'web page', 'webpage', 'window',
+];
+const COMPUTER_ACTION_TERMS = [
+  '点击', '单击', '双击', '拖拽', '拖动', '填写', '填入', '勾选', '导航', '打开', '操作',
+  'click', 'double click', 'drag', 'fill', 'navigate', 'open', 'interact', 'operate',
+];
 const REVIEW_FEEDBACK_GUIDANCE = 'The primary agent accepts and integrates deliverables. After proportionate validation, independently review substantive work. If the user restricts reviewers, the primary agent reviews and states the scope. Only concrete issues affecting acceptance, after verification by the primary agent, warrant a bounded fix by the original writer and another review; advisory notes do not automatically trigger rework or a stop.';
 const PROMPT_ROUTE_NOTICE = 'Agent Dispatch candidate suggestion (inferred from this message only): check the full conversation and latest explicit user instructions. This is neither a host restriction nor a persistent constraint.';
 
@@ -149,7 +164,7 @@ function taskScopeGuidance(language = 'en') {
 }
 
 function modelSelectionGuidance(language = 'en') {
-  return 'Use Luna for bounded extraction, lookups, logs, and established test evidence. Use Sol high for code, substantive document interpretation, planning, and ordinary independent review when supported. Family defaults resolve to the newest visible numeric model version supporting the requested effort in a fresh host catalog; retain explicit full-ID pins. Choose model and effort together: effort levels are not equivalent across model families. Reserve Astra for critical review decisions or exceptionally complex reasoning when the primary agent judges the benefit worth the total cost; keywords alone do not require escalation. Complex computer interaction may justify Sol max after checking host support. Do not escalate to max or ultra merely because a task mentions review or risk. Model catalogs are compatibility hints, not proof of account access; verify the actual loaded role and pair before spawning. For an unresolved family, refresh the catalog or use a generic role with an explicit host-supported full model ID and effort; never pass a family alias to native model APIs or silently inherit the parent model.';
+  return 'Use Luna for bounded extraction, lookups, logs, and established test evidence. Prefer Terra medium for visual understanding, screenshot or drawing comparison, and actual browser or desktop interaction with clear outcomes. Preserve planning, review, research, code implementation, read-only restrictions, and explicit model choices; visual or browser terms alone do not choose Terra. Use Sol high for code, substantive document interpretation, planning, and ordinary independent review when supported. Family defaults resolve to the newest visible numeric model version supporting the requested effort in a fresh host catalog; retain explicit full-ID pins. Choose model and effort together: effort levels are not equivalent across model families. Reserve Astra for critical review decisions or exceptionally complex reasoning when the primary agent judges the benefit worth the total cost; keywords alone do not require escalation. For difficult visual or computer work, the primary agent may choose a stronger supported model and effort based on actual ambiguity and acceptance difficulty. Do not escalate to max or ultra merely because a task mentions review or risk. Model catalogs are compatibility hints, not proof of account access; verify the actual loaded role and pair before spawning. For an unresolved family, refresh the catalog or use a generic role with an explicit host-supported full model ID and effort; never pass a family alias to native model APIs or silently inherit the parent model.';
 }
 
 function codeImplementationPair(config) {
@@ -603,6 +618,16 @@ function routePrompt(prompt, config) {
   const explicitCodeContext = includesAny(text, CODE_CONTEXT_TERMS)
     || codeRegressionReview
     || /\b[a-z_][a-z0-9_.:-]*\s+module\b|\b[a-z_][a-z0-9_.:-]*\s+\u6a21\u5757/i.test(text);
+  // Route the requested responsibility, not incidental visual/browser vocabulary in software work.
+  const codeImplementationIntent = testImplementation || codeCreationIntent || (implementation && (
+    explicitCodeContext || includesAny(text, [...CODE_CREATION_ARTIFACT_TERMS, 'mcp', 'sdk', 'api', 'plugin', '插件', '集成', 'integrate', 'integration',
+      '实现', '修复', '迁移', '重构', '编程', '开发', 'implement', 'fix', 'migrate', 'refactor', 'develop'])
+  ));
+  const computerInteraction = includesAny(text, COMPUTER_SURFACE_TERMS) && includesAny(text, COMPUTER_ACTION_TERMS);
+  const visualTask = !codeImplementationIntent && (
+    (includesAny(text, VISUAL_ARTIFACT_TERMS) && includesAny(text, VISUAL_ACTION_TERMS))
+    || computerInteraction
+  );
   const lowCostKind = detectLowCostKind(text, explicitCodeContext, lookup, crossFile, codeCreationIntent);
   const policyDiscussion = (
     includesAny(text, ['agent dispatch', 'agentdispatch', '\u8c03\u5ea6', '\u8def\u7531', '\u5206\u6d3e', '\u59d4\u6d3e'])
@@ -654,6 +679,9 @@ function routePrompt(prompt, config) {
   }
   if (review) return result(highRisk ? 'high-risk-review' : 'review');
   if (nonTrivialPlan && !hard) return result('plan');
+  if (visualTask && !nonTrivialPlan && !externalResearch && (!verification || computerInteraction)) {
+    return result('visual-computer', { needsGraph: false, visualVerification: verification });
+  }
   if (lowCostRoute) return result('low-cost');
   if (unboundedMaterialWrite) return result('execution');
   if (verification && !implementation && (!delivery || directVerification)) return result('verification');
@@ -706,6 +734,19 @@ function promptGuidance(prompt, config) {
 /** Suggest a role consistent with the parsed scope. @example routeGuidance(route, config) */
 function routeGuidance(route, config) {
   switch (route.category) {
+    case 'visual-computer': {
+      const terra = profileSettings(config, 'dispatch_terra_worker');
+      const candidate = terra && terra.model && terra.effort
+        ? roleFallback(config, ['dispatch_terra_worker'])
+        : 'No resolved, fully pinned Terra candidate is enabled; the primary agent handles this or selects a generic role with an explicit host-supported full model ID and effort.';
+      const scope = route.readOnly
+        ? 'Honor the exact confirmed read-only restrictions; UI evidence gathering must stay within that scope and existing authorization.'
+        : 'The primary agent defines the outcome and checks existing authorization before UI actions.';
+      const verification = route.visualVerification
+        ? ' Apply only the assigned established UI checks and collect observed evidence; do not modify product code or real data. Correctness review and acceptance decisions remain with the primary agent or the selected reviewer.'
+        : '';
+      return `Task route: visual understanding or computer interaction with clear outcomes. ${candidate} ${scope}${verification} Preserve explicit model choices and planning, review, research, and code implementation boundaries. For harder work, the primary agent may choose a stronger supported model and effort based on actual difficulty. If the role is not loaded, use a generic role with an explicit host-supported full model ID and effort or the primary agent; never silently inherit the parent model. A role, write access, and UI control do not authorize external publishing or sending, purchases or payments, production changes, or real-data changes. Verify observed results and report actions, evidence, and limitations.`;
+    }
     case 'low-cost':
       return lowCostGuidance(route, config);
     case 'diagnosis':

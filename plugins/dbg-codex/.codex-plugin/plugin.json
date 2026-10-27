@@ -1,6 +1,6 @@
 {
   "name": "dbg-codex",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Script-driven deployment, update and repair of debugger extensions and their MCP servers.",
   "author": {
     "name": "IBinary6",
@@ -22,7 +22,7 @@
   "interface": {
     "displayName": "Dbg",
     "shortDescription": "One doctor deploys and maintains debugger extensions and MCP servers.",
-    "longDescription": "Cross-platform scripts discover debugger installations through Windows Scoop, macOS/Linux Homebrew, and manual paths, then download, deploy, update, and repair matching extensions and MCP servers. Incompatible versions are explicitly skipped. First load and explicit doctor use the same workflow without AI installation decisions.",
+    "longDescription": "Cross-platform scripts discover debugger installations through Windows Scoop, macOS/Linux Homebrew, and manual paths, then deploy and maintain matching extensions and MCP servers. WinDbg prefers Microsoft's installed native MCP proxy and preserves the cdb/kd compatibility backend, without changing debugger security settings. Incompatible versions are explicitly skipped. First load and explicit doctor use the same workflow without AI installation decisions.",
     "developerName": "IBinary6",
     "category": "Coding",
     "capabilities": [

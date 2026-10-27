@@ -10,8 +10,8 @@ const { loadDefaults } = require('../lib/config');
 const fixtureHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-catalog-fixture-'));
 const cache = {
   fetched_at: new Date().toISOString(),
-  models: ['luna', 'sol', 'astra'].map((family) => ({
-    slug: `gpt-6-${family}`,
+  models: ['luna', 'terra', 'sol', 'astra'].map((family) => ({
+    slug: family === 'terra' ? 'gpt-6.1-terra' : `gpt-6-${family}`,
     visibility: 'list',
     supported_reasoning_levels: ['low', 'medium', 'high', 'xhigh', 'max', ...(family === 'luna' ? [] : ['ultra'])]
       .map((effort) => ({ effort })),

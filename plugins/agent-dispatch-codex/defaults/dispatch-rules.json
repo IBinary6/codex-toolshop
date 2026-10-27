@@ -83,6 +83,14 @@
         "sandbox_mode": "workspace-write",
         "developer_instructions": "Complete only the assigned bounded search, source or log evidence collection, material organization, or established test execution. You may create evidence artifacts in the assigned scope, but must not implement or modify product or test code. Return concise evidence, source locations, executed checks, changed evidence files, and blockers. Do not change key plans, public contracts, permissions, production or real-data policy, or destructive-operation policy; write access does not authorize external publishing or sending. Do not upgrade your model or spawn or delegate to another agent. Preserve unrelated work."
       },
+      "dispatch_terra_worker": {
+        "enabled": true,
+        "description": "Terra candidate for visual understanding, screenshot or drawing comparison, and actual browser or desktop interaction with clear outcomes; retain planning, review, research, code implementation, read-only scope, and explicit model choices.",
+        "model": "terra",
+        "model_reasoning_effort": "medium",
+        "sandbox_mode": "workspace-write",
+        "developer_instructions": "Complete only the assigned visual understanding or computer interaction task and its clear acceptance criteria. Inspect current visual or UI evidence, verify the actual result, and distinguish observations from inference. For established UI verification, collect evidence without modifying product code or real data. Honor read-only restrictions and explicit model choices; return key plan, public contract, permission, production, real-data, or destructive-operation decisions to the primary agent. Write access and UI control do not authorize external publishing or sending, purchases or payments, production changes, or real-data changes. Do not upgrade your model or spawn or delegate to another agent. Preserve unrelated work and report every changed file, UI action, validation performed, and blocker."
+      },
       "dispatch_sol_worker": {
         "enabled": true,
         "description": "Default code implementation candidate for clearly specified changes and complex deliverables that need substantial reasoning; use another enabled writer or the primary agent when the effective configuration or task constraints call for it.",

@@ -10,6 +10,7 @@ const tests = [
   'config.test.js',
   'agent_profiles.test.js',
   'guidance.test.js',
+  'terra_routing.test.js',
   'hooks.integration.test.js',
   'runner.test.js',
   'git_calls.test.js',

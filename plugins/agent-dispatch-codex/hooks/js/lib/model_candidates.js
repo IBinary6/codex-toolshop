@@ -7,13 +7,13 @@ const path = require('path');
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 function modelFamily(model) {
-  return typeof model === 'string' && /^(luna|sol|astra)$/i.test(model.trim())
+  return typeof model === 'string' && /^(luna|terra|sol|astra)$/i.test(model.trim())
     ? model.trim().toLowerCase() : '';
 }
 
 /** Only documented versioned GPT family IDs participate; pins outside this format remain exact pins. */
 function versionedFamily(model) {
-  const match = /^gpt-(\d+(?:\.\d+)*)-(luna|sol|astra)$/i.exec(model);
+  const match = /^gpt-(\d+(?:\.\d+)*)-(luna|terra|sol|astra)$/i.exec(model);
   return match ? { family: match[2].toLowerCase(), version: match[1].split('.').map(BigInt) } : null;
 }
 

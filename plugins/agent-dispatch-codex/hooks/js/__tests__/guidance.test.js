@@ -36,7 +36,9 @@ assert.match(mainAgentGuidance(config), /split only the evidence stage to low-co
 assert.match(mainAgentGuidance(config), /code-evidence/);
 assert.doesNotMatch(mainAgentGuidance(config), /cost-efficient execution agent/);
 assert.doesNotMatch(mainAgentGuidance(config), /clear development.*Luna/);
-assert.doesNotMatch(mainAgentGuidance(config), /dispatch_terra_worker/);
+assert.match(mainAgentGuidance(config), /dispatch_terra_worker/);
+assert.match(mainAgentGuidance(config), /Prefer Terra medium for visual understanding/);
+assert.doesNotMatch(mainAgentGuidance(config), /Complex computer interaction may justify Sol max/);
 assert.match(mainAgentGuidance(config), /independently review non-trivial deliverables/);
 assert.match(mainAgentGuidance(config), /For every new or reused review agent/);
 assert.match(mainAgentGuidance(config), /autonomously choose a supported model\/effort/);

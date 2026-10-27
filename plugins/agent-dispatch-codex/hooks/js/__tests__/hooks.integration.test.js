@@ -51,6 +51,8 @@ try {
   assert.match(session.hookSpecificOutput.additionalContext, /observable host model\/effort metadata/);
   assert.match(session.hookSpecificOutput.additionalContext, /family unresolved.*catalog-unavailable-or-stale/);
   assert.equal(fs.existsSync(path.join(repo, '.codex', 'agents', 'dispatch_sol_worker.toml')), false);
+  const terraProfile = path.join(repo, '.codex', 'agents', 'dispatch_terra_worker.toml');
+  assert.equal(fs.existsSync(terraProfile), false, 'a missing catalog must not materialize the Terra family alias');
 
   const compactSession = parse(run('session_start', { hook_event_name: 'SessionStart', source: 'compact' }));
   assert.match(compactSession.hookSpecificOutput.additionalContext, /Delegate only when independent parallel work helps/);
@@ -98,13 +100,41 @@ try {
     const compact = parse(run('session_start', { source: 'compact' }));
     assert.ok(compact.hookSpecificOutput.additionalContext.includes(`Use the effective ${model}/${effort} candidate for writing`));
   }
+  for (const [models, model] of [
+    [[['gpt-6.1-terra', ['medium']]], 'gpt-6.1-terra'],
+    [[['gpt-6.1-terra', ['medium']], ['gpt-6.2-terra', ['medium']]], 'gpt-6.2-terra'],
+    [[['gpt-6.2-terra', ['medium']], ['gpt-6.3-terra', ['medium']]], 'gpt-6.3-terra'],
+    [[['gpt-6.3-terra', ['high']], ['gpt-6.2-terra', ['medium']]], 'gpt-6.2-terra'],
+    [[['gpt-6.9-terra', ['medium']], ['gpt-6.10-terra', ['medium']]], 'gpt-6.10-terra'],
+  ]) {
+    fs.writeFileSync(catalogPath, JSON.stringify({
+      fetched_at: new Date().toISOString(),
+      models: [['gpt-6-sol', ['high']], ...models].map(([slug, efforts]) => ({
+        slug, supported_reasoning_levels: efforts.map((effort) => ({ effort })),
+      })),
+    }));
+    const context = parse(run('session_start', { source: 'startup' })).hookSpecificOutput.additionalContext;
+    assert.ok(context.includes(`dispatch_terra_worker (${model}, medium)`));
+    const toml = fs.readFileSync(terraProfile, 'utf8');
+    assert.ok(toml.includes(`model = "${model}"`));
+    assert.match(toml, /^model_reasoning_effort = "medium"/m);
+    assert.doesNotMatch(toml, /^model(?:_resolution|_candidates)? = "?terra/m);
+    assert.match(toml, /do not authorize external publishing or sending, purchases or payments, production changes, or real-data changes/);
+    const hint = parse(run('user_prompt_submit', { prompt: 'Compare these screenshots' })).hookSpecificOutput.additionalContext;
+    assert.ok(hint.includes(`dispatch_terra_worker (${model}/medium)`));
+  }
   fs.writeFileSync(catalogPath, '{invalid');
   const damaged = parse(run('session_start', { source: 'startup' })).hookSpecificOutput.additionalContext;
   assert.equal(fs.existsSync(solProfile), false, 'damaged catalog removes the obsolete managed role');
+  assert.equal(fs.existsSync(terraProfile), false, 'damaged catalog removes the obsolete managed Terra role');
   assert.match(damaged, /family unresolved/);
   const unresolvedPrompt = parse(run('user_prompt_submit', { prompt: 'implement this code module' })).hookSpecificOutput.additionalContext;
   assert.match(unresolvedPrompt, /host-supported full model ID and effort explicitly/);
   assert.doesNotMatch(unresolvedPrompt, /dispatch_sol_worker \(|explicit sol\/high/);
+  const unresolvedTerra = parse(run('user_prompt_submit', { prompt: 'Compare these screenshots' })).hookSpecificOutput.additionalContext;
+  assert.match(unresolvedTerra, /No resolved, fully pinned Terra candidate/);
+  assert.match(unresolvedTerra, /never silently inherit the parent model/);
+  assert.doesNotMatch(unresolvedTerra, /dispatch_terra_worker \(|explicit terra\/medium/);
   fs.unlinkSync(catalogPath);
   assert.match(parse(run('session_start', { source: 'startup' })).hookSpecificOutput.additionalContext, /catalog-unavailable-or-stale/);
   // Restore an isolated visible catalog for the remaining routing behavior checks.

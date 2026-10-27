@@ -7,7 +7,7 @@ const { renderAgentProfile } = require('../lib/agent_profiles');
 const { mainAgentGuidance } = require('../lib/guidance');
 
 const baseline = loadDefaults();
-assert.equal(Object.keys(baseline.agent_profiles.profiles).length, 12);
+assert.equal(Object.keys(baseline.agent_profiles.profiles).length, 13);
 assert.deepEqual(modelEffortWarnings(baseline), []);
 const invalidLowCost = mergeConfig(loadDefaults(), {
   policy: { low_cost: { model_reasoning_effort: 'ultra' } },
@@ -25,7 +25,7 @@ baseline.agent_profiles.profiles.dispatch_worker.model_reasoning_effort = 'ultra
 function override(profile, base = baseline) {
   return mergeConfig(base, { agent_profiles: { profiles: { dispatch_worker: profile } } });
 }
-for (const model of ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna']) {
+for (const model of ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna', 'gpt-6.1-terra']) {
   const effective = override({ model });
   const profile = effective.agent_profiles.profiles.dispatch_worker;
   assert.equal(profile.model, model);

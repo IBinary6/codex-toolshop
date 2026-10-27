@@ -27,7 +27,7 @@ const cache = (models, fetchedAt = new Date(now).toISOString()) => ({
   })),
 });
 const defaults = loadDefaults();
-const supportedModels = new Set(['luna', 'sol', 'astra']);
+const supportedModels = new Set(['luna', 'terra', 'sol', 'astra']);
 const defaultModels = new Set();
 for (const settings of [defaults.policy.low_cost, ...Object.values(defaults.agent_profiles.profiles)]) {
   for (const pair of [settings, ...(settings.model_candidates || [])]) {
@@ -39,7 +39,8 @@ for (const settings of [defaults.policy.low_cost, ...Object.values(defaults.agen
 assert.deepEqual(defaultModels, supportedModels, 'defaults use model families without version pins');
 assert.equal(defaults.agent_profiles.profiles.dispatch_sol_worker.model_candidates, undefined);
 assert.equal(defaults.agent_profiles.profiles.dispatch_sol_worker.model_reasoning_effort, 'high');
-assert.equal(Object.hasOwn(defaults.agent_profiles.profiles, 'dispatch_terra_worker'), false);
+assert.equal(defaults.agent_profiles.profiles.dispatch_terra_worker.model, 'terra');
+assert.equal(defaults.agent_profiles.profiles.dispatch_terra_worker.model_reasoning_effort, 'medium');
 const base = {
   policy: {
     low_cost: {
@@ -200,6 +201,51 @@ assert.equal(resolveModelCandidates(familyLayered, familyCatalog).agent_profiles
 assert.equal(selectCandidate([{ model: 'sol', model_reasoning_effort: 'high' }], new Map([['sol', new Set(['high'])]])), null, 'candidate aliases cannot escape to native settings');
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-dispatch-model-cache-'));
+// Terra uses the same catalog contract, including future releases, effort fallback, pins, and missing catalogs.
+const terraConfig = mergeConfig(defaults, {
+  agent_profiles: { profiles: { dispatch_terra_worker: { model: 'TeRrA', model_reasoning_effort: 'medium' } } },
+});
+const terraProfile = (config) => config.agent_profiles.profiles.dispatch_terra_worker;
+for (const [models, expected] of [
+  [[['gpt-6.1-terra', ['medium']]], 'gpt-6.1-terra'],
+  [[['gpt-6.1-terra', ['medium']], ['gpt-6.2-terra', ['medium']]], 'gpt-6.2-terra'],
+  [[['gpt-6.2-terra', ['medium']], ['gpt-6.3-terra', ['medium']]], 'gpt-6.3-terra'],
+  [[['gpt-6.9-terra', ['medium']], ['gpt-6.10-terra', ['medium']]], 'gpt-6.10-terra'],
+  [[['gpt-6.3-terra', ['high']], ['gpt-6.2-terra', ['medium']]], 'gpt-6.2-terra'],
+  [[['gpt-7-terra', ['medium'], 'hide'], ['gpt-6.3-terra', ['medium']]], 'gpt-6.3-terra'],
+  [[['gpt-99-terrain', ['medium']], ['gpt-next-terra', ['medium']], ['gpt-6.1-terra', ['medium']]], 'gpt-6.1-terra'],
+]) {
+  const selected = terraProfile(resolveModelCandidates(terraConfig, parseModelCatalog(cache(models.reverse()), now)));
+  assert.equal(selected.model, expected);
+  assert.equal(selected.model_reasoning_effort, 'medium');
+  assert.equal(selected.model_resolution.family, 'terra');
+}
+for (const invalidCatalog of [
+  null, new Map(), parseModelCatalog(cache([['gpt-99-sol', ['medium']]]), now),
+  parseModelCatalog(cache([['gpt-6.3-terra', ['high']]]), now),
+  parseModelCatalog(cache([['gpt-6.3-terra', ['medium']]], new Date(now - CACHE_MAX_AGE_MS - 1).toISOString()), now),
+  parseModelCatalog(cache([['gpt-6.3-terra', ['medium']]], new Date(now + 1).toISOString()), now),
+]) {
+  const selected = terraProfile(resolveModelCandidates(terraConfig, invalidCatalog));
+  assert.equal(selected.model, 'terra');
+  assert.equal(selected.model_resolution.status, 'unresolved');
+}
+const terraCatalog = parseModelCatalog(cache([['gpt-6.3-terra', ['medium']]]), now);
+const terraPin = mergeConfig(terraConfig, {
+  agent_profiles: { profiles: { dispatch_terra_worker: { model: 'gpt-6.1-terra', model_reasoning_effort: 'high' } } },
+});
+assert.equal(terraProfile(resolveModelCandidates(terraPin, terraCatalog)).model, 'gpt-6.1-terra', 'full-ID pin survives future versions');
+assert.equal(terraProfile(resolveModelCandidates(terraPin, terraCatalog)).model_reasoning_effort, 'high');
+const terraNoEffort = mergeConfig(terraConfig, {
+  agent_profiles: { profiles: { dispatch_terra_worker: { model_reasoning_effort: '' } } },
+});
+assert.equal(terraProfile(resolveModelCandidates(terraNoEffort, terraCatalog)).model_resolution.reason, 'explicit-effort-required');
+assert.equal(selectCandidate([{ model: 'terra', model_reasoning_effort: 'medium' }], new Map([['terra', new Set(['medium'])]])), null);
+const terraProject = mergeConfig(mergeConfig(defaults, {
+  agent_profiles: { profiles: { dispatch_terra_worker: { model: 'gpt-6.1-terra', model_reasoning_effort: 'high', custom_field: 'preserve' } } },
+}), { agent_profiles: { profiles: { dispatch_terra_worker: { model: 'terra', model_reasoning_effort: 'medium' } } } });
+assert.equal(terraProfile(resolveModelCandidates(terraProject, terraCatalog)).model, 'gpt-6.3-terra');
+assert.equal(terraProfile(terraProject).custom_field, 'preserve', 'existing layer merge preserves unknown fields');
 try {
   assert.equal(readModelCatalog({ codexHome: temp, now }), null, 'missing cache');
   const file = path.join(temp, 'models_cache.json');

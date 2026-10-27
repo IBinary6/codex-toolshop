@@ -27,6 +27,7 @@ class Installation:
     architecture: str = ""
     source: str = ""
     edition: str = ""
+    backend: str = ""
 
 
 def _existing_file(root: Path, relative_names: Iterable[str]) -> Path | None:
@@ -123,6 +124,12 @@ def detect_at(tool: str, path: Path | str, source: str = "") -> Installation | N
 
     if tool not in TOOLS:
         return None
+    if tool == "windbg":
+        # 保留 WindowsApps 执行别名，不解析到可能随 Store 更新失效的版本目录。
+        explicit = Path(path).expanduser().absolute()
+        native_root = explicit.parent if explicit.name.lower() == "dbgx.mcp.proxy.exe" else explicit
+        if (native_root / "DbgX.Mcp.Proxy.exe").is_file():
+            return Installation(tool, native_root, _version_from_name(Path(native_root.name)), source=source, backend="native")
     candidate = _resolved(Path(path))
     if tool == "ghidra":
         candidate = _resolve_scoop_shim(candidate)
@@ -194,7 +201,7 @@ def detect_at(tool: str, path: Path | str, source: str = "") -> Installation | N
             "",
         )
         return Installation(
-            tool, _resolved(candidate), _version_from_name(candidate), architecture, source
+            tool, _resolved(candidate), _version_from_name(candidate), architecture, source, backend="legacy"
         )
     return None
 
@@ -257,7 +264,7 @@ def _path_candidates(system: str | None = None) -> dict[str, list[Path]]:
     }
     if current_system == "Windows":
         names["x64dbg"] = ("x64dbg.exe", "x32dbg.exe")
-        names["windbg"] = ("cdb.exe", "kd.exe")
+        names["windbg"] = ("DbgX.Mcp.Proxy.exe", "cdb.exe", "kd.exe")
     result = {tool: [] for tool in TOOLS}
     for tool, executable_names in names.items():
         for executable_name in executable_names:
@@ -368,6 +375,7 @@ def _automatic_candidates() -> dict[str, list[Path]]:
         result["windbg"].append(program_files_x86 / "Windows Kits/10/Debuggers/x64")
         local_app_data = os.environ.get("LOCALAPPDATA")
         if local_app_data:
+            result["windbg"].append(Path(local_app_data) / "Microsoft/WindowsApps/Microsoft.WinDbg_8wekyb3d8bbwe")
             result["windbg"].append(Path(local_app_data) / "Microsoft/WindowsApps")
         _merge_candidates(result, _windows_registry_candidates())
     else:
