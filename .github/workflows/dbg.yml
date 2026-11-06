@@ -1,6 +1,7 @@
 name: Dbg
 
 on:
+  workflow_dispatch:
   push:
     paths: ["plugins/dbg-codex/**", ".github/workflows/dbg.yml"]
   pull_request:
