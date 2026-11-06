@@ -43,6 +43,14 @@ Unsupported versions report `unsupported`; incompatible components are not downl
 
 x64dbg and x32dbg have separate `dbg-x64dbg` and `dbg-x32dbg` entry points. Each connects to its matching architecture to avoid controlling the wrong instance when both debuggers are open.
 
+### Session processes and reuse
+
+The five stdio entry points remain lightweight Node frontends. A valid deployment and cached, real MCP tool catalog let discovery complete without starting Python or a debugger backend. A cache miss briefly starts the selected backend for discovery and then releases it. Native WinDbg discovery is always live because its tools and connection can depend on the available GUI sessions; x32/x64 status-only catalogs are not kept as a working debugger catalog.
+
+The first actual operation keeps that endpoint's backend for the rest of the MCP session. Further operations in the same session reuse it, including its debugging state. Backends are not shared between separate sessions, and an active debugging session has no idle termination timer. Tool calls, results, tokens, and target session identifiers are not stored in the catalog cache.
+
+When the host closes stdin or the launcher exits, the plugin gives its backend bounded time to exit and reclaims the processes created for that session. Windows uses a private Job object and a handle to the owning launcher; POSIX uses an owned process group. Existing debugger GUI windows and other MCP sessions are outside that ownership. Processes started by an older plugin keep that older lifecycle until their MCP connections close; upgrading files does not replace a running process.
+
 On Windows, discovery checks Scoop user, global, and custom roots, the active `current` version, registered installations, and PATH. On macOS/Linux, it queries actual Homebrew prefixes for Apple Silicon, Intel Mac, Linuxbrew, and custom installations. It reads active formula `opt`/`libexec` directories and real paths of relevant installed casks. Without a package manager, it still checks PATH, application directories, and controlled one-level manual installation directories. Mac IDA discovery prefers the version in the application's `Info.plist` rather than relying on its directory name. An active Scoop `current` version takes precedence over historical directories.
 
 Ghidra builds also support installed Homebrew OpenJDK that is not on PATH and common macOS/Linux JDK installation directories. Discovery reads package-manager information only; it does not install or upgrade packages. If a nonstandard directory is missed, add its root explicitly to `config.json` in the Dbg data directory without reinstalling the plugin:

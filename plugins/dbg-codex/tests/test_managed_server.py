@@ -9,6 +9,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from managed_server import select_http_runtime, run_windbg
+from process_owner import ProcessOwnershipError
 from windbg import legacy_available
 
 
@@ -23,30 +24,38 @@ class ManagedServerTests(unittest.TestCase):
             native = {"command": [str(proxy)], "env": {}}
             backup = {"command": [sys.executable, "-m", "mcp_windbg"], "env": {"CDB_PATH": str(engine), "_NT_SYMBOL_PATH": "kept"}}
             record = {"backend": "native", "runtime": native, "legacy_runtime": backup}
-            with mock.patch("managed_server.start_native", side_effect=PermissionError()) as start, \
+            owner = mock.Mock()
+            with mock.patch("managed_server.start_stdio", side_effect=PermissionError()) as start, \
                  mock.patch("managed_server.run_stdio", return_value=0) as run, \
                  mock.patch("sys.stderr") as stderr:
-                self.assertEqual(run_windbg(record, "auto"), 0)
-                start.assert_called_once_with(native)
-                run.assert_called_once_with(backup)
+                self.assertEqual(run_windbg(record, "auto", owner), 0)
+                start.assert_called_once_with(native, owner)
+                run.assert_called_once_with(backup, owner)
                 self.assertIn("legacy", "".join(call.args[0] for call in stderr.write.call_args_list))
-            with mock.patch("managed_server.start_native", side_effect=PermissionError()) as run, mock.patch("sys.stderr"):
-                self.assertEqual(run_windbg(record, "native"), 1)
+            with mock.patch("managed_server.start_stdio", side_effect=PermissionError()) as run, mock.patch("sys.stderr"):
+                self.assertEqual(run_windbg(record, "native", owner), 1)
                 self.assertEqual(run.call_count, 1)
-            with mock.patch("managed_server.start_native", return_value=mock.Mock(wait=mock.Mock(return_value=7))) as run, \
+            owner.wait.return_value = 7
+            with mock.patch("managed_server.start_stdio") as run, \
                  mock.patch("managed_server.run_stdio") as fallback:
-                self.assertEqual(run_windbg(record, "auto"), 7)
+                self.assertEqual(run_windbg(record, "auto", owner), 7)
                 self.assertEqual(run.call_count, 1)
+                owner.wait.assert_called_once_with(run.return_value)
                 fallback.assert_not_called()
-            with mock.patch("managed_server.start_native", return_value=mock.Mock(wait=mock.Mock(side_effect=OSError()))), \
-                 mock.patch("managed_server.run_stdio") as fallback:
+            owner.wait.side_effect = OSError()
+            with mock.patch("managed_server.start_stdio"), mock.patch("managed_server.run_stdio") as fallback:
                 with self.assertRaises(OSError):
-                    run_windbg(record, "auto")
+                    run_windbg(record, "auto", owner)
+                fallback.assert_not_called()
+            with mock.patch("managed_server.start_stdio", side_effect=ProcessOwnershipError()), \
+                 mock.patch("managed_server.run_stdio") as fallback:
+                with self.assertRaises(ProcessOwnershipError):
+                    run_windbg(record, "auto", owner)
                 fallback.assert_not_called()
             engine.unlink()
             self.assertFalse(legacy_available(backup))
-            with mock.patch("managed_server.start_native", side_effect=FileNotFoundError()) as run, mock.patch("sys.stderr"):
-                self.assertEqual(run_windbg(record, "auto"), 1)
+            with mock.patch("managed_server.start_stdio", side_effect=FileNotFoundError()) as run, mock.patch("sys.stderr"):
+                self.assertEqual(run_windbg(record, "auto", owner), 1)
                 self.assertEqual(run.call_count, 1)
 
     def test_missing_native_executable_uses_backup_without_attempting_native(self):
@@ -55,9 +64,10 @@ class ManagedServerTests(unittest.TestCase):
             engine.touch()
             backup = {"command": [sys.executable, "-m", "mcp_windbg"], "env": {"KD_PATH": str(engine)}}
             record = {"backend": "native", "runtime": {"command": [str(Path(directory) / "missing.exe")]}, "legacy_runtime": backup}
+            owner = mock.Mock()
             with mock.patch("managed_server.run_stdio", return_value=0) as run, mock.patch("sys.stderr"):
-                self.assertEqual(run_windbg(record, "auto"), 0)
-                run.assert_called_once_with(backup)
+                self.assertEqual(run_windbg(record, "auto", owner), 0)
+                run.assert_called_once_with(backup, owner)
 
     def test_node_pipe_reaches_registered_runtime_and_preserves_output(self):
         # Reproduce the real Node -> Python router -> isolated backend stdio flow, including Windows CRT pipes.

@@ -198,10 +198,18 @@ test('running MCP launcher and backend release plugin cache for parent-directory
   const data = path.join(temp, 'data');
   const launcherState = path.join(temp, 'launcher.json');
   const backendState = path.join(temp, 'backend.json');
-  const stopFile = path.join(temp, 'stop');
   const backendScript = path.join(temp, 'backend.cjs');
   fs.mkdirSync(version, { recursive: true });
-  fs.writeFileSync(backendScript, `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(backendState)}+'.tmp',JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2)}));fs.renameSync(${JSON.stringify(backendState)}+'.tmp',${JSON.stringify(backendState)});const timer=setInterval(()=>{if(fs.existsSync(${JSON.stringify(stopFile)})){clearInterval(timer);process.exit(0)}},25);`);
+  fs.writeFileSync(backendScript, `
+    const fs=require('node:fs');
+    fs.writeFileSync(${JSON.stringify(backendState)}+'.tmp',JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2),owner:process.env.DBG_MCP_OWNER_PID}));
+    fs.renameSync(${JSON.stringify(backendState)}+'.tmp',${JSON.stringify(backendState)});
+    require('node:readline').createInterface({input:process.stdin}).on('line',(line)=>{
+      const request=JSON.parse(line);
+      const result={protocolVersion:'2024-11-05',capabilities:{},serverInfo:{name:'fixture',version:'1'}};
+      process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:request.id,result})+'\\n');
+    });
+  `);
   const code = `
     const fs=require('node:fs'),cp=require('node:child_process');
     const {runMcp}=require(${JSON.stringify(path.resolve(__dirname, '../scripts/launch.cjs'))});
@@ -212,7 +220,7 @@ test('running MCP launcher and backend release plugin cache for parent-directory
     }});
   `;
   const child = spawn(process.execPath, ['-e', code], {
-    cwd: version, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    cwd: version, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
     env: { ...process.env, DBG_HOME: path.relative(version, data) },
   });
   let stderr = '';
@@ -227,6 +235,7 @@ test('running MCP launcher and backend release plugin cache for parent-directory
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   }
   try {
+    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }) + '\n');
     const state = await waitFor(launcherState);
     const backend = await waitFor(backendState);
     assert.equal(state.cwd, data);
@@ -236,9 +245,10 @@ test('running MCP launcher and backend release plugin cache for parent-directory
     assert.equal(state.args[0], path.resolve(__dirname, '../scripts/managed_server.py'));
     assert.equal(state.args[1], 'x64dbg');
     assert.equal(backend.cwd, data);
+    assert.equal(backend.owner, String(child.pid));
     fs.renameSync(plugin, `${plugin}.backup`);
   } finally {
-    fs.writeFileSync(stopFile, 'stop');
+    child.stdin.end();
     let timeout;
     try {
       await Promise.race([
@@ -246,6 +256,179 @@ test('running MCP launcher and backend release plugin cache for parent-directory
         new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error(`launcher did not stop: ${stderr}`)), 5000); }),
       ]);
     } finally { clearTimeout(timeout); }
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('an MCP launcher with no host requests does not start a debugger backend or probe Python', async () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dbg-lazy-launch-'));
+  const launched = path.join(temp, 'launched');
+  const code = `
+    const fs=require('node:fs');
+    const cp=require('node:child_process');
+    const {runMcp}=require(${JSON.stringify(path.resolve(__dirname, '../scripts/launch.cjs'))});
+    const record=(name)=>fs.appendFileSync(${JSON.stringify(launched)}, name+'\\n');
+    runMcp('ghidra',{ensurePython(){record('python');return [process.execPath]},doctor(){record('doctor');return {status:0}},spawn(){
+      record('backend');
+      return cp.spawn(process.execPath,['-e','process.stdin.resume()'],{stdio:['pipe','pipe','pipe'],windowsHide:true});
+    }});
+    process.stdout.write('ready\\n');
+  `;
+  const child = spawn(process.execPath, ['-e', code], {
+    stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: { ...process.env, DBG_HOME: temp },
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      child.stdout.once('data', resolve);
+      child.once('error', reject);
+      child.once('close', () => reject(new Error('launcher exited before becoming ready')));
+    });
+    const actual = fs.existsSync(launched) ? fs.readFileSync(launched, 'utf8') : '';
+    assert.equal(actual, '');
+  } finally {
+    child.stdin.end();
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill();
+      await new Promise((resolve) => child.once('close', resolve));
+    }
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('warm deployment skips Python probing and doctor, and config or runtime files invalidate catalogs', async () => {
+  const readline = require('node:readline');
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dbg-deployment-'));
+  const plugin = path.resolve(__dirname, '..');
+  const version = JSON.parse(fs.readFileSync(path.join(plugin, '.codex-plugin', 'plugin.json'), 'utf8')).version;
+  const starts = path.join(temp, 'starts.log');
+  const runtime = path.join(temp, 'runtime.cjs');
+  const alias = path.join(temp, 'WindowsApps', 'Microsoft.WinDbg_8wekyb3d8bbwe', 'DbgX.Mcp.Proxy.exe');
+  const cli = path.join(temp, process.platform === 'win32' ? 'dbg.cmd' : 'dbg');
+  const shim = process.platform === 'win32' ? path.join(temp, 'dbg-cli.ps1') : cli;
+  const state = {
+    schema_version: 1, plugin_version: version, auto_completed_version: version, auto_windbg_backend: 'auto',
+    runtimes: { fixture: process.execPath }, cli: { target: cli },
+    tools: {
+      ghidra: { status: 'deployed', runtime: { command: [process.execPath, runtime], env: { TOKEN: 'hidden-fixture-token' } } },
+      'ida-mcp': { status: 'not_installed' }, windbg: { status: 'not_installed' }, x64dbg: { status: 'not_installed' },
+    },
+  };
+  fs.writeFileSync(cli, 'fixture');
+  fs.writeFileSync(shim, fs.realpathSync(path.join(plugin, 'scripts', 'launch.cjs')) + '\n' + fs.realpathSync(process.execPath));
+  if (process.platform === 'win32') {
+    fs.mkdirSync(path.dirname(alias), { recursive: true });
+    fs.writeFileSync(alias, 'fixture for an official WindowsApps execution alias');
+    state.tools.windbg = { status: 'deployed', backend: 'native', runtime: { command: [alias] } };
+  }
+  fs.writeFileSync(path.join(temp, 'state.json'), JSON.stringify(state));
+  const backendCode = String.raw`
+    const readline = require('node:readline');
+    const send = (id, result) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n');
+    readline.createInterface({ input: process.stdin }).on('line', (line) => {
+      const message = JSON.parse(line);
+      if (message.method === 'initialize') {
+        send(message.id, { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'fixture', version: '1' } });
+      } else if (message.method === 'tools/list') {
+        send(message.id, { tools: [{ name: 'ghidra_fixture', inputSchema: { type: 'object' } }] });
+      }
+    });
+  `;
+  fs.writeFileSync(runtime, backendCode);
+  const script = `
+    const fs = require('node:fs');
+    const cp = require('node:child_process');
+    if (process.platform === 'win32') {
+      const alias = ${JSON.stringify(alias)};
+      const stat = fs.statSync;
+      const lstat = fs.lstatSync;
+      fs.statSync = (name, ...args) => {
+        if (name === alias) throw Object.assign(Error('cannot follow application alias'), { code: 'EACCES' });
+        return stat(name, ...args);
+      };
+      fs.lstatSync = (name, ...args) => {
+        const result = lstat(name, ...args);
+        if (name === alias) result.isSymbolicLink = () => true;
+        return result;
+      };
+    }
+    const {runMcp,runHook} = require(${JSON.stringify(path.join(plugin, 'scripts', 'launch.cjs'))});
+    const forbidden = () => { fs.appendFileSync(${JSON.stringify(starts)}, 'probe\\n'); throw Error('unexpected Python probe/doctor'); };
+    if (process.argv[1] === 'hook') runHook({ensurePython:forbidden,doctor:forbidden});
+    else runMcp(process.argv[1] || 'ghidra',{
+      ensurePython:forbidden, doctor:forbidden,
+      spawn(command,args,opts) {
+        const child = cp.spawn(process.execPath,[${JSON.stringify(runtime)}],opts);
+        fs.appendFileSync(${JSON.stringify(starts)}, 'start '+child.pid+'\\n');
+        return child;
+      }
+    });
+  `;
+  const env = { ...process.env, DBG_HOME: temp };
+  delete env.DBG_PYTHON;
+  const clients = [];
+  const open = (backend = 'ghidra') => {
+    const child = spawn(process.execPath, ['-e', script, backend], { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    const messages = [];
+    const closed = new Promise((resolve) => child.once('close', resolve));
+    readline.createInterface({ input: child.stdout }).on('line', (line) => messages.push(JSON.parse(line)));
+    child.stderr.resume();
+    const request = async (id, method, params) => {
+      child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
+      const deadline = Date.now() + 5000;
+      for (;;) {
+        const response = messages.find((message) => message.id === id);
+        if (response) return response;
+        if (Date.now() >= deadline || child.exitCode !== null) throw new Error('fixture frontend failed to reply');
+        await new Promise((resolve) => setTimeout(resolve, 15));
+      }
+    };
+    const discover = async () => {
+      assert.ok((await request(1, 'initialize', { protocolVersion: '2024-11-05', capabilities: {} })).result);
+      assert.equal((await request(2, 'tools/list')).result.tools[0].name, 'ghidra_fixture');
+    };
+    const close = async () => { child.stdin.end(); assert.equal(await closed, 0); };
+    clients.push(close);
+    return { discover, close };
+  };
+  const launches = () => fs.readFileSync(starts, 'utf8').trim().split('\n');
+  try {
+    const hook = spawnSync(process.execPath, ['-e', script, 'hook'], { env, encoding: 'utf8', windowsHide: true });
+    assert.equal(hook.status, 0, hook.stderr);
+    assert.equal(hook.stdout, '');
+    assert.ok(!fs.existsSync(starts));
+    const cold = open();
+    await cold.discover();
+    await cold.close();
+    assert.equal(launches().length, 1);
+    const catalog = path.join(temp, 'mcp-catalog', 'ghidra.json');
+    assert.ok(!fs.readFileSync(catalog, 'utf8').includes('hidden-fixture-token'));
+
+    const warm = [open(), open(), open()];
+    await Promise.all(warm.map((client) => client.discover()));
+    assert.equal(launches().length, 1);
+    await Promise.all(warm.map((client) => client.close()));
+
+    fs.writeFileSync(path.join(temp, 'config.json'), JSON.stringify({ paths: { ghidra: 'changed' } }));
+    const changedConfig = open();
+    await changedConfig.discover();
+    await changedConfig.close();
+    assert.equal(launches().length, 2);
+
+    fs.appendFileSync(runtime, '\n// deployed runtime was replaced\n');
+    const changedRuntime = open();
+    await changedRuntime.discover();
+    await changedRuntime.close();
+    assert.equal(launches().length, 3);
+    if (process.platform === 'win32') {
+      const native = open('windbg');
+      await native.discover();
+      await native.close();
+      assert.equal(launches().length, 4);
+      assert.ok(!fs.existsSync(path.join(temp, 'mcp-catalog', 'windbg.json')));
+    }
+    assert.ok(launches().every((line) => /^start \d+$/.test(line)));
+  } finally {
+    await Promise.all(clients.map((close) => close()));
     fs.rmSync(temp, { recursive: true, force: true });
   }
 });

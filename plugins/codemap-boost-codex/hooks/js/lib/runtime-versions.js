@@ -51,8 +51,12 @@ function promoteRuntimeVersion(kind, version, options = {}) {
   const current = readRuntimeVersions(options);
   const active = current.active && typeof current.active === 'object' && !Array.isArray(current.active)
     ? { ...current.active } : {};
+  // 记录最近替换的版本供诊断；更早的会话仍可能使用旧 venv，不据此删除任何已发布版本。
+  const previous = current.previous && typeof current.previous === 'object' && !Array.isArray(current.previous)
+    ? { ...current.previous } : {};
+  previous[kind] = active[kind] || '';
   active[kind] = version;
-  writeRuntimeVersions({ ...current, active }, options);
+  writeRuntimeVersions({ ...current, active, previous }, options);
 }
 
 function compareVersions(left, right) {

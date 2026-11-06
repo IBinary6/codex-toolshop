@@ -6,7 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { crgRuntimePaths, ensureCrg } = require('../lib/bootstrap');
-const { ensureSerena, serenaRuntimePaths } = require('../lib/serena-runtime');
+const { SERENA_VERSION, ensureSerena, serenaRuntimePaths } = require('../lib/serena-runtime');
 const { main: runtimeUpdateMain } = require('../../../scripts/runtime-update.cjs');
 const {
   WEEK_MS,
@@ -51,6 +51,8 @@ async function main() {
           probeHome = options.env.SERENA_HOME;
           assert.notStrictEqual(probeHome, stableHome);
           assert.strictEqual(options.cwd, probeHome);
+          assert.strictEqual(fs.readFileSync(path.join(probeHome, 'serena_config.yml'), 'utf8'), originalConfig,
+            'the candidate is checked with the agent interface the user configured, not a fresh template');
           fs.writeFileSync(path.join(probeHome, 'serena_config.yml'), 'candidate defaults');
           return { status };
         },
@@ -253,6 +255,71 @@ async function main() {
 
     const disabled = await runRuntimeUpdates({ pluginDataDir: data, env: { CODEMAP_BOOST_DISABLE_RUNTIME_UPDATES: '1' } });
     assert.strictEqual(disabled.status, 'disabled');
+
+    // 多轮升级后旧会话仍会用启动时固定的 Python 路径；保留所有已有运行时。
+    const pruneData = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-runtime-prune-'));
+    try {
+      const venv = (kind, version) => fs.mkdirSync(runtimeDir(kind, version, { pluginDataDir: pruneData }), { recursive: true });
+      for (const version of ['2.0.0', '2.1.0', '2.2.0']) venv('crg', version);
+      for (const version of [SERENA_VERSION, '1.8.0', '1.9.0', '2.0.0']) venv('serena', version);
+      fs.mkdirSync(path.join(pruneData, 'crg-runtime'), { recursive: true });
+      promoteRuntimeVersion('crg', '2.1.0', { pluginDataDir: pruneData });
+      promoteRuntimeVersion('crg', '2.2.0', { pluginDataDir: pruneData });
+      promoteRuntimeVersion('serena', '1.9.0', { pluginDataDir: pruneData });
+      promoteRuntimeVersion('serena', '2.0.0', { pluginDataDir: pruneData });
+      assert.deepStrictEqual(readRuntimeVersions({ pluginDataDir: pruneData }).previous, { crg: '2.1.0', serena: '1.9.0' }, 'promotion remembers the replaced version');
+      const promoted = await runRuntimeUpdates({
+        pluginDataDir: pruneData, force: true, kinds: ['crg'],
+        fetchLatest: async () => '2.3.0',
+        installCrg: (_pkg, opts) => { fs.mkdirSync(opts.runtimeDir, { recursive: true }); return true; },
+        probeCrg: () => true, checkCrgAdapter: () => ({ ok: true }), checkCrgCatalog: () => true,
+      });
+      assert.strictEqual(promoted.results[0].status, 'promoted');
+      assert.deepStrictEqual(fs.readdirSync(path.join(pruneData, 'crg-runtimes')).sort(), ['2.0.0', '2.1.0', '2.2.0', '2.3.0']);
+      assert.ok(fs.existsSync(path.join(pruneData, 'crg-runtime')), 'the legacy CRG baseline is never removed');
+      assert.deepStrictEqual(fs.readdirSync(path.join(pruneData, 'serena-runtime')).sort(), [SERENA_VERSION, '1.8.0', '1.9.0', '2.0.0'].sort());
+
+      // A candidate that fails validation is removed instead of staying on disk.
+      const rejected = await runRuntimeUpdates({
+        pluginDataDir: pruneData, force: true, kinds: ['serena'],
+        fetchLatest: async () => '2.1.0',
+        installSerena: (_pkg, installOptions) => { fs.mkdirSync(installOptions.runtimeDir, { recursive: true }); return true; },
+        probeSerena: () => true, verifySerenaCli: () => false,
+      });
+      assert.strictEqual(rejected.results[0].status, 'failed');
+      assert.strictEqual(fs.existsSync(runtimeDir('serena', '2.1.0', { pluginDataDir: pruneData })), false, 'the rejected candidate venv is removed');
+      assert.strictEqual(readRuntimeVersions({ pluginDataDir: pruneData }).active.serena, '2.0.0', 'the current runtime stays');
+
+      venv('serena', '2.1.0');
+      const existingRejected = await runRuntimeUpdates({
+        pluginDataDir: pruneData, force: true, kinds: ['serena'],
+        fetchLatest: async () => '2.1.0', installSerena: () => { throw new Error('existing runtime must never be reinstalled'); },
+        probeSerena: () => true, verifySerenaCli: () => false,
+      });
+      assert.strictEqual(existingRejected.results[0].status, 'failed');
+      assert.ok(fs.existsSync(runtimeDir('serena', '2.1.0', { pluginDataDir: pruneData })), 'do not delete a preexisting candidate that may have another owner');
+
+      const existingUnhealthy = await runRuntimeUpdates({
+        pluginDataDir: pruneData, force: true, kinds: ['serena'],
+        fetchLatest: async () => '2.1.0',
+        installSerena: () => { assert.fail('unhealthy existing runtime must not be overwritten'); },
+        probeSerena: () => false,
+      });
+      assert.strictEqual(existingUnhealthy.results[0].status, 'failed');
+      assert.ok(fs.existsSync(runtimeDir('serena', '2.1.0', { pluginDataDir: pruneData })));
+
+      const failedAfterPromotion = await runRuntimeUpdates({
+        pluginDataDir: pruneData, force: true, kinds: ['serena'],
+        fetchLatest: async () => '2.2.0',
+        installSerena: (_pkg, opts) => { fs.mkdirSync(opts.runtimeDir, { recursive: true }); return true; },
+        probeSerena: () => true, verifySerenaCli: () => true,
+        promote: (kind, version, opts) => { promoteRuntimeVersion(kind, version, opts); throw new Error('post-publish failure'); },
+      });
+      assert.strictEqual(failedAfterPromotion.results[0].status, 'failed');
+      assert.ok(fs.existsSync(runtimeDir('serena', '2.2.0', { pluginDataDir: pruneData })), 'cleanup cannot delete a published candidate');
+    } finally {
+      fs.rmSync(pruneData, { recursive: true, force: true });
+    }
   } finally {
     fs.rmSync(data, { recursive: true, force: true });
   }

@@ -333,7 +333,7 @@ async function main() {
             evaluationTimeoutMs: 3500, maxEvaluationBytes: mode === 'output' ? 1024 : undefined,
             env: { ...process.env, PSModulePath: 'C:\\Program Files\\PowerShell\\7\\Modules' },
             spawn(executable, args, spawnOptions) {
-              assert.equal(executable, powershell);
+              assert.equal(fs.realpathSync.native(executable), fs.realpathSync.native(powershell));
               assert.ok(!Object.keys(spawnOptions.env).some(name => name.toLowerCase() === 'psmodulepath'),
                 'a PowerShell 7 module path must not reach Windows PowerShell 5');
               // Release the ready fixture only after the evaluator listener is installed so output mode cannot lose the first data batch.

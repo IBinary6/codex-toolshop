@@ -28,6 +28,7 @@ const {
   SERENA_MCP_ARGS,
   SERENA_VERSION,
   probeSerenaRuntime,
+  serenaHomeDir,
   serenaLaunchEnv,
   serenaRuntimePaths,
 } = require('./serena-runtime');
@@ -216,6 +217,9 @@ function verifySerenaCli(paths, options = {}) {
     "    assert pathlib.Path(cpp['compile_commands_dir']).is_relative_to(home)",
     'original = SerenaMCPFactory.create_mcp_server',
     'original_agent_init = SerenaAgent.__init__',
+    // MCP Python SDK 2 将模型属性改为 snake_case；仍验证实际工具参数，不能因 SDK 升级省略守卫。
+    'def tool_schema(tool):',
+    "    return getattr(tool, 'inputSchema', None) or getattr(tool, 'input_schema', {})",
     'def guarded_agent_init(self, *args, **kwargs):',
     "    config = kwargs.get('serena_config')",
     '    assert config is not None, "SerenaAgent config must be explicit before construction"',
@@ -230,9 +234,13 @@ function verifySerenaCli(paths, options = {}) {
     '    async def check_tools():',
     '        async with server.settings.lifespan(server):',
     '            tools = {tool.name: tool for tool in await server.list_tools()}',
-    "            assert 'activate_project' in tools and 'find_symbol' in tools",
-    "            assert 'project' in tools['activate_project'].inputSchema.get('properties', {})",
-    "            assert 'name_path_pattern' in tools['find_symbol'].inputSchema.get('properties', {})",
+    // Serena 2 can hide every operation behind one serena_repl tool (agent_interface: REPL); the frontend prepares C/C++ data by
+    // intercepting individual tools, so only the one-tool-per-operation interface the user's configuration selects is accepted.
+    "            get_interface = getattr(self.agent, 'get_agent_interface', None)",
+    "            assert get_interface is None or get_interface().is_tools(), 'the frontend requires agent_interface: tools'",
+    "            assert {'activate_project', 'find_symbol', 'find_referencing_symbols'} <= tools.keys(), sorted(tools)",
+    "            assert 'project' in tool_schema(tools['activate_project']).get('properties', {})",
+    "            assert 'name_path_pattern' in tool_schema(tools['find_symbol']).get('properties', {})",
     '    asyncio.run(check_tools())',
     '    return server',
     "with patch.object(SerenaAgent, '__init__', guarded_agent_init):",
@@ -244,6 +252,9 @@ function verifySerenaCli(paths, options = {}) {
   try {
     // The candidate CLI writes default settings and logs, so use only a directory owned by this probe.
     probeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-serena-probe-'));
+    // Check the agent interface the user will get: a fresh template of a newer Serena may select another one than the stable settings.
+    const stableConfig = path.join(serenaHomeDir(options), 'serena_config.yml');
+    if (fs.existsSync(stableConfig)) fs.copyFileSync(stableConfig, path.join(probeHome, 'serena_config.yml'));
     const result = executable(paths.python, ['-I', '-B', '-c', script, JSON.stringify(SERENA_MCP_ARGS), path.resolve(__dirname, '../../../scripts/serena-session.py')], {
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout,
       cwd: probeHome, windowsHide: process.platform === 'win32',
@@ -269,6 +280,9 @@ async function updateOne(kind, state, options = {}) {
     ? (options.currentCrgVersion || installedPackageVersion)(crgRuntimePaths(options), 'code-review-graph', options)
     : baseline);
   const packageName = kind === 'crg' ? 'code-review-graph' : 'serena-agent';
+  let candidateDir = '';
+  let candidateVersion = '';
+  let ownsCandidate = false;
   try {
     const latest = await (options.fetchLatest || fetchPypiLatest)(packageName, options);
     if (!isRuntimeVersion(latest)) throw new Error(`Invalid candidate version: ${latest}`);
@@ -276,14 +290,18 @@ async function updateOne(kind, state, options = {}) {
       const next = recordAttempt(state, kind, { at: now, status: 'no-change', current, latest });
       return { state: next, result: { kind, status: 'no-change', current, latest } };
     }
-    const candidateDir = runtimeDir(kind, latest, options);
+    candidateDir = runtimeDir(kind, latest, options);
+    candidateVersion = latest;
+    // 只回收本轮新建且未发布的候选；已有运行时可能被长会话或显式版本配置使用。
+    ownsCandidate = !fs.existsSync(candidateDir);
     const deadlineMs = now + MCP_BOOTSTRAP_BUDGET_MS;
     let installed = false;
     if (kind === 'crg') {
       const paths = crgRuntimePaths({ ...options, runtimeDir: candidateDir, version: latest });
       const crgProbe = options.probeCrg || probeCrgRuntime;
       const probe = (probeOptions) => crgProbe({ ...probeOptions, runtimeDir: candidateDir, expectedVersion: latest });
-      installed = !!(options.installCrg || installManagedCrg)(`${CRG_PACKAGE}==${latest}`, { ...options, runtimeDir: candidateDir, version: latest, expectedVersion: latest, deadlineMs, probeRuntime: probe });
+      // 安装器会先清空目标目录；已有目录只能验证复用，不能交给安装器覆盖。
+      installed = !ownsCandidate || !!(options.installCrg || installManagedCrg)(`${CRG_PACKAGE}==${latest}`, { ...options, runtimeDir: candidateDir, version: latest, expectedVersion: latest, deadlineMs, probeRuntime: probe });
       if (installed && !probe({ ...options, deadlineMs })) installed = false;
       const adapter = (options.checkCrgAdapter || checkCrgAdapter)(paths, latest, { ...options, deadlineMs });
       if (installed && (!adapter || adapter.ok !== true)) {
@@ -296,7 +314,7 @@ async function updateOne(kind, state, options = {}) {
       const paths = serenaRuntimePaths({ ...options, runtimeDir: candidateDir, version: latest });
       const serenaProbe = options.probeSerena || probeSerenaRuntime;
       const probe = (probeOptions) => serenaProbe({ ...probeOptions, runtimeDir: candidateDir, version: latest, expectedVersion: latest });
-      installed = !!(options.installSerena || installManagedCrg)(`serena-agent==${latest}`, { ...options, runtimeDir: candidateDir, version: latest, expectedVersion: latest, deadlineMs, probeRuntime: probe });
+      installed = !ownsCandidate || !!(options.installSerena || installManagedCrg)(`serena-agent==${latest}`, { ...options, runtimeDir: candidateDir, version: latest, expectedVersion: latest, deadlineMs, probeRuntime: probe });
       if (installed && !probe({ ...options, deadlineMs })) installed = false;
       if (installed && !(options.verifySerenaCli || verifySerenaCli)(paths, { ...options, deadlineMs })) installed = false;
     }
@@ -305,6 +323,10 @@ async function updateOne(kind, state, options = {}) {
     const next = recordAttempt(state, kind, { at: now, status: 'promoted', current, latest });
     return { state: next, result: { kind, status: 'promoted', current, latest } };
   } catch (error) {
+    // 即使发布函数在写入指针后抛错，也不能删除刚发布的目录。
+    if (ownsCandidate && activeRuntimeVersion(kind, options) !== candidateVersion) {
+      try { fs.rmSync(candidateDir, { recursive: true, force: true }); } catch (_) {}
+    }
     const next = recordAttempt(state, kind, { at: now, status: 'failed', current, reason: String(error.message || error).slice(0, 600) });
     return { state: next, result: { kind, status: 'failed', current, reason: next.attempts[kind].reason } };
   }

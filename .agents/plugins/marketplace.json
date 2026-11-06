@@ -20,7 +20,7 @@
     },
     {
       "name": "codemap-boost-codex",
-      "version": "0.1.51",
+      "version": "0.1.52",
       "description": "CodeMap semantic graph search with synchronized graph-read barriers and complementary tgrep text-search routing.",
       "source": {
         "source": "local",
@@ -90,7 +90,7 @@
     },
     {
       "name": "dbg-codex",
-      "version": "0.1.8",
+      "version": "0.1.9",
       "description": "Script-driven deployment, update and repair of debugger extensions and their MCP servers.",
       "source": {
         "source": "local",

@@ -5,9 +5,12 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { createHash, randomUUID } = require('node:crypto');
 const { spawnSync, spawn } = require('node:child_process');
 const { pythonCandidates: sharedCandidates } = require('./_shared/python-candidates.cjs');
+const { LazyMcp } = require('./lazy_mcp.cjs');
 const UV_VERSION = '0.12.10';
+const BACKENDS = ['x64dbg', 'x32dbg', 'ghidra', 'windbg', 'ida-mcp'];
 
 function dataDir(env = process.env, platform = process.platform) {
   if (env.DBG_HOME) return path.resolve(env.DBG_HOME);
@@ -30,12 +33,17 @@ function findPython(options = {}) {
   const platform = options.platform || process.platform;
   const run = options.run || spawnSync;
   for (const candidate of [...pythonCandidates(env, platform), ...(options.extra || [])]) {
-    const result = run(candidate[0], [...candidate.slice(1), '-c', 'import sys; print(str(sys.version_info.major)+"."+str(sys.version_info.minor))'], {
+    const query = 'import sys; print(str(sys.version_info.major)+"."+str(sys.version_info.minor))' +
+      (options.absolute ? '; print(sys.executable)' : '');
+    const result = run(candidate[0], [...candidate.slice(1), '-c', query], {
       encoding: 'utf8', timeout: 5000, windowsHide: true, env,
     });
     if (result.error || result.status !== 0) continue;
-    const match = String(result.stdout || '').trim().match(/^(\d+)\.(\d+)$/);
-    if (match && (Number(match[1]) > 3 || Number(match[1]) === 3 && Number(match[2]) >= 11)) return candidate;
+    const [version, executable] = String(result.stdout || '').trim().split(/\r?\n/);
+    const match = version.match(/^(\d+)\.(\d+)$/);
+    if (!match || Number(match[1]) < 3 || Number(match[1]) === 3 && Number(match[2]) < 11) continue;
+    if (!options.absolute) return candidate;
+    if (isFile(executable)) return [executable];
   }
   return null;
 }
@@ -164,8 +172,8 @@ function checked(command, args, options = {}) {
   return String(result.stdout || '').trim();
 }
 
-function ensurePython() {
-  const find = () => findPython({ extra: recordedPython() });
+function ensurePython(options = {}) {
+  const find = () => findPython({ extra: recordedPython(), absolute: options.absolute });
   // Another process may have finished the bootstrap while this one waited for the lock.
   return find() || withBootstrapLock(path.join(dataDir(), 'bootstrap', 'install.lock'), () => find() || installManagedPython());
 }
@@ -203,9 +211,119 @@ function doctor(python, args) {
   });
 }
 
+function readObject(filename) {
+  try {
+    const value = JSON.parse(fs.readFileSync(filename, 'utf8').replace(/^\uFEFF/, ''));
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  } catch (_) {}
+  return null;
+}
+
+function fileStamp(filename, allowWinDbgAlias = false) {
+  if (typeof filename !== 'string' || !path.isAbsolute(filename)) return null;
+  try {
+    const stat = fs.statSync(filename);
+    return stat.isFile() ? [stat.size, stat.mtimeMs, stat.ctimeMs] : null;
+  } catch (error) {
+    // libuv cannot follow the official WindowsApps execution alias, although Windows can launch it.
+    // Ordinary missing files and broken links still invalidate the deployment.
+    if (process.platform !== 'win32' || !allowWinDbgAlias || error.code !== 'EACCES' || !isWinDbgExecutionAlias(filename)) return null;
+    try {
+      fs.accessSync(filename);
+      const link = fs.lstatSync(filename);
+      return link.isSymbolicLink() ? [link.size, link.mtimeMs, link.ctimeMs] : null;
+    } catch (_) { return null; }
+  }
+}
+
+function isWinDbgExecutionAlias(filename) {
+  const parent = path.dirname(filename.toLowerCase());
+  const folder = path.basename(parent);
+  return path.basename(filename).toLowerCase() === 'dbgx.mcp.proxy.exe' &&
+    (folder === 'windowsapps' || folder === 'microsoft.windbg_8wekyb3d8bbwe' &&
+      path.basename(path.dirname(parent)) === 'windowsapps');
+}
+
+function isFile(filename) {
+  return fileStamp(filename) !== null;
+}
+
+function pluginVersion() {
+  return readObject(path.join(__dirname, '..', '.codex-plugin', 'plugin.json'))?.version;
+}
+
+function deployment(home, version, backend) {
+  const state = readObject(path.join(home, 'state.json')) || {};
+  const configFile = path.join(home, 'config.json');
+  const config = readObject(configFile);
+  const tool = backend === 'x32dbg' ? 'x64dbg' : backend;
+  const record = state.tools?.[tool];
+  const instance = backend === 'x32dbg' && Array.isArray(record?.instances)
+    ? record.instances.find((item) => item.architecture === 'x32') : null;
+  const mode = config?.windbg?.backend ?? 'auto';
+  const runtime = backend === 'x32dbg' ? instance?.runtime
+    : tool === 'windbg' && mode === 'legacy' && record?.backend === 'native' ? record.legacy_runtime : record?.runtime;
+  const disabled = Array.isArray(config?.disabled) && config.disabled.includes(tool);
+  const status = record?.status;
+  const native = tool === 'windbg' && record?.backend === 'native' && mode !== 'legacy';
+  const files = [
+    ...(Array.isArray(record?.files) ? record.files : []),
+    ...(Array.isArray(runtime?.command) ? runtime.command.filter((part) => typeof part === 'string' && path.isAbsolute(part)) : []),
+    ...(runtime?.type === 'http' ? [state.http_bridge_python] : []),
+    ...(instance?.config ? [instance.config] : []),
+  ];
+  const stamps = files.map((file) => fileStamp(file, native && file === runtime?.command?.[0]));
+  const legacyStamps = tool === 'windbg' && Array.isArray(record?.legacy_runtime?.command) ?
+    [record.legacy_runtime.command[0], record.legacy_runtime.env?.CDB_PATH, record.legacy_runtime.env?.KD_PATH].map((file) => fileStamp(file)) : [];
+  const ready = !!version && state.plugin_version === version && state.schema_version === 1 &&
+    (config || !fs.existsSync(configFile)) && ['auto', 'native', 'legacy'].includes(mode) &&
+    (state.auto_windbg_backend ?? 'auto') === mode &&
+    (disabled || ['disabled', 'unsupported', 'not_installed'].includes(status) ||
+      (status === 'deployed' && stamps.every(Boolean) &&
+        (runtime?.type === 'http' || Array.isArray(runtime?.command) && runtime.command.length || backend === 'x32dbg')));
+  const secrets = [runtime?.token, ...Object.entries(runtime?.env || {})
+    .filter(([key, value]) => typeof value === 'string' && /(?:TOKEN|SECRET|PASSWORD|AUTHORIZATION|API_KEY)/i.test(key))
+    .map(([, value]) => value)].filter((value) => typeof value === 'string');
+  // The cache key covers deployment, configuration, external file replacement and the configured Python override.
+  // State and config may contain credentials. Only their digest and the public MCP catalog reach disk.
+  const fingerprint = createHash('sha256').update(JSON.stringify([
+    version, backend, state.plugin_version, config, record, state.http_bridge_python, stamps, legacyStamps, process.env.DBG_PYTHON,
+  ])).digest('hex');
+  return { ready, state, cacheable: ready && !native, fingerprint, secrets,
+    statusTool: ['x64dbg', 'x32dbg'].includes(backend) ? 'dbg_' + backend + '_status' : null };
+}
+
+function pythonRecord(home) {
+  return path.join(home, 'bootstrap', 'mcp-python.json');
+}
+
+function deployedPython(home, state) {
+  const override = process.env.DBG_PYTHON ?? '';
+  const recorded = readObject(pythonRecord(home));
+  if (recorded?.override === override && isFile(recorded.executable)) return [recorded.executable];
+  if (override) return null;
+  const candidate = [state.http_bridge_python, ...Object.values(state.runtimes || {})].find(isFile);
+  return candidate ? [candidate] : null;
+}
+
+function rememberPython(home, python) {
+  if (python.length !== 1 || !isFile(python[0])) return;
+  const file = pythonRecord(home);
+  const temporary = file + '.' + randomUUID() + '.tmp';
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(temporary, JSON.stringify({ executable: python[0], override: process.env.DBG_PYTHON ?? '' }),
+      { mode: 0o600, flag: 'wx' });
+    fs.renameSync(temporary, file);
+  } catch (_) {
+    // State runtimes remain available if this optional interpreter hint cannot be written.
+  } finally {
+    try { fs.unlinkSync(temporary); } catch (_) {}
+  }
+}
+
 function runMcp(backend, options = {}) {
-  const allowed = ['x64dbg', 'x32dbg', 'ghidra', 'windbg', 'ida-mcp'];
-  if (!allowed.includes(backend)) throw new Error('Unknown MCP backend');
+  if (!BACKENDS.includes(backend)) throw new Error('Unknown MCP backend');
   // Resolve relative configuration before leaving the plugin cache directory that the host may rename.
   if (process.env.DBG_HOME) process.env.DBG_HOME = path.resolve(process.env.DBG_HOME);
   if (process.env.DBG_PYTHON && /[\\/]/.test(process.env.DBG_PYTHON)) {
@@ -214,17 +332,28 @@ function runMcp(backend, options = {}) {
   const home = path.resolve(options.dataDir || dataDir());
   fs.mkdirSync(home, { recursive: true });
   process.chdir(home);
-  const python = (options.ensurePython || ensurePython)();
-  // MCP may start before the SessionStart hook; both coordinate through the same doctor lock.
-  const setup = (options.doctor || doctor)(python, ['--auto']);
-  if (setup.error) process.stderr.write('Dbg automatic deployment is incomplete; reporting current backend status.\n');
-  const launch = options.spawn || spawn;
-  const child = launch(python[0], [...python.slice(1), path.join(__dirname, 'managed_server.py'), backend], {
-    cwd: home, stdio: 'inherit', windowsHide: true,
-    env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
-  });
-  child.on('error', () => { process.stderr.write('Dbg could not start the MCP backend.\n'); process.exitCode = 1; });
-  child.on('exit', (code) => { process.exitCode = Number.isInteger(code) ? code : 1; });
+  const version = pluginVersion();
+  const snapshot = () => deployment(home, version, backend);
+  return new LazyMcp({
+    ...options,
+    snapshot,
+    cacheFile: path.join(home, 'mcp-catalog', backend + '.json'),
+    launch() {
+      const current = snapshot();
+      let python = current.ready && deployedPython(home, current.state);
+      if (!python) {
+        python = (options.ensurePython || ensurePython)({ absolute: true });
+        // MCP may start before SessionStart. Both coordinate through the same doctor lock.
+        const setup = (options.doctor || doctor)(python, ['--auto']);
+        if (setup.error) process.stderr.write('Dbg automatic deployment is incomplete; reporting current backend status.\n');
+        if (setup.status === 0) rememberPython(home, python);
+      }
+      return (options.spawn || spawn)(python[0], [...python.slice(1), path.join(__dirname, 'managed_server.py'), backend], {
+        cwd: home, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+        env: { ...process.env, DBG_HOME: home, DBG_MCP_OWNER_PID: String(process.pid), PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
+      });
+    },
+  }).start();
 }
 
 const HOOK_FAILURE_MESSAGE = 'Dbg first deployment has incomplete items. Run dbg doctor to retry; see last-report.json in the Dbg data directory.';
@@ -232,11 +361,27 @@ const HOOK_FAILURE_MESSAGE = 'Dbg first deployment has incomplete items. Run dbg
 function runHook(options = {}) {
   // A hook must never surface as a raw failure: report through systemMessage and always exit 0.
   try {
+    const home = path.resolve(options.dataDir || dataDir());
+    const version = pluginVersion();
+    const current = deployment(home, version, 'windbg');
+    if (current.ready && current.state.auto_completed_version === version &&
+        currentCli(current.state.cli) &&
+        BACKENDS.filter((backend) => backend !== 'windbg').every((backend) => deployment(home, version, backend).ready)) return;
     const python = (options.ensurePython || ensurePython)();
     const result = (options.doctor || doctor)(python, ['--auto', '--json']);
     if (!result.error && result.status === 0) return;
   } catch (_) {}
   (options.write || ((text) => process.stdout.write(text)))(JSON.stringify({ systemMessage: HOOK_FAILURE_MESSAGE }));
+}
+
+function currentCli(cli) {
+  try {
+    if (!isFile(cli?.target)) return false;
+    const script = process.platform === 'win32' ? path.join(path.dirname(cli.target), 'dbg-cli.ps1') : cli.target;
+    const content = fs.readFileSync(script, 'utf8');
+    // Doctor must refresh the command if the plugin cache or Node executable moved.
+    return content.includes(fs.realpathSync(__filename)) && content.includes(fs.realpathSync(process.execPath));
+  } catch (_) { return false; }
 }
 
 function main(argv = process.argv.slice(2)) {
