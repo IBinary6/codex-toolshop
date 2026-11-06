@@ -68,6 +68,41 @@ class GhidraPathsTests(unittest.TestCase):
                     self.assertIn(prefix / "opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/javac", candidates)
                     self.assertFalse(any("openjdk-unrelated" in str(x) for x in candidates))
 
+    def test_host_java_requirements_reject_old_override_and_select_brew_jdk(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            host = Installation("ghidra", root / "host", "12.2")
+            properties = host.root / "Ghidra/application.properties"
+            properties.parent.mkdir(parents=True)
+            launch = host.root / "support/launch.properties"
+            launch.parent.mkdir()
+            launch.write_text(f"JAVA_HOME_OVERRIDE={root / 'jdk21'}\n", encoding="utf-8")
+            old = root / "jdk21/bin/javac"
+            current = root / "brew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home/bin/javac"
+            if os.name == "nt":
+                old, current = old.with_suffix(".exe"), current.with_suffix(".exe")
+            for compiler in (old, current):
+                compiler.parent.mkdir(parents=True)
+                compiler.touch()
+            versions = {old: "javac 21.0.9", current: "javac 25.0.2"}
+            with (
+                patch.dict(os.environ, {"JAVA_HOME": str(root / "jdk21")}, clear=True),
+                patch("ghidra_adapter.shutil.which", return_value=str(old)),
+                patch("ghidra_adapter.user_settings_dir", return_value=root / "settings"),
+                patch("ghidra_adapter.run_command", side_effect=lambda args, **kwargs: versions[args[0]]),
+            ):
+                for minimum, target in ((25, 25), (25, 21), (21, 25)):
+                    with self.subTest(minimum=minimum, target=target):
+                        properties.write_text(
+                            f"application.java.min={minimum}\napplication.java.compiler={target}\n",
+                            encoding="utf-8",
+                        )
+                        with patch("ghidra_adapter.system_java_candidates", side_effect=lambda: iter([current])):
+                            self.assertEqual(javac_path(host), current)
+                with patch("ghidra_adapter.system_java_candidates", return_value=iter(())):
+                    with self.assertRaisesRegex(DbgError, r"requires JDK 25\+ javac"):
+                        javac_path(host)
+
 
 class GhidraLayoutTests(unittest.TestCase):
     def _archive(self, root, layout):
@@ -189,6 +224,8 @@ class GhidraLayoutTests(unittest.TestCase):
             library = host / "Ghidra/lib/example.jar"
             library.parent.mkdir(parents=True)
             library.touch()
+            properties = host / "Ghidra/application.properties"
+            properties.write_text("application.java.min=21\napplication.java.compiler=21\n", encoding="utf-8")
             output = root / "output"
             calls = []
 
@@ -205,9 +242,13 @@ class GhidraLayoutTests(unittest.TestCase):
                 jar = build_extension(source, Installation("ghidra", host, "12.1.4"), output)
                 build_extension(source, Installation("ghidra", host, "12.1.4"), output)
                 self.assertEqual(len(calls), 1)
+                self.assertIn('"--release"\n"21"', (output / "javac.args").read_text(encoding="utf-8"))
                 resource.write_text("second", encoding="utf-8")
                 build_extension(source, Installation("ghidra", host, "12.1.4"), output)
-            self.assertEqual(len(calls), 2)
+                properties.write_text("application.java.min=21\napplication.java.compiler=25\n", encoding="utf-8")
+                build_extension(source, Installation("ghidra", host, "12.1.4"), output)
+            self.assertEqual(len(calls), 3)
+            self.assertIn('"--release"\n"25"', (output / "javac.args").read_text(encoding="utf-8"))
             self.assertEqual(java.read_text(encoding="utf-8"), "class Plugin {}\n")
             with zipfile.ZipFile(jar) as built:
                 self.assertEqual(built.read("META-INF/services/example"), b"second")

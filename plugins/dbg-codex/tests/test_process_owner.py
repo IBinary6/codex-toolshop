@@ -1,18 +1,25 @@
-"""Use real Windows process handles to verify that only a session's own tree exits."""
+"""Verify that session cleanup stays scoped to the processes it owns."""
 import ctypes
 from ctypes import wintypes
+import errno
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
+from unittest import mock
 import venv
 
 
 ROUTER = Path(__file__).resolve().parents[1] / "scripts" / "managed_server.py"
+sys.path.insert(0, str(ROUTER.parent))
+from process_owner import ProcessOwner
+
 NODE_OWNER = """
 const fs = require('node:fs');
 const { spawn } = require('node:child_process');
@@ -42,6 +49,64 @@ while not (root / 'exit').exists():
     time.sleep(0.02)
 raise SystemExit(17)
 """
+
+
+class DarwinPermissionTests(unittest.TestCase):
+    def setUp(self):
+        self.enterContext(mock.patch.object(signal, "SIGKILL", getattr(signal, "SIGKILL", 9), create=True))
+        self.owner = ProcessOwner.__new__(ProcessOwner)
+        self.owner._group = 1234
+        self.owner._closed = threading.Event()
+        self.owner._lock = threading.Lock()
+
+    def test_zombie_only_group_does_not_fail_shutdown(self):
+        with mock.patch("process_owner.sys.platform", "darwin"), \
+             mock.patch("process_owner.os.killpg", create=True,
+                        side_effect=PermissionError(errno.EPERM, "denied")) as kill_group, \
+             mock.patch("process_owner.subprocess.run", return_value=subprocess.CompletedProcess(
+                 [], 0, stdout=b"1234 1234 Zs\n2345 1234 Z\n", stderr=b"")):
+            self.owner.close()
+            self.owner.close()
+        self.assertTrue(self.owner._closed.is_set())
+        kill_group.assert_called_once_with(1234, signal.SIGKILL)
+
+    def test_live_or_unverified_group_preserves_permission_error(self):
+        for output in (b"1234 1234 Zs\n2345 1234 S\n", b"2345 1234 Z\n", b"1234 4321 Z\n", b""):
+            with self.subTest(output=output), mock.patch("process_owner.sys.platform", "darwin"), \
+                 mock.patch("process_owner.os.killpg", create=True,
+                            side_effect=PermissionError(errno.EPERM, "denied")), \
+                 mock.patch("process_owner.subprocess.run", return_value=subprocess.CompletedProcess(
+                     [], 0, stdout=output, stderr=b"")):
+                with self.assertRaises(PermissionError):
+                    self.owner.close()
+                self.assertFalse(self.owner._closed.is_set())
+
+
+@unittest.skipIf(os.name == "nt", "requires a POSIX process group")
+class PosixProcessOwnerTests(unittest.TestCase):
+    def test_backend_exit_preserves_status_and_stops_living_group_member(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            backend = (
+                "import subprocess, sys\n"
+                "subprocess.Popen([sys.executable, '-c', "
+                "'import time; time.sleep(5); print(\"worker survived\")'])\n"
+                "print('backend exited', flush=True)\n"
+                "raise SystemExit(17)\n"
+            )
+            state = {"tools": {"ghidra": {"runtime": {"command": [sys.executable, "-c", backend]}}}}
+            (root / "state.json").write_text(json.dumps(state), encoding="utf-8")
+            unrelated = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+            try:
+                router = subprocess.run([sys.executable, str(ROUTER), "ghidra"], input="",
+                                        capture_output=True, text=True, timeout=15,
+                                        env={**os.environ, "DBG_HOME": str(root)})
+                self.assertEqual(router.returncode, 17, router.stderr)
+                self.assertEqual(router.stdout, "backend exited\n")
+                self.assertIsNone(unrelated.poll())
+            finally:
+                unrelated.terminate()
+                unrelated.wait(timeout=5)
 
 
 class WindowsProcess:

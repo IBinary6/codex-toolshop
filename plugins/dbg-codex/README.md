@@ -32,7 +32,7 @@ On Windows, the `dbg` entry point is automatically added to the current user's P
 | Component | Deployment | Requirements |
 | --- | --- | --- |
 | x64dbg | Native duty1g x32/x64 extensions, loopback and token configuration, and an HTTP-to-stdio proxy | Windows; open the debugger with the deployed plugin |
-| Ghidra | Extension compiled against the local Ghidra API, plus an isolated Python MCP bridge | Installed Ghidra and JDK 21+; enable GhidraMCPPlugin inside Ghidra on first use |
+| Ghidra | Extension compiled against the local Ghidra API, plus an isolated Python MCP bridge | A JDK compatible with the installed Ghidra (at least 21, or 25 for Ghidra 12.2). Enable GhidraMCPPlugin inside Ghidra on first use. |
 | WinDbg | Official `DbgX.Mcp.Proxy.exe` preferred; legacy mcp-windbg/cdb/kd compatibility backend available | Windows; current WinDbg with MCP Service for native; Debugging Tools cdb.exe or kd.exe for legacy |
 | IDA MCP | ida-pro-mcp 1.4.0 GUI plugin and isolated stdio service | IDA 8.3+; the idalib service, which has a different deployment model, is not installed |
 | IDA-NO-MCP | Upstream Python export plugin | Deployed only for IDA versions confirmed by the adapter; export is not an MCP service |
@@ -53,7 +53,7 @@ When the host closes stdin or the launcher exits, the plugin gives its backend b
 
 On Windows, discovery checks Scoop user, global, and custom roots, the active `current` version, registered installations, and PATH. On macOS/Linux, it queries actual Homebrew prefixes for Apple Silicon, Intel Mac, Linuxbrew, and custom installations. It reads active formula `opt`/`libexec` directories and real paths of relevant installed casks. Without a package manager, it still checks PATH, application directories, and controlled one-level manual installation directories. Mac IDA discovery prefers the version in the application's `Info.plist` rather than relying on its directory name. An active Scoop `current` version takes precedence over historical directories.
 
-Ghidra builds also support installed Homebrew OpenJDK that is not on PATH and common macOS/Linux JDK installation directories. Discovery reads package-manager information only; it does not install or upgrade packages. If a nonstandard directory is missed, add its root explicitly to `config.json` in the Dbg data directory without reinstalling the plugin:
+Dbg reads the installed Ghidra's Java minimum and compiler target from `Ghidra/application.properties`. It can find Homebrew OpenJDK outside PATH and JDKs in standard macOS/Linux installation directories. Discovery reads package manager metadata. To register a Ghidra installation in a custom directory, add its root to the `paths` section of `config.json` in the Dbg data directory.
 
 ```json
 {

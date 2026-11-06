@@ -15,6 +15,7 @@ from dbg_core import DbgError, atomic_json, load_json, safe_extract_zip, sha256_
 from runtime import run_command
 
 REPOSITORY = "LaurieWired/GhidraMCP"
+MINIMUM_EXTENSION_JAVA = 21
 
 
 def source_layout(source: Path) -> str:
@@ -102,7 +103,30 @@ def user_settings_dir(version: str, root: Path | None = None) -> Path:
     return base / f"ghidra_{version}_PUBLIC"
 
 
-def javac_path(installation) -> Path:
+def _java_levels(root: Path) -> tuple[int, int]:
+    """Return the required javac major and the bytecode target declared by the local Ghidra."""
+    properties = root / "Ghidra/application.properties"
+    try:
+        lines = properties.read_text(encoding="utf-8-sig").splitlines()
+    except FileNotFoundError:
+        lines = []
+    levels = {}
+    for line in lines:
+        name, _, value = line.partition("=")
+        name, value = name.strip(), value.strip()
+        if name not in {"application.java.min", "application.java.compiler"} or not value:
+            continue
+        if not re.fullmatch(r"[1-9][0-9]*", value):
+            raise DbgError(f"Invalid {name} in Ghidra/application.properties")
+        levels[name] = int(value)
+    minimum = levels.get("application.java.min", MINIMUM_EXTENSION_JAVA)
+    target = max(MINIMUM_EXTENSION_JAVA, levels.get("application.java.compiler", minimum))
+    return max(minimum, target), target
+
+
+def javac_path(installation, *, minimum: int | None = None) -> Path:
+    if minimum is None:
+        minimum, _ = _java_levels(installation.root)
     candidates = []
     launch = installation.root / "support/launch.properties"
     if launch.is_file():
@@ -130,16 +154,17 @@ def javac_path(installation) -> Path:
         except DbgError:
             continue
         match = re.search(r"javac\s+(\d+)", output)
-        if match and int(match.group(1)) >= 21:
+        if match and int(match.group(1)) >= minimum:
             return candidate
-    raise DbgError("Building the Ghidra extension requires JDK 21+ javac; install the JDK required by Ghidra first")
+    raise DbgError(f"Building the Ghidra extension requires JDK {minimum}+ javac; install the JDK required by Ghidra first")
 
 
 def build_extension(source: Path, installation, output: Path, layout: str | None = None) -> Path:
     """Compile upstream Java against host JARs; additionally restrict HTTP listening to localhost for the old layout."""
     layout = layout or source_layout(source)
     extension = extension_source(source, layout)
-    compiler = javac_path(installation)
+    minimum, target = _java_levels(installation.root)
+    compiler = javac_path(installation, minimum=minimum)
     java_root = extension / "src/main/java"
     sources = sorted(java_root.rglob("*.java"))
     sources = [p for p in sources if p.name != "App.java"]
@@ -152,7 +177,7 @@ def build_extension(source: Path, installation, output: Path, layout: str | None
         raise DbgError("Host Ghidra lacks JARs required for compilation")
     fingerprint = hashlib.sha256(json.dumps([
         installation.version, str(installation.root.resolve()),
-        layout,
+        layout, minimum, target,
         [(p.relative_to(java_root).as_posix(), sha256_file(p)) for p in sources],
         [(p.relative_to(resources).as_posix(), sha256_file(p)) for p in resource_files],
         "loopback-v1" if layout == "v1" else "native-loopback-v2",
@@ -179,7 +204,7 @@ def build_extension(source: Path, installation, output: Path, layout: str | None
     if classes.exists():
         shutil.rmtree(classes)
     classes.mkdir()
-    args = ["--release", "21", "-encoding", "UTF-8", "-classpath",
+    args = ["--release", str(target), "-encoding", "UTF-8", "-classpath",
             os.pathsep.join(str(p) for p in jars), "-d", str(classes),
             *[str(p) for p in patched_sources]]
     # A javac argument file avoids the Windows command-length limit; paths are never interpreted by a shell.

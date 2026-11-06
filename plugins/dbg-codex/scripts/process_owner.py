@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import closing
 import ctypes
 from ctypes import wintypes
+import errno
 import os
 import select
 import signal
@@ -109,6 +110,32 @@ def _wait_posix_exit(pid):
         queue.control(None, 1)
 
 
+def _darwin_zombie_only_group(group):
+    """确认仍由未回收组长保护的进程组只有僵尸进程。"""
+    try:
+        snapshot = subprocess.run(
+            ["/bin/ps", "-x", "-g", str(group), "-o", "pid=", "-o", "pgid=", "-o", "state="],
+            env={"COMMAND_MODE": "unix2003", "LC_ALL": "C"}, stdin=subprocess.DEVNULL,
+            capture_output=True, timeout=2, check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if snapshot.stderr:
+        return False
+
+    group_id = str(group).encode("ascii")
+    found_leader = False
+    for row in snapshot.stdout.splitlines():
+        fields = row.split()
+        if len(fields) != 3:
+            return False
+        pid, pgid, state = fields
+        if not pid.isdigit() or pgid != group_id or not state.startswith(b"Z"):
+            return False
+        found_leader = found_leader or pid == group_id
+    return found_leader
+
+
 def _posix_parent_alive(parent, direct_parent):
     if os.getppid() != direct_parent:
         return False
@@ -190,5 +217,10 @@ class ProcessOwner:
                     os.killpg(self._group, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
+                except PermissionError as error:
+                    # XNU 的 killpg1 跳过僵尸进程；空的可发信号成员集合也会返回 EPERM。
+                    if (sys.platform != "darwin" or error.errno != errno.EPERM
+                            or not _darwin_zombie_only_group(self._group)):
+                        raise
                 self._group = None
             self._closed.set()
