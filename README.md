@@ -2,7 +2,7 @@
 
 `codex-toolshop` is a Codex plugin marketplace maintained by IBinary6 for reverse engineering, debugging, code search, project conventions, agent dispatch, and local knowledge. Install plugins as needed; scripts and host hooks handle routine setup and maintenance.
 
-`master` is the authoritative development and release branch. Marketplace source updates follow the repository's default `master` branch.
+`main` is the authoritative development and release branch. Marketplace source updates follow the repository's default `main` branch.
 
 ## Quick start
 
