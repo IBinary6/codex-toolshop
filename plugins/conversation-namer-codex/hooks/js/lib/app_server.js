@@ -105,6 +105,7 @@ function findInstalledDesktopCommand(env, platform, systemApplicationsRoot) {
  * Callers must await close() to reap the subprocess; spawnImpl exists only to substitute a process in tests.
  */
 function createAppServer({ cwd, timeoutMs = 60000, command, spawnImpl = spawn, env = process.env, platform = process.platform } = {}) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error('invalid_timeout');
   const executable = command === undefined ? resolveCodexCommand({ env, platform }) : command;
   if (executable === null) throw new Error('app_server_unavailable');
   const args = ['app-server'];
@@ -117,7 +118,6 @@ function createAppServer({ cwd, timeoutMs = 60000, command, spawnImpl = spawn, e
 
 /** 复用受限的 stdio JSON-RPC 传输，不向子进程开放反向请求。 */
 function createStdioRpc(executable, args, { cwd, timeoutMs, spawnImpl = spawn, env = process.env, jsonrpc }) {
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error('invalid_timeout');
   const child = spawnImpl(executable, args, {
     cwd,
     env,

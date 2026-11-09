@@ -228,7 +228,7 @@ async function main() {
   queueMicrotask(() => unavailable.emit('error', new Error('ENOENT')));
   await assert.rejects(unavailableRpc.request('read'), /app_server_unavailable/);
   await unavailableRpc.close();
-  assert.throws(() => createAppServer({ timeoutMs: 0 }), /invalid_timeout/);
+  assert.throws(() => createAppServer({ timeoutMs: 0, env: { PATH: '' }, platform: 'linux' }), /invalid_timeout/);
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });
