@@ -91,7 +91,14 @@ function main() {
   };
   const post = runHook('post_edit', editPayload, repo, dataDir);
   assert.strictEqual(post.status, 0, post.stderr);
-  assert.strictEqual(post.stdout, '', 'PostToolUse should only record the edited file');
+  assert.strictEqual(post.stderr, '');
+  assert.ok(fs.readFileSync(badCpp, 'utf8').endsWith('\n'), 'PostToolUse repairs the final newline before linting');
+  const postPayload = JSON.parse(post.stdout);
+  assert.deepStrictEqual(Object.keys(postPayload), ['hookSpecificOutput']);
+  assert.strictEqual(postPayload.hookSpecificOutput.hookEventName, 'PostToolUse');
+  assert.match(postPayload.hookSpecificOutput.additionalContext, /casting/);
+  assert.match(postPayload.hookSpecificOutput.additionalContext, /Codex: fix the reported source or check failures yourself/);
+  const checked = fs.readFileSync(badCpp);
 
   const stop = runHook('stop_check', {
     session_id: editPayload.session_id,
@@ -101,19 +108,15 @@ function main() {
     stop_hook_active: false,
   }, repo, dataDir);
   assert.strictEqual(stop.status, 0, stop.stderr);
-  assert.ok(fs.readFileSync(badCpp, 'utf8').endsWith('\n'), 'Stop repairs the final newline before linting');
-  const stopPayload = JSON.parse(stop.stdout);
-  assert.strictEqual(stopPayload.decision, 'block');
-  assert.match(stopPayload.reason, /cpplint|C\+\+|violations/);
-  assert.match(stopPayload.reason, /Codex: fix the remaining issues yourself/);
-  assert.doesNotMatch(stopPayload.reason, /normalized/);
+  assert.strictEqual(stop.stdout + stop.stderr, '');
+  assert.deepStrictEqual(fs.readFileSync(badCpp), checked, 'Stop does not change checked bytes');
 
   sh('git', ['add', 'bad.cpp'], { cwd: repo });
   const pre = runHook('pre_commit', { tool_input: { command: 'git commit -m test' } }, repo, dataDir);
   assert.strictEqual(pre.status, 0, pre.stderr);
   const prePayload = JSON.parse(pre.stdout);
   assert.strictEqual(prePayload.hookSpecificOutput.permissionDecision, 'deny');
-  assert.match(prePayload.hookSpecificOutput.permissionDecisionReason, /Commit blocked|cpplint/);
+  assert.match(prePayload.hookSpecificOutput.additionalContext, /bad\.cpp.*casting/);
 
   console.log('test-hooks PASS');
 }

@@ -1,36 +1,47 @@
 'use strict';
 
 /**
- * Read hook JSON from stdin; return {} on empty or invalid input.
- * @param {{timeoutMs?:number, maxSize?:number}} options
+ * Strict hooks reject unavailable or invalid input so a failed read cannot pass verification.
+ * @param {{timeoutMs?:number, maxSize?:number, strict?:boolean}} options
  * @returns {Promise<object>}
  */
 function readStdinJson(options = {}) {
-  const { timeoutMs = 5000, maxSize = 1024 * 1024 } = options;
-  return new Promise((resolve) => {
+  const { timeoutMs = 5000, maxSize = 1024 * 1024, strict = false } = options;
+  return new Promise((resolve, reject) => {
     let data = '';
-    let settled = false;
-    const finish = () => {
-      try { resolve(data.trim() ? JSON.parse(data) : {}); }
-      catch { resolve({}); }
+    let size = 0;
+    const fail = (message) => strict ? reject(new Error(message)) : resolve({});
+    const cleanup = () => {
+      clearTimeout(timer);
+      process.stdin.off('data', onData);
+      process.stdin.off('end', onEnd);
+      process.stdin.off('error', onError);
     };
+    const onData = (chunk) => {
+      size += Buffer.byteLength(chunk, 'utf8');
+      if (size <= maxSize) data += chunk;
+    };
+    const onEnd = () => {
+      cleanup();
+      if (size > maxSize) return fail('Hook input exceeds the supported size');
+      if (!data.trim()) return fail('Hook input is missing');
+      let input;
+      try { input = JSON.parse(data); }
+      catch (_) { return fail('Hook input is not valid JSON'); }
+      if (strict && (!input || typeof input !== 'object' || Array.isArray(input))) return fail('Hook input must be a JSON object');
+      resolve(input);
+    };
+    const onError = () => { cleanup(); fail('Could not read hook input'); };
     const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      process.stdin.removeAllListeners();
+      cleanup();
+      process.stdin.pause();
       if (process.stdin.unref) process.stdin.unref();
-      finish();
+      fail('Timed out reading hook input');
     }, timeoutMs);
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk) => { if (data.length < maxSize) data += chunk; });
-    process.stdin.on('end', () => {
-      if (settled) return;
-      settled = true; clearTimeout(timer); finish();
-    });
-    process.stdin.on('error', () => {
-      if (settled) return;
-      settled = true; clearTimeout(timer); resolve({});
-    });
+    process.stdin.on('data', onData);
+    process.stdin.once('end', onEnd);
+    process.stdin.once('error', onError);
   });
 }
 

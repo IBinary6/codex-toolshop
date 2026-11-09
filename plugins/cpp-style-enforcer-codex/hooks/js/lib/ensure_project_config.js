@@ -27,7 +27,7 @@ checks (object)
   Switches for new (untracked) files or mode=full.
   checks.clangFormat (boolean, default true) - Format the whole file with clang-format.
   checks.copyright   (boolean, default true) - Insert/update the copyright header when copyrightInfo.company is set.
-  checks.cpplint     (boolean, default true) - Run cpplint; violations block the current Codex operation.
+  checks.cpplint     (boolean, default true) - Run cpplint after edits and verify the Git index before commit.
   checks.bom         (boolean, default true) - Add a UTF-8 BOM to new files; tracked files retain their state.
   Example: "checks": { "cpplint": false }
 
@@ -122,7 +122,7 @@ Fields in an existing project cpp-style.json take precedence over the global tem
  * @param {string|null} root Git repository root
  * @param {string} [templatePath] Global template path (default ~/.codex/cpp-style-template.json)
  */
-function ensureProjectConfig(root, templatePath = userTemplatePath()) {
+function ensureProjectConfig(root, templatePath = userTemplatePath(), options = {}) {
   if (!root) return;
   try {
     for (const name of PROJECT_CONFIG_DIRS) {
@@ -149,14 +149,15 @@ function ensureProjectConfig(root, templatePath = userTemplatePath()) {
       if (content === null) {
         content = JSON.stringify(DEFAULT_CONFIG, null, 2) + '\n';
       }
-      fs.writeFileSync(target, Buffer.from(content, 'utf-8'));
+      fs.writeFileSync(target, Buffer.from(content, 'utf-8'), { flag: 'wx' });
     }
 
     // Do not overwrite an existing README.txt.
     if (!fs.existsSync(readme)) {
-      fs.writeFileSync(readme, Buffer.from(README_CONTENT, 'utf-8'));
+      fs.writeFileSync(readme, Buffer.from(README_CONTENT, 'utf-8'), { flag: 'wx' });
     }
-  } catch (_) {
+  } catch (error) {
+    if (options.strict && error.code !== 'EEXIST') throw error;
     // Generation failure does not affect the main flow.
   }
 }

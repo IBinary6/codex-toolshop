@@ -1,6 +1,6 @@
 # Dbg
 
-Use one `doctor` command to discover, download, deploy, update, and repair debugger extensions and their MCP servers. Node/Python scripts make all installation decisions without model calls. CC Switch MCP registration is unnecessary.
+Install the plugin and ask Codex to use WinDbg, x64dbg, x32dbg, IDA or Ghidra. The plugin supplies its invocation instructions automatically and starts only the requested MCP services. No separate skill installation, manual MCP registration or user-facing activation command is required. The `doctor` command remains available for extension deployment and repair.
 
 ## Installation and routine use
 
@@ -8,7 +8,7 @@ Use one `doctor` command to discover, download, deploy, update, and repair debug
 codex plugin add dbg-codex@codex-toolshop
 ```
 
-Open a new Codex task after installation to load the plugin. The host does not guarantee an "installation complete" script event, so the first `SessionStart` or MCP startup runs the same doctor. A process lock combines concurrent entry points. After successful initialization, automatic entry points return quickly for the same version. Failed automatic attempts are spaced at least ten minutes apart; an explicit command retries immediately.
+Open a new Codex task after installation to load the plugin. Its `UserPromptSubmit` hook supplies internal invocation instructions without starting a debugger service. Ordinary chats no longer run automatic deployment. The first real debugger operation prepares missing deployment through the existing doctor workflow. A process lock combines concurrent preparation; failed automatic attempts are spaced at least ten minutes apart, while an explicit doctor retries immediately.
 
 To install a newly added tool, check for updates, or repair deployment, run:
 
@@ -23,7 +23,7 @@ node scripts/launch.cjs doctor
 node scripts/launch.cjs doctor --tool ghidra --json
 ```
 
-The `dbg-doctor` skill only invokes this entry point. AI need not infer paths or download URLs or modify configuration. The MCP list is loaded at task startup, so open a new task after adding a tool. If the host asks you to trust a hook, follow its normal confirmation flow; the plugin does not change trust records. The MCP startup entry point can still perform first deployment.
+The existing `dbg-doctor` skill only invokes the deployment command; ordinary use does not require selecting a skill. AI need not infer paths or download URLs or modify configuration. If the host asks you to trust the plugin hooks, follow its normal confirmation flow; the plugin does not change trust records. A tool catalog is read when its endpoint is requested rather than registering five permanent stdio services at chat startup.
 
 On Windows, the `dbg` entry point is automatically added to the current user's PATH. On macOS/Linux, it is installed in `~/.local/bin`. If that directory is not on PATH, doctor gives the needed shell configuration hint; you can also run `~/.local/bin/dbg doctor` directly.
 
@@ -37,19 +37,30 @@ On Windows, the `dbg` entry point is automatically added to the current user's P
 | IDA MCP | ida-pro-mcp 1.4.0 GUI plugin and isolated stdio service | IDA 8.3+; the idalib service, which has a different deployment model, is not installed |
 | IDA-NO-MCP | Upstream Python export plugin | Deployed only for IDA versions confirmed by the adapter; export is not an MCP service |
 
-Unsupported versions report `unsupported`; incompatible components are not downloaded and other tools continue. A missing host reports `not_installed`. `deployed` means files and supporting runtime are ready; it does not mean the GUI is open or a debugging target is connected. When the host is missing, the fixed MCP entry point offers only a status query tool and does not claim debugging capability.
+Unsupported versions report `unsupported`; incompatible components are not downloaded and other tools continue. A missing host reports `not_installed`. `deployed` means files and supporting runtime are ready; it does not mean the GUI is open or a debugging target is connected. When the host is missing, the requested endpoint offers only a status query tool and does not claim debugging capability.
 
 [IDA Free has no IDAPython API](https://hex-rays.com/ida-free), so the two Python plugins are not deployed even for newer version numbers.
 
-x64dbg and x32dbg have separate `dbg-x64dbg` and `dbg-x32dbg` entry points. Each connects to its matching architecture to avoid controlling the wrong instance when both debuggers are open.
+x64dbg and x32dbg have separate `x64dbg` and `x32dbg` endpoint names. Each connects to its matching architecture to avoid controlling the wrong instance when both debuggers are open.
 
 ### Session processes and reuse
 
-The five stdio entry points remain lightweight Node frontends. A valid deployment and cached, real MCP tool catalog let discovery complete without starting Python or a debugger backend. A cache miss briefly starts the selected backend for discovery and then releases it. Native WinDbg discovery is always live because its tools and connection can depend on the available GUI sessions; x32/x64 status-only catalogs are not kept as a working debugger catalog.
+Version 0.2 replaces the five automatically registered `mcp__dbg_*` namespaces with the plugin's on-demand command entry point. A chat creates one local coordinator only when a debugger endpoint is requested. Each requested endpoint has its own MCP connection and owned backend; other endpoints do not start. Different chats do not share debugging state. The coordinator exits when all its endpoints are released, leaving no idle debugger frontend.
 
-The first actual operation keeps that endpoint's backend for the rest of the MCP session. Further operations in the same session reuse it, including its debugging state. Backends are not shared between separate sessions, and an active debugging session has no idle termination timer. Tool calls, results, tokens, and target session identifiers are not stored in the catalog cache.
+Each endpoint is released after 60 seconds without a real request. Initialization, outstanding tool calls and callbacks prevent idle retirement; a long-running analysis is not killed merely because it produces no output. `Stop`, `Interrupt` and `SessionEnd` hooks release the corresponding chat's services. Turn markers protect a newer turn from a delayed older cleanup hook. If hooks are unavailable, idle retirement remains the fallback.
 
-When the host closes stdin or the launcher exits, the plugin gives its backend bounded time to exit and reclaims the processes created for that session. Windows uses a private Job object and a handle to the owning launcher; POSIX uses an owned process group. Existing debugger GUI windows and other MCP sessions are outside that ownership. Processes started by an older plugin keep that older lifecycle until their MCP connections close; upgrading files does not replace a running process.
+The next operation starts a new service. This restores the ability to call tools, not the previous debugging state: select and verify the target again, especially with the legacy cdb/kd backend. Failed commands are never automatically replayed. Windows uses a private Job object and owner handle for backend descendants; POSIX uses an owned process group. The plugin does not select processes by name or terminate other chats or manually opened debugger GUI windows.
+
+The internal commands are also available for troubleshooting:
+
+```sh
+node scripts/launch.cjs tools windbg
+node scripts/launch.cjs call windbg <tool-name> --args-file <arguments.json>
+node scripts/launch.cjs status
+node scripts/launch.cjs stop
+```
+
+Commands use the current Codex session identity; outside Codex pass `--session <session-id>`. `status` and `stop` do not start a service. Read the selected endpoint's real tool catalog before constructing arguments. The legacy `mcp <endpoint>` command remains available for explicit stdio clients, which retain responsibility for closing their connection. Processes started by 0.1.x retain their old lifecycle until their host connections close; installing new files does not replace running processes.
 
 On Windows, discovery checks Scoop user, global, and custom roots, the active `current` version, registered installations, and PATH. On macOS/Linux, it queries actual Homebrew prefixes for Apple Silicon, Intel Mac, Linuxbrew, and custom installations. It reads active formula `opt`/`libexec` directories and real paths of relevant installed casks. Without a package manager, it still checks PATH, application directories, and controlled one-level manual installation directories. Mac IDA discovery prefers the version in the application's `Info.plist` rather than relying on its directory name. An active Scoop `current` version takes precedence over historical directories.
 
@@ -66,7 +77,7 @@ Dbg reads the installed Ghidra's Java minimum and compiler target from `Ghidra/a
 
 ### WinDbg native and compatibility backends
 
-The existing `dbg-windbg` MCP entry point launches the official proxy over stdio with no arguments. Discovery checks the stable `%LOCALAPPDATA%/Microsoft/WindowsApps/Microsoft.WinDbg_8wekyb3d8bbwe/DbgX.Mcp.Proxy.exe` app execution alias and PATH. `paths.windbg` can also name the proxy executable or its directory. Dbg uses the installed Microsoft executable in place; doctor records launch metadata without launching WinDbg, starting MCP Service, or copying Microsoft files. The official proxy needs WinDbg 1.2610.1001.0 or later. The app alias does not encode a version, so a blank deployment version means it was not determined; the MCP `serverInfo.version` is a separate value.
+The `windbg` endpoint launches the official proxy over stdio with no arguments. Discovery checks the stable `%LOCALAPPDATA%/Microsoft/WindowsApps/Microsoft.WinDbg_8wekyb3d8bbwe/DbgX.Mcp.Proxy.exe` app execution alias and PATH. `paths.windbg` can also name the proxy executable or its directory. Dbg uses the installed Microsoft executable in place; doctor records launch metadata without launching WinDbg, starting MCP Service, or copying Microsoft files. The official proxy needs WinDbg 1.2610.1001.0 or later. The app alias does not encode a version, so a blank deployment version means it was not determined; the MCP `serverInfo.version` is a separate value.
 
 Select a backend in the Dbg data directory's `config.json`, then run `dbg doctor --tool windbg`:
 
@@ -93,9 +104,9 @@ See Microsoft's [WinDbg MCP overview](https://learn.microsoft.com/en-us/windows-
 - Linux: `${XDG_DATA_HOME:-~/.local/share}/dbg`
 - All platforms: set `DBG_HOME` to override the data directory.
 
-Persistent MCP launchers and their children run from that data directory. This prevents a Windows process from locking the plugin cache as its working directory and blocking cache backup during upgrades. The launcher still loads scripts by absolute path from the plugin directory. Processes started before an upgrade release their old directory when Codex exits normally after the current task. The plugin does not forcibly end debugging sessions.
+MCP backends run from that data directory so they do not lock the plugin cache as their working directory. Scripts are still loaded by absolute path from the plugin directory. The on-demand coordinator keeps private ownership and turn records in the current user's home. It releases its owned services on idle retirement or explicit lifecycle cleanup; manually opened GUI windows remain outside that ownership.
 
-The plugin host supplies Node.js 18+. Scripts prefer Python 3.11+ and look for it as `python3`, `python`, `python3.11`–`python3.14`, in Homebrew and python.org locations, and in a previously prepared isolated interpreter. If none is found, an isolated uv prepares Python 3.12 without changing system Python. That first-time preparation runs under a lock, so the five MCP servers and the SessionStart hook never install at the same time; a lock left by a killed process is released as soon as its owner is gone. Dependencies live in separate venvs. Downloads use HTTPS and verify an upstream SHA-256 digest when available. The cache always retains a local digest and redownloads damaged content.
+The plugin host supplies Node.js 18+. Scripts prefer Python 3.11+ and look for it as `python3`, `python`, `python3.11`–`python3.14`, in Homebrew and python.org locations, and in a previously prepared isolated interpreter. If none is found, an isolated uv prepares Python 3.12 without changing system Python. First-time preparation runs under a lock so concurrent on-demand calls cannot install at the same time; a lock left by a killed process is released as soon as its owner is gone. Dependencies live in separate venvs. Downloads use HTTPS and verify an upstream SHA-256 digest when available. The cache always retains a local digest and redownloads damaged content.
 
 GitHub API calls are anonymous by default. Existing `GH_TOKEN` or `GITHUB_TOKEN` environment variables are used automatically, sent only to `https://api.github.com`, never forwarded through redirects, and never written to state. CI uses its task-scoped read-only token to avoid anonymous rate limits on shared egress.
 
@@ -113,7 +124,7 @@ npm test
 
 Tests cover platform discovery, first and repeated runs, version upgrades, missing-file repair, file conflicts, rollback, cache damage, path traversal, and the MCP status protocol. CI runs isolated tests on Windows, macOS, and Linux. It also installs Homebrew Ghidra on macOS and verifies discovery, JDK selection, extension compilation, and Python MCP initialize, tools/list, and EOF exit. This protocol check does not require opening the GUI. Compatibility with GUI tools and real target calls still requires host verification on the relevant platform.
 
-After Dbg is disabled or uninstalled, new tasks no longer load its MCP servers. Extensions copied into host tools, isolated runtimes, command entry points, and backups remain. There is currently no uninstall script that removes these files automatically.
+After Dbg is disabled or uninstalled, new tasks no longer load its invocation and lifecycle hooks. Existing on-demand services still retire when idle. Extensions copied into host tools, isolated runtimes, command entry points, and backups remain. There is currently no uninstall script that removes these files automatically.
 
 Upstream code is downloaded at runtime and remains subject to each repository's license:
 

@@ -9,13 +9,15 @@ const { requireIconv } = require('../lib/ensure_deps.js');
  * @param {string} filePath
  * @returns {boolean} Whether the file was rewritten
  */
-function applyBom(filePath) {
+function applyBom(filePath, options = {}) {
   let buf;
-  try { buf = fs.readFileSync(filePath); } catch (_) { return false; }
+  try { buf = fs.readFileSync(filePath); }
+  catch (error) { if (options.strict) throw error; return false; }
 
   // Empty file: write only a BOM.
   if (buf.length === 0) {
-    try { fs.writeFileSync(filePath, BOM); return true; } catch (_) { return false; }
+    try { fs.writeFileSync(filePath, BOM); return true; }
+    catch (error) { if (options.strict) throw error; return false; }
   }
 
   const enc = detectEncoding(buf);
@@ -32,7 +34,8 @@ function applyBom(filePath) {
       const out = Buffer.concat([BOM, Buffer.from(text, 'utf-8')]);
       fs.writeFileSync(filePath, out);
       return true;
-    } catch (_) {
+    } catch (error) {
+      if (options.strict) throw error;
       return false; // Missing iconv: skip without crashing.
     }
   }
@@ -41,7 +44,8 @@ function applyBom(filePath) {
   try {
     fs.writeFileSync(filePath, Buffer.concat([BOM, buf]));
     return true;
-  } catch (_) {
+  } catch (error) {
+    if (options.strict) throw error;
     return false;
   }
 }

@@ -125,6 +125,33 @@ const {
 
 // ---- ensureClangFormat: return PATH invocation without invoking pip. ----
 {
+  const options = { strict: true, pythons: () => [], scriptsDirs: () => [] };
+  const fail = (code) => () => ({ error: Object.assign(new Error(code), { code }), status: null });
+  assert.strictEqual(detectClangFormat({ ...options, spawn: fail('ENOENT') }), null,
+    'A genuinely unavailable optional formatter can be skipped');
+  assert.throws(() => detectClangFormat({ ...options, spawn: fail('ETIMEDOUT') }), /ETIMEDOUT/,
+    'A probe timeout is incomplete even before the total deadline expires');
+  assert.throws(() => detectClangFormat({ ...options, spawn: fail('EACCES') }), /EACCES/,
+    'An inaccessible executable is an incomplete check');
+}
+
+{
+  const candidates = ['verified-first', 'timed-out', 'verified-last'].map((cmd) => ({ cmd, args: [] }));
+  const options = {
+    strict: true, candidates, scriptsDirs: () => [],
+    spawnSync: (cmd) => cmd === 'timed-out'
+      ? { error: Object.assign(new Error('Python probe timed out'), { code: 'ETIMEDOUT' }) }
+      : { status: 0 },
+  };
+  for (const cmd of ['verified-first', 'verified-last']) {
+    assert.deepStrictEqual(detectClangFormat({ ...options, probe: (desc) => desc.cmd === cmd }),
+      { cmd, args: ['-m', 'clang_format'] }, 'A failing Python probe does not discard other candidates');
+  }
+  assert.throws(() => detectClangFormat({ ...options, probe: () => false }), /Python probe timed out/,
+    'When no candidate works, the failed probe is reported');
+}
+
+{
   const hasClangFormat = spawnSync('clang-format', ['--version'], { stdio: 'pipe' }).status === 0;
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ed-cf-present-'));
   try {

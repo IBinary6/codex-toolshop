@@ -57,14 +57,18 @@ function pythonCandidates(options = {}) {
 function probePython3(candidate, options = {}) {
   const platform = options.platform || process.platform;
   const spawn = options.spawnSync || defaultSpawnSync;
+  const timeout = Math.min(PYTHON_PROBE_TIMEOUT_MS, (options.deadline ?? Infinity) - Date.now());
+  if (timeout <= 0) return false;
   try {
     const result = spawn(candidate.cmd, [...candidate.args, '-c', PYTHON3_PROBE], {
       stdio: 'pipe',
-      timeout: PYTHON_PROBE_TIMEOUT_MS,
+      timeout,
       windowsHide: platform === 'win32',
     });
+    if (options.strict && result.error && result.error.code !== 'ENOENT') throw result.error;
     return !result.error && result.status === 0;
-  } catch (_) {
+  } catch (error) {
+    if (options.strict && error.code !== 'ENOENT') throw error;
     return false;
   }
 }
@@ -79,7 +83,14 @@ function probePython3(candidate, options = {}) {
  */
 function resolvePythonCandidates(options = {}) {
   const candidates = options.candidates || pythonCandidates(options);
-  return candidates.filter((candidate) => probePython3(candidate, options));
+  return candidates.filter((candidate) => {
+    try { return probePython3(candidate, options); }
+    catch (error) {
+      if (!options.onProbeError) throw error;
+      options.onProbeError(error);
+      return false;
+    }
+  });
 }
 
 /**

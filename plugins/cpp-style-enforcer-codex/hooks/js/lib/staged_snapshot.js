@@ -28,12 +28,18 @@ function relativeGitPath(root, filePath) {
  * @param {string} relativePath
  * @returns {Buffer|null}
  */
-function readIndexBlob(root, relativePath) {
+function remainingTime(deadline) {
+  const timeout = Math.min(5000, deadline - Date.now());
+  if (timeout <= 0) throw new Error('Git index snapshot exceeded the verification time budget');
+  return timeout;
+}
+
+function readIndexBlob(root, relativePath, deadline = Infinity) {
   const result = spawnSync('git', ['cat-file', 'blob', `:${relativePath}`], {
     cwd: root,
     encoding: null,
     maxBuffer: MAX_BLOB_SIZE,
-    timeout: 5000,
+    timeout: remainingTime(deadline),
     windowsHide: isWindows,
   });
   if (result.error || result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
@@ -45,11 +51,11 @@ function readIndexBlob(root, relativePath) {
  * @param {string} root
  * @returns {string[]}
  */
-function listIndexPaths(root) {
+function listIndexPaths(root, deadline = Infinity) {
   const result = spawnSync('git', ['ls-files', '-z', '--full-name'], {
     cwd: root,
     encoding: null,
-    timeout: 5000,
+    timeout: remainingTime(deadline),
     windowsHide: isWindows,
   });
   if (result.error || result.status !== 0 || !Buffer.isBuffer(result.stdout)) {
@@ -84,17 +90,17 @@ function writeSnapshotFile(snapshotRoot, relativePath, contents) {
  * @param {string[]} filePaths Absolute worktree paths to check
  * @returns {{root:string, files:Array<{relativePath:string,filePath:string}>, cleanup:Function}}
  */
-function createStagedSnapshot(root, filePaths) {
+function createStagedSnapshot(root, filePaths, { deadline = Infinity } = {}) {
   const snapshotRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cpp-style-staged-'));
   try {
     const relativeFiles = filePaths.map((filePath) => relativeGitPath(root, filePath));
-    const configFiles = listIndexPaths(root).filter((relativePath) => (
+    const configFiles = listIndexPaths(root, deadline).filter((relativePath) => (
       path.posix.basename(relativePath) === 'CPPLINT.cfg'
     ));
     const pathsToCopy = [...new Set([...relativeFiles, ...configFiles])];
 
     for (const relativePath of pathsToCopy) {
-      const blob = readIndexBlob(root, relativePath);
+      const blob = readIndexBlob(root, relativePath, deadline);
       if (!blob) throw new Error(`Could not read Git index blob: ${relativePath}`);
       writeSnapshotFile(snapshotRoot, relativePath, blob);
     }

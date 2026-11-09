@@ -4,7 +4,7 @@ const { spawnSync } = require('child_process');
 const path = require('path');
 
 const { readStdinJson } = require('./lib/stdin');
-const { passSilent, denyTool, diag } = require('./lib/protocol');
+const { passSilent, denyTool, hookFailure } = require('./lib/protocol');
 const { loadConfig } = require('./lib/config');
 const { repoRoot, isNew } = require('./lib/git');
 const { createStagedSnapshot } = require('./lib/staged_snapshot');
@@ -13,7 +13,7 @@ const { isVisualStudioSource } = require('./lib/line_endings');
 const { runCpplint, formatViolations } = require('./steps/cpplint');
 
 const isWindows = process.platform === 'win32';
-const PRE_COMMIT_DEADLINE_MS = 25000;
+const PRE_COMMIT_DEADLINE_MS = 22000;
 
 /**
  * Tokenize a shell command to identify a real `git commit`:
@@ -232,7 +232,7 @@ function stagedCppFiles(root, options = {}) {
     r = spawn('git', ['diff', '--cached', '--name-only', '-z', '--diff-filter=ACM'], {
       cwd: root,
       encoding: null,
-      timeout: 5000,
+      timeout: Math.max(1, Math.min(5000, (options.deadline ?? Infinity) - Date.now())),
       maxBuffer: 32 * 1024 * 1024,
       windowsHide: isWindows,
     });
@@ -255,11 +255,12 @@ function stagedCppFiles(root, options = {}) {
 }
 
 async function main() {
-  const input = await readStdinJson({ timeoutMs: 5000 });
-  if (!input) return passSilent();
+  const input = await readStdinJson({ strict: true });
 
-  const command = input.tool_input && input.tool_input.command;
-  const baseCwd = input.cwd ? path.resolve(input.cwd) : process.cwd();
+  const tool = input.tool_input || {};
+  const command = tool.command ?? tool.cmd;
+  if (typeof command !== 'string' || !command.trim()) return denyTool('Hook input did not include a shell command to verify.');
+  const baseCwd = path.resolve(input.cwd || process.cwd(), tool.workdir || '.');
   const cwd = commitCwd(command, baseCwd);
   if (!cwd) return passSilent();
 
@@ -269,26 +270,30 @@ async function main() {
   if (config.enabled === false || (!config.checks.cpplint
       && (config.mode === 'full' || !config.legacyChecks.cpplint))) return passSilent();
 
-  const root = repoRoot(cwd);
+  const deadline = Date.now() + PRE_COMMIT_DEADLINE_MS;
+  const root = repoRoot(cwd, { strict: true, deadline });
   if (!root) return passSilent();
 
   let files;
   try {
-    files = stagedCppFiles(root);
+    files = stagedCppFiles(root, { deadline });
   } catch (error) {
     return denyTool(`Commit blocked: could not enumerate the Git staging area, so cpplint was incomplete.${error && error.message ? ` ${error.message}` : ''}`);
   }
-  const fileChecks = new Map(files.map((file) => [file,
-    config.mode === 'full' || isNew(file, root) !== false ? config.checks : config.legacyChecks]));
+  const fileChecks = new Map();
+  for (const file of files) {
+    if (Date.now() >= deadline) return denyTool('Staged C++ verification exceeded its time budget before classification completed.');
+    const isNewFile = config.mode === 'full' || isNew(file, root, { strict: true, deadline });
+    fileChecks.set(file, isNewFile ? config.checks : config.legacyChecks);
+  }
   files = files.filter((file) => fileChecks.get(file).cpplint);
   if (files.length === 0) return passSilent();
 
   const allViolations = [];
-  const deadline = Date.now() + PRE_COMMIT_DEADLINE_MS;
   let snapshot;
   let cleanupError = null;
   try {
-    snapshot = createStagedSnapshot(root, files);
+    snapshot = createStagedSnapshot(root, files, { deadline });
     for (const stagedFile of snapshot.files) {
       const remainingMs = deadline - Date.now();
       if (remainingMs <= 1000) {
@@ -310,6 +315,7 @@ async function main() {
           // The snapshot may omit project files; classify from original paths while reading source only from the index.
           preserveIncludeOrder: isVisualStudioSource(path.resolve(root, stagedFile.relativePath), root),
           timeoutMs: Math.min(15000, remainingMs),
+          deadline,
         });
         for (const item of v) allViolations.push({ ...item, file: stagedFile.relativePath });
         if (v.some((item) => item.category === 'runtime/timeout')) break;
@@ -339,12 +345,7 @@ async function main() {
 }
 
 // Run the pipeline only when invoked directly as a hook; when required by tests, export functions without blocking on stdin.
-if (require.main === module) {
-  main().catch((e) => {
-    try { diag(`pre_commit check error: ${e && e.message ? e.message : e}`); } catch (_) {}
-    denyTool('Pre-commit C++ check failed; verification is incomplete. Fix the check environment and retry.');
-  });
-}
+if (require.main === module) main().catch((error) => hookFailure('PreToolUse', error));
 
 module.exports = {
   commitCwd,

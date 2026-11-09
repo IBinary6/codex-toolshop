@@ -21,8 +21,8 @@ const config = path.join(tmp, '.codex-cpp-style/cpp-style.json');
 function stop(turn) {
   const input = { cwd: tmp, session_id: 'eol', turn_id: turn, tool_input: { file_path: source } };
   const opts = { env: { ...process.env, PLUGIN_ROOT: pluginRoot, PLUGIN_DATA: path.join(tmp, 'data') } };
-  run(process.execPath, [path.join(pluginRoot, 'scripts/run-hook.cjs'), 'post_edit'], { ...opts, input: JSON.stringify(input) });
-  return JSON.parse(run(process.execPath, [path.join(pluginRoot, 'scripts/run-hook.cjs'), 'stop_check'], { ...opts, input: JSON.stringify(input) }));
+  return JSON.parse(run(process.execPath, [path.join(pluginRoot, 'scripts/run-hook.cjs'), 'post_edit'],
+    { ...opts, input: JSON.stringify(input) }) || '{}');
 }
 try {
   git('init', '-q');
@@ -54,7 +54,7 @@ try {
   assert.doesNotMatch(mixed.message, /better to use only/);
   assert.deepEqual(fs.readFileSync(source), beforeLint, 'The check itself is read-only');
   const result = stop('first');
-  assert.doesNotMatch(result.reason || '', /cpplint found/);
+  assert.deepEqual(result, {});
   const expected = Buffer.concat([bom, Buffer.from('int main() {\r\n  return 1;\r\n}\r\n')]);
   assert.deepEqual(fs.readFileSync(source), expected, 'Tracked file still gets CRLF and final newline with clang-format disabled');
   const mtime = fs.statSync(source).mtimeMs;
@@ -101,7 +101,7 @@ try {
   assert.match(finalText, /^\/\/ Copyright/);
   assert.ok(finalText.endsWith('\r\n'));
   assert.ok(!finalText.replace(/\r\n/g, '').includes('\n'));
-  assert.doesNotMatch(full.reason || '', /cpplint found/);
+  assert.deepEqual(full, {});
   assert.deepEqual(stop('full-repeat'), {});
 
   // The nearest CMake source directory wins, so its LF setting takes effect.

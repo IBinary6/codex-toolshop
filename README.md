@@ -54,7 +54,7 @@ Plugins that need Python locate it themselves, so a system Python that is too ol
 | [Context7](plugins/context7-codex/README.md), [Exa](plugins/exa-codex/README.md), [Tavily](plugins/tavily-codex/README.md) | Independent plugins for library documentation, web search, extraction, and research. | Enable each separately in Codex. Personal keys live in `$CODEX_HOME/<plugin-name>/config.json`. |
 | [Microsoft Learn](plugins/microsoft-learn-codex/README.md), [Fetch](plugins/fetch-codex/README.md), [Sequential Thinking](plugins/sequential-thinking-codex/README.md) | Independent plugins for official documentation, web content, and stepwise analysis. | No keys required; only Fetch starts a Python backend, on actual use. |
 | [research-tools-codex](plugins/research-tools-codex/README.md) | Optional combined version of the six research tools, and the maintenance source for the independent packages. | Use one combined entry or independently toggled plugins; avoid enabling duplicate providers. |
-| [Dbg](plugins/dbg-codex/README.md) | Discover tools installed through Scoop, Homebrew, or manually; deploy extensions and MCPs for x64dbg, Ghidra, WinDbg, and IDA. | Initial loading deploys automatically. Run `dbg doctor` to rediscover, update, or repair. Scripts explicitly skip incompatible versions. |
+| [Dbg](plugins/dbg-codex/README.md) | Use x64dbg, x32dbg, Ghidra, WinDbg and IDA through plugin-managed MCP services started on demand. | Ordinary chats start no debugger service. Services retire after 60 seconds idle or at turn end. `dbg doctor` maintains extensions. |
 | `codemap-boost-codex` | Bundled `code-review-graph` and Serena semantic MCPs for structure, symbols, references, and impact analysis. | Prepare isolated runtimes and maintain graphs automatically; locate structure with the graph and use Serena as needed. Serena Dashboard, browser launch, and GUI logs are disabled by default. |
 | [tgrep-search-codex](plugins/tgrep-search-codex/README.md) | Prepare a pinned tgrep release and manage a text index and background service for each Git worktree. | Task startup prepares the tool. Use the search entry supplied by the hook. Unready or unhealthy indexes fall back to live scans; use `--fresh` after edits or for completeness checks. |
 | `cpp-style-enforcer-codex` | Automate C++ style workflows: clang-format, copyright headers, BOM, cpplint, and pre-commit checks. | Edit normally. Hooks process edited C/C++ files and check staged C++ files before `git commit`. |
@@ -77,7 +77,7 @@ Microsoft Learn, Fetch, and Sequential Thinking retain lightweight MCP entry poi
 
 ## Using Dbg
 
-When `dbg-codex` first loads in a new Codex task, scripts detect installed tools, download compatible extensions, prepare isolated runtimes, and generate local paths and MCP launch settings. The plugin supplies its own MCPs without separate CC Switch registration. After installing, upgrading, or moving a tool, run:
+After installing `dbg-codex`, ask Codex to use the desired debugger. The plugin automatically supplies its internal command entry point, starts only requested endpoints, and allows combining debuggers in one chat. It no longer registers five permanent MCP frontends or deploys tools during ordinary chat startup. Idle endpoints retire after 60 seconds with no outstanding operation; turn-end and interruption hooks also release them. Subsequent calls create fresh services and must verify the target again. No separate skill installation or CC Switch MCP registration is required. For explicit extension maintenance after installing, upgrading, or moving a tool, run:
 
 ```sh
 dbg doctor
@@ -95,7 +95,7 @@ WinDbg prefers Microsoft's installed `DbgX.Mcp.Proxy.exe` and retains the cdb/kd
 
 Users install native debugging software themselves. Ghidra requires initial GUI extension activation; actual debugging requires the corresponding tool and target to be open. On macOS/Linux, `dbg` is installed in `~/.local/bin`; doctor explains how to add it to PATH if necessary. Deployment and target connection are separate states; see [Dbg configuration and validation](plugins/dbg-codex/README.md).
 
-Disabling or uninstalling Dbg reduces the MCPs loaded by Codex. Extensions already deployed into tools, isolated runtimes, and backups remain; plugin removal does not delete these files.
+Disabling or uninstalling Dbg removes its automatic invocation instructions and lifecycle hooks from future chats. Extensions already deployed into tools, isolated runtimes, and backups remain; plugin removal does not delete these files. Existing services still have idle retirement, and services started by pre-0.2 versions keep their old lifecycle until the old host connections close.
 
 ## Naming tasks
 
@@ -214,8 +214,8 @@ The plugin ID changed to `local-knowledge-codex`. Old IDs do not migrate automat
 
 New sessions prepare only the global template. Project configuration is created on demand after an actual C/C++ edit:
 
-- `PostToolUse` records edited C/C++ files without immediately rewriting source.
-- `Stop` processes formatting, BOM, copyright headers, line endings, and cpplint at the end of the turn, then triggers final verification.
+- `PostToolUse` repairs formatting, BOM, copyright headers and line endings, then runs cpplint on edited C/C++ files. Remaining issues become internal instructions for Codex to fix and recheck.
+- `Stop` stays silent and does not modify files or insert a continuation message into chat.
 - Edited C/C++ files in native Visual Studio projects require CRLF. Other projects select `lf`, `crlf`, or `preserve` through `lineEnding`. Missing final newlines use the same ending; this also works when clang-format or legacy style checks are disabled.
 - `PreToolUse` recognizes actual `git commit` commands and checks staged C/C++ files without rewriting them before commit.
 - Existing formatter configuration is respected. Read-only checks do not rewrite BOMs, and failed checks cannot be reported as successful.

@@ -2,7 +2,7 @@
 
 // Integration regression (spec section 10): spawn entry scripts in temporary Git or non-Git directories,
 // feed stdin, and assert exit/stdout/stderr to preserve the post-crash behavior contract.
-// Cover deferred PostToolUse records, Stop scenarios a-e, and pre_commit denyTool/passSilent.
+// Cover post-edit processing, the silent Stop compatibility entry point, and the staged gate.
 
 const assert = require('node:assert');
 const fs = require('fs');
@@ -56,7 +56,7 @@ function writeHeader(filePath, guard) {
 }
 
 let turnCounter = 0;
-function runDeferred(input) {
+function runEditAndStop(input) {
   turnCounter += 1;
   const hookInput = {
     session_id: 'integration-session',
@@ -105,11 +105,11 @@ try {
     sh(['add', 'old.cpp'], repo);
     sh(['commit', '-m', 'init'], repo);
 
-    const { post, stop } = runDeferred({ cwd: repo, tool_name: 'Edit', tool_input: { file_path: f } });
+    const { post, stop } = runEditAndStop({ cwd: repo, tool_name: 'Edit', tool_input: { file_path: f } });
     assert.strictEqual(post.status, 0, 'Scenario a: editing a tracked file exits 0');
-    assert.strictEqual((post.stdout || '').trim(), '', 'Scenario a: edit phase records without blocking');
-    assert.strictEqual(stop.status, 0, 'Scenario a: Stop batch processing exits 0');
-    assert.deepStrictEqual(JSON.parse(stop.stdout), {}, 'Scenario a: Stop finishes silently when bytes stay unchanged');
+    assert.strictEqual((post.stdout || '').trim(), '', 'Scenario a: clean edit remains silent');
+    assert.strictEqual(stop.status, 0);
+    assert.strictEqual(stop.stdout + stop.stderr, '', 'Scenario a: Stop finishes silently');
     assert.ok(fs.readFileSync(f).equals(originalBytes), 'Scenario a: tracked-file encoding, BOM, and body stay unchanged');
   }
 
@@ -128,8 +128,8 @@ try {
     sh(['add', 'legacy-config.cpp'], repo);
     sh(['commit', '-m', 'init'], repo);
 
-    const { stop } = runDeferred({ cwd: repo, tool_name: 'Edit', tool_input: { file_path: f } });
-    assert.deepStrictEqual(JSON.parse(stop.stdout), {}, 'Legacy BOM settings must not rewrite tracked files');
+    const { post } = runEditAndStop({ cwd: repo, tool_name: 'Edit', tool_input: { file_path: f } });
+    assert.strictEqual(post.stdout + post.stderr, '', 'Legacy BOM settings must not rewrite tracked files');
     assert.ok(fs.readFileSync(f).equals(originalBytes), 'Legacy settings still preserve original BOM state');
   }
 
@@ -147,10 +147,10 @@ try {
     fs.writeFileSync(f, 'int  main( ){int x=1;return x;}\n');
     const before = fs.readFileSync(f);
 
-    const { post, stop } = runDeferred({ cwd: repo, tool_name: 'Write', tool_input: { file_path: f } });
+    const { post, stop } = runEditAndStop({ cwd: repo, tool_name: 'Write', tool_input: { file_path: f } });
     assert.strictEqual(post.status, 0, 'Scenariod: enabled:false exit 0');
     assert.strictEqual((post.stdout || '').trim(), '', 'Scenario d: empty stdout during editing');
-    assert.deepStrictEqual(JSON.parse(stop.stdout), {}, 'Scenariod: Stop no-op');
+    assert.strictEqual(stop.stdout + stop.stderr, '', 'Scenario d: Stop no-op');
     assert.ok(fs.readFileSync(f).equals(before), 'Scenario d: disabled file stays byte-identical');
   }
 
@@ -177,26 +177,24 @@ try {
   // Long lines or tight braces are unsuitable because clang-format would fix them.
   const VIOLATION_CPP = 'int main() {\n  double d = 3.5;\n  int y = (int)d;\n  return y;\n}\n';
 
-  // ---- Scenario (b):New file with cpplint violation: exit 0 and decision:block JSON (requires Python/cpplint).----
+  // A new file with a cpplint violation produces internal PostToolUse context.
   if (hasPython) {
     const repo = newRepo('cse-b-');
     const f = path.join(repo, 'new.cpp');
     // Untracked new file uses the full incremental workflow.
     fs.writeFileSync(f, VIOLATION_CPP);
 
-    const { post, stop } = runDeferred({ cwd: repo, tool_name: 'Write', tool_input: { file_path: f } });
+    const { post, stop } = runEditAndStop({ cwd: repo, tool_name: 'Write', tool_input: { file_path: f } });
     assert.strictEqual(post.status, 0, 'Scenario b: edit phase exits 0');
-    assert.strictEqual((post.stdout || '').trim(), '', 'Scenario b: edit phase neither checks nor blocks');
-    assert.strictEqual(stop.status, 0, 'Scenario b: Stop check exits 0, never 2');
-    const stdout = (stop.stdout || '').trim();
-    assert.ok(stdout.length > 0, 'Scenario b: Stop emits block output on violations');
-    const parsed = JSON.parse(stdout);
-    assert.strictEqual(parsed.decision, 'block', 'Scenario b: violating new file emits decision:block JSON');
-    assert.ok(typeof parsed.reason === 'string' && parsed.reason.length > 0, 'Scenario b: reason is nonempty');
-    assert.ok(/casting/.test(parsed.reason), 'Scenario b: reason includes readability/casting');
+    assert.strictEqual(post.stderr, '');
+    assert.strictEqual(stop.status, 0);
+    assert.strictEqual(stop.stdout + stop.stderr, '');
+    const parsed = JSON.parse(post.stdout);
+    assert.deepStrictEqual(Object.keys(parsed), ['hookSpecificOutput']);
+    assert.match(parsed.hookSpecificOutput.additionalContext, /casting/);
   }
 
-  // Without Git, real Stop derives a stable guard from the task directory, excluding machine paths.
+  // Without Git, PostToolUse derives a stable guard from the task directory.
   if (hasPython) {
     const workspace = newDirectory('cse-no-git-guard-');
     configureCpplintOnly(workspace);
@@ -205,34 +203,31 @@ try {
     writeHeader(f, guard);
     const originalBytes = fs.readFileSync(f);
 
-    const { post, stop } = runDeferred({ cwd: workspace, tool_name: 'Write', tool_input: { file_path: f } });
+    const { post } = runEditAndStop({ cwd: workspace, tool_name: 'Write', tool_input: { file_path: f } });
     assert.strictEqual(post.status, 0, 'Non-Git guard: PostToolUse exits 0');
-    assert.strictEqual((post.stdout || '').trim(), '', 'Non-Git guard: edit phase only records');
-    assert.strictEqual(stop.status, 0, 'Non-Git guard: Stop exits 0');
-    assert.deepStrictEqual(JSON.parse(stop.stdout), {}, 'Non-Git guard: project-relative guard passes');
+    assert.strictEqual(post.stdout + post.stderr, '', 'Non-Git guard: project-relative guard passes');
     assert.ok(fs.readFileSync(f).equals(originalBytes), 'Non-Git guard: check does not rewrite header');
 
     const absoluteGuard = f.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase() + '_';
     writeHeader(f, absoluteGuard);
-    const { stop: invalidStop } = runDeferred({
+    const { post: invalidPost } = runEditAndStop({
       cwd: workspace, tool_name: 'Edit', tool_input: { file_path: f },
     });
-    assert.strictEqual(invalidStop.status, 0, 'Absolute-path guard: Stop exits 0');
-    const invalid = JSON.parse(invalidStop.stdout);
-    assert.strictEqual(invalid.decision, 'block', 'Absolute-path guard: must reject');
-    assert.ok(invalid.reason.includes('[build/header_guard]'), 'Absolute-path guard: guard check remains active');
-    assert.ok(invalid.reason.includes(`please use: ${guard}`), 'Absolute-path guard: suggest stable project-relative macro');
+    assert.strictEqual(invalidPost.status, 0);
+    const details = JSON.parse(invalidPost.stdout).hookSpecificOutput.additionalContext;
+    assert.ok(details.includes('[build/header_guard]'), 'Absolute-path guard: guard check remains active');
+    assert.ok(details.includes(`please use: ${guard}`), 'Absolute-path guard: suggest stable project-relative macro');
 
     // If cwd and the file directory share only a name prefix, fall back to the actual file directory.
     const cwd = path.join(workspace, 'project');
     fs.mkdirSync(cwd);
     const external = path.join(workspace, 'project-other', 'include', 'batch_collector.h');
     writeHeader(external, 'BATCH_COLLECTOR_H_');
-    const { stop: externalStop } = runDeferred({
+    const { post: externalPost } = runEditAndStop({
       cwd, tool_name: 'Write', tool_input: { file_path: external },
     });
-    assert.strictEqual(externalStop.status, 0, 'Name-prefix sibling: Stop exits 0');
-    assert.deepStrictEqual(JSON.parse(externalStop.stdout), {},
+    assert.strictEqual(externalPost.status, 0);
+    assert.strictEqual(externalPost.stdout + externalPost.stderr, '',
       'Name-prefix sibling: use the file directory guard instead of cwd');
   }
 
@@ -242,11 +237,11 @@ try {
     configureCpplintOnly(repo);
     const f = path.join(repo, 'work_cpp_smoke', 'batch_collector.h');
     writeHeader(f, 'WORK_CPP_SMOKE_BATCH_COLLECTOR_H_');
-    const { stop } = runDeferred({
+    const { post } = runEditAndStop({
       cwd: path.dirname(f), tool_name: 'Write', tool_input: { file_path: f },
     });
-    assert.strictEqual(stop.status, 0, 'Git guard: Stop exit 0');
-    assert.deepStrictEqual(JSON.parse(stop.stdout), {}, 'Git guard: real Git root takes precedence over cwd');
+    assert.strictEqual(post.status, 0);
+    assert.strictEqual(post.stdout + post.stderr, '', 'Git guard: real Git root takes precedence over cwd');
   }
 
   // ---- pre_commit integration:Staged violating .cpp with real git commit: denyTool (exit 0, permissionDecision: deny).----

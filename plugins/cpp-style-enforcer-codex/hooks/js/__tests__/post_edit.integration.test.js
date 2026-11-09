@@ -102,7 +102,7 @@ function mkTmpDir() {
   const failed = runHook({ cwd: dir, tool_name: 'Edit',
     tool_input: { file_path: file }, tool_response: { isError: true } });
   assert.strictEqual(failed.status, 0);
-  assert.strictEqual(runStop(failed.payload).stdout, '{}', 'Failed edits are not queued for later automatic fixes');
+  assert.strictEqual(runStop(failed.payload).stdout, '', 'Failed edits are not queued for later automatic fixes');
   assert.ok(fs.readFileSync(file).equals(before));
 }
 
@@ -131,11 +131,11 @@ function mkTmpDir() {
   });
   assert.strictEqual(r.status, 0, 'apply_patch post-processing exits 0');
   const bom = Buffer.from([0xEF, 0xBB, 0xBF]);
-  assert.ok(!fs.readFileSync(a).subarray(0, 3).equals(bom), 'PostToolUse does not add a BOM immediately');
+  assert.ok(fs.readFileSync(a).subarray(0, 3).equals(bom), 'PostToolUse adds a BOM before returning');
+  assert.ok(fs.readFileSync(b).subarray(0, 3).equals(bom), 'The second apply_patch file receives a BOM immediately');
   const stop = runStop(r.payload);
   assert.strictEqual(stop.status, 0, 'Stop processing exits 0');
-  assert.ok(fs.readFileSync(a).subarray(0, 3).equals(bom), 'CMake a.cpp receives a BOM');
-  assert.ok(fs.readFileSync(b).subarray(0, 3).equals(bom), 'Second apply_patch file b.hpp receives a BOM');
+  assert.strictEqual(stop.stdout + stop.stderr, '', 'Compatibility Stop stays silent');
 }
 
 console.log('post_edit.integration.test.js PASS');

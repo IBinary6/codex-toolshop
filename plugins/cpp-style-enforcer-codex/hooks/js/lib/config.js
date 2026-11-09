@@ -26,12 +26,13 @@ function userTemplatePath() {
  * @param {string} [userPath] User template path (default ~/.codex/cpp-style-template.json)
  * @returns {string} User template path
  */
-function ensureUserTemplate(defaultPath, userPath = userTemplatePath()) {
+function ensureUserTemplate(defaultPath, userPath = userTemplatePath(), options = {}) {
   try {
     if (fs.existsSync(userPath)) return userPath;
     fs.mkdirSync(path.dirname(userPath), { recursive: true });
-    fs.copyFileSync(defaultPath, userPath);
-  } catch (_) {
+    fs.copyFileSync(defaultPath, userPath, fs.constants.COPYFILE_EXCL);
+  } catch (error) {
+    if (options.strict && error.code !== 'EEXIST') throw error;
     // On permission or missing-source errors, fall back to hard-coded defaults without crashing.
   }
   return userPath;

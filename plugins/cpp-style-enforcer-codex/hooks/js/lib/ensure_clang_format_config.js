@@ -19,7 +19,7 @@ NamespaceIndentation: None
  *
  * @param {string|null} root Git repository root
  */
-function ensureClangFormatConfig(root) {
+function ensureClangFormatConfig(root, options = {}) {
   if (!root) return;
   try {
     // clang-format inherits configuration from ancestors; do not create root configuration that masks an applicable style.
@@ -32,7 +32,8 @@ function ensureClangFormatConfig(root) {
       current = parent;
     }
     fs.writeFileSync(path.join(root, '.clang-format'), Buffer.from(CONTENT, 'utf-8'), { flag: 'wx' });
-  } catch (_) {
+  } catch (error) {
+    if (options.strict && error.code !== 'EEXIST') throw error;
     // Generation failure does not affect the main flow.
   }
 }

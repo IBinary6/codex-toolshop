@@ -48,34 +48,72 @@ try {
   assert.notStrictEqual(JSON.parse(child.stdout).pid, child.pid, 'kill switch runs the hook in a child process');
   assert.strictEqual(JSON.parse(child.stdout).stdin, '{"a":1}');
 
-  // The hook's own exit status is kept in both models: exit 2 blocks the action being checked.
+  // A failed hook reports structured feedback, never raw stderr or a host-visible failure exit.
   for (const env of MODELS) {
-    assert.strictEqual(invoke('pre_commit', 'process.stdout.write("denied"); process.exit(2);', { env }).status, 2);
-    assert.strictEqual(invoke('pre_commit', 'process.exitCode = 3;', { env }).status, 3);
-    const crashed = invoke('pre_commit', 'throw new Error("boom");', { env });
-    assert.strictEqual(crashed.status, 1, 'an unexpected crash is not reported as success');
-    assert.match(crashed.stderr, /boom/);
+    for (const [source, detail] of [
+      ['process.stdout.write("noise"); process.exit(2);', /status 2/],
+      ['process.exitCode = 3;', /status 3/],
+      ['throw new Error("boom");', /boom/],
+    ]) {
+      const failed = invoke('pre_commit', source, { env });
+      assert.strictEqual(failed.status, 0);
+      assert.strictEqual(failed.stderr, '');
+      const hook = JSON.parse(failed.stdout).hookSpecificOutput;
+      assert.strictEqual(hook.permissionDecision, 'deny');
+      assert.match(hook.additionalContext, detail);
+    }
+    const post = invoke('post_edit', 'process.stderr.write("raw diagnostic"); throw new Error("format failed");', { env });
+    assert.strictEqual(post.status, 0);
+    assert.strictEqual(post.stderr, '');
+    assert.match(JSON.parse(post.stdout).hookSpecificOutput.additionalContext, /format failed/);
+    const stop = invoke('stop_check', 'throw new Error("stop failed");', { env });
+    assert.strictEqual(stop.status, 0);
+    assert.strictEqual(stop.stdout + stop.stderr, '');
+    assert.match(fs.readFileSync(path.join(data, 'latest-diagnostic.json'), 'utf8'), /stop failed/);
   }
   // A hook that never reads its input must not leave the host writing into a closed pipe.
   for (const env of MODELS) {
-    const ignoring = invoke('session_start', 'process.stdout.write("ok");', { input: 'x'.repeat(1 << 20), env });
+    const ignoring = invoke('session_start', 'process.stdout.write(JSON.stringify({ok:true}));', { input: 'x'.repeat(1 << 20), env });
     assert.strictEqual(ignoring.error, undefined, `host write must not fail: ${ignoring.error && ignoring.error.code}`);
     assert.strictEqual(ignoring.status, 0);
-    assert.strictEqual(ignoring.stdout, 'ok');
+    assert.deepStrictEqual(JSON.parse(ignoring.stdout), { ok: true });
   }
+
+  // Keep stdin open to prove the child fallback does not block before the hook's read deadline.
+  const stdin = path.join(__dirname, '..', 'lib', 'stdin.js');
+  const protocol = path.join(__dirname, '..', 'lib', 'protocol.js');
+  fs.writeFileSync(path.join(root, 'hooks', 'js', 'post_edit.js'), `
+    require(${JSON.stringify(stdin)}).readStdinJson({ strict: true, timeoutMs: 50 })
+      .catch((error) => require(${JSON.stringify(protocol)}).hookFailure('PostToolUse', error));`);
+  const openStdin = `
+    const child = require('node:child_process').spawn(process.execPath, [${JSON.stringify(runner)}, 'post_edit'],
+      { stdio: ['pipe', 'inherit', 'inherit'], windowsHide: true });
+    child.on('exit', (code) => { process.exitCode = code; });
+  `;
+  for (const env of MODELS) {
+    const timed = spawnSync(process.execPath, ['-e', openStdin], {
+      cwd: root, env: { ...process.env, PLUGIN_ROOT: root, PLUGIN_DATA: data, ...env }, encoding: 'utf8',
+      windowsHide: process.platform === 'win32', timeout: 5000,
+    });
+    assert.strictEqual(timed.status, 0, timed.error?.message);
+    assert.strictEqual(timed.stderr, '');
+    assert.match(JSON.parse(timed.stdout).hookSpecificOutput.additionalContext, /Timed out reading hook input/);
+  }
+
   // Without PLUGIN_DATA the fallback is stable across upgrades: the plugin root here is named like a cache version folder.
   const versionRoot = path.join(root, '0.1.14');
   fs.mkdirSync(path.join(versionRoot, 'hooks', 'js'), { recursive: true });
-  fs.writeFileSync(path.join(versionRoot, 'hooks', 'js', 'session_start.js'), 'process.stdout.write(process.env.PLUGIN_DATA);');
+  fs.writeFileSync(path.join(versionRoot, 'hooks', 'js', 'session_start.js'), 'process.stdout.write(JSON.stringify(process.env.PLUGIN_DATA));');
   const fallbackEnv = { ...process.env, PLUGIN_ROOT: versionRoot, CODEX_HOME: path.join(root, 'codex-home') };
   delete fallbackEnv.PLUGIN_DATA;
   const fallback = spawnSync(process.execPath, [runner, 'session_start'], { cwd: root, input: '{}', encoding: 'utf8', env: fallbackEnv });
   assert.strictEqual(fallback.status, 0, fallback.stderr);
-  assert.strictEqual(fallback.stdout, path.join(root, 'codex-home', 'plugins', 'data', 'cpp-style-enforcer-codex'));
+  assert.strictEqual(JSON.parse(fallback.stdout), path.join(root, 'codex-home', 'plugins', 'data', 'cpp-style-enforcer-codex'));
 
   const unknown = invoke('no_such_hook', '');
   assert.strictEqual(unknown.status, 0);
-  assert.match(unknown.stderr, /unknown hook: no_such_hook/);
+  assert.strictEqual(unknown.stdout + unknown.stderr, '');
+  assert.match(fs.readFileSync(path.join(data, 'latest-diagnostic.json'), 'utf8'), /Unknown hook: no_such_hook/);
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
 }

@@ -1,7 +1,7 @@
 {
   "name": "dbg-codex",
-  "version": "0.1.9",
-  "description": "Script-driven deployment, update and repair of debugger extensions and their MCP servers.",
+  "version": "0.2.0",
+  "description": "On-demand debugger MCP tools with idle process cleanup and scripted extension deployment.",
   "author": {
     "name": "IBinary6",
     "url": "https://github.com/IBinary6"
@@ -21,8 +21,8 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Dbg",
-    "shortDescription": "One doctor deploys and maintains debugger extensions and MCP servers.",
-    "longDescription": "Cross-platform scripts discover debugger installations through Windows Scoop, macOS/Linux Homebrew, and manual paths, then deploy and maintain matching extensions and MCP servers. WinDbg prefers Microsoft's installed native MCP proxy and preserves the cdb/kd compatibility backend, without changing debugger security settings. Incompatible versions are explicitly skipped. First load and explicit doctor use the same workflow without AI installation decisions.",
+    "shortDescription": "Start only the debugger MCP tools you need; release idle processes.",
+    "longDescription": "The plugin automatically gives Codex an on-demand entry point for WinDbg, x64dbg, x32dbg, IDA and Ghidra. Only requested debugger services start, multiple debuggers can be combined, and idle processes are reclaimed after 60 seconds or when the chat turn ends. Ordinary chats start no debugger MCP frontend. A doctor command maintains debugger extensions. WinDbg keeps native-first selection and existing security settings.",
     "developerName": "IBinary6",
     "category": "Coding",
     "capabilities": [

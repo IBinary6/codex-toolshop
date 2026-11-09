@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { stripBom, restoreBom } = require('../lib/bom_util.js');
+const { diag } = require('../lib/protocol');
 
 const DEFAULT_DATE_FORMAT = 'YYYY/MM/DD HH:mm';
 
@@ -16,7 +17,7 @@ const FILENAME_LINE = /^\/\/ \S+\.(?:c|cc|cpp|cxx|h|hpp|hxx)\s*$/i;
 function validateDateFormat(fmt) {
   if (typeof fmt !== 'string') return DEFAULT_DATE_FORMAT;
   if (fmt.includes('YYYY') && fmt.includes('MM') && fmt.includes('DD')) return fmt;
-  process.stderr.write('[cpp-style-enforcer] dateFormat lacks YYYY/MM/DD; using the default format\n');
+  diag('Copyright dateFormat lacks YYYY/MM/DD. Using the default format.');
   return DEFAULT_DATE_FORMAT;
 }
 
@@ -110,12 +111,13 @@ function parseHeaderBlock(lines) {
  * @param {string|null} [root] Git repository root(Used to generate the repository-relative filepath line)
  * @returns {boolean} Whether the file was written
  */
-function applyCopyright(filePath, copyrightInfo, root) {
+function applyCopyright(filePath, copyrightInfo, root, options = {}) {
   const { company, author } = copyrightInfo || {};
   if (!company) return false;
 
   let raw;
-  try { raw = fs.readFileSync(filePath); } catch (_) { return false; }
+  try { raw = fs.readFileSync(filePath); }
+  catch (error) { if (options.strict) throw error; return false; }
   const { hadBom, body } = stripBom(raw);
   const origText = body.toString('utf-8');
   const eol = origText.includes('\r\n') ? '\r\n' : '\n'; // Preserve original line endings.
@@ -165,8 +167,9 @@ function applyCopyright(filePath, copyrightInfo, root) {
   try {
     fs.writeFileSync(filePath, restoreBom(hadBom, Buffer.from(newText, 'utf-8')));
     return true;
-  } catch (_) {
-    process.stderr.write('[cpp-style-enforcer] Could not write copyright header; skipping: ' + filePath + '\n');
+  } catch (error) {
+    if (options.strict) throw error;
+    diag('Could not write copyright header for ' + filePath);
     return false;
   }
 }

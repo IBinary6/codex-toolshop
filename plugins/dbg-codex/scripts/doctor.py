@@ -58,13 +58,13 @@ def run_doctor(data_dir: Path, *, auto=False, selected=None, recipe_map=None,
             if cli.get("path_hint"):
                 context.warnings.append(cli["path_hint"])
             context.save()
-        if (auto and state.get("auto_completed_version") == PLUGIN_VERSION
+        if (auto and not selected and state.get("auto_completed_version") == PLUGIN_VERSION
                 and state.get("auto_windbg_backend", "auto") == windbg_mode):
             return {"status": "unchanged", "tools": {}, "warnings": context.warnings}
         # Four MCPs and a hook may start together; after failure suppress only automatic retries, while explicit doctor always retries.
         now = datetime.now(timezone.utc)
         attempted = state.get("auto_attempted_at")
-        if (auto and state.get("auto_attempted_version") == PLUGIN_VERSION and attempted
+        if (auto and not selected and state.get("auto_attempted_version") == PLUGIN_VERSION and attempted
                 and state.get("auto_windbg_backend", "auto") == windbg_mode):
             try:
                 recent = (now - datetime.fromisoformat(attempted)).total_seconds() < 600
@@ -80,10 +80,11 @@ def run_doctor(data_dir: Path, *, auto=False, selected=None, recipe_map=None,
         if not isinstance(disabled, list) or not all(isinstance(x, str) for x in disabled):
             raise DbgError("disabled must be an array of tool names")
         installations = discover_fn(config.get("paths", {}))
-        state["auto_attempted_version"] = PLUGIN_VERSION
-        state["auto_attempted_at"] = now.isoformat()
-        state["auto_windbg_backend"] = windbg_mode
-        context.save()
+        if not selected:
+            state["auto_attempted_version"] = PLUGIN_VERSION
+            state["auto_attempted_at"] = now.isoformat()
+            state["auto_windbg_backend"] = windbg_mode
+            context.save()
         results = {}
         entries = recipe_map if recipe_map is not None else recipes()
         if selected and selected not in entries:
@@ -97,10 +98,12 @@ def run_doctor(data_dir: Path, *, auto=False, selected=None, recipe_map=None,
                 continue
             found = [x for x in installations if x.tool == host_tool]
             if not found:
-                results[name] = ({"status": "unsupported", "backend_mode": "native",
+                results[name] = ({"status": "unsupported",
                                   "message": "Official DbgX.Mcp.Proxy.exe not found; native mode does not fall back."}
                                  if name == "windbg" and windbg_mode == "native" else
                                  {"status": "not_installed", "message": "Host tool not found; skipped"})
+                if name == "windbg":
+                    results[name]["backend_mode"] = windbg_mode
                 tools[name] = results[name]
                 continue
             try:

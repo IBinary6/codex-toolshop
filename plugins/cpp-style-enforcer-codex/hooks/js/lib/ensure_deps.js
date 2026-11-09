@@ -130,11 +130,21 @@ function pipInstallClangFormat() {
  * @param {{cmd:string, args:string[]}} desc
  * @returns {boolean}
  */
-function probeClangFormat(desc) {
+function probeClangFormat(desc, { deadline = Infinity, strict, spawn = spawnSync } = {}) {
+  const timeout = Math.min(10000, deadline - Date.now());
+  if (timeout <= 0) return false;
   try {
-    const r = spawnSync(desc.cmd, [...desc.args, '--version'], { stdio: 'ignore', timeout: 10000, windowsHide: isWindows });
+    const r = spawn(desc.cmd, [...desc.args, '--version'], {
+      stdio: ['ignore', 'ignore', 'pipe'], timeout, maxBuffer: 128 * 1024, windowsHide: isWindows,
+    });
+    if (strict && r.error && r.error.code !== 'ENOENT') throw r.error;
+    if (strict && !r.error && r.status !== 0 &&
+        !(desc.args.includes('clang_format') && /No module named ['"]?clang_format/.test(String(r.stderr)))) {
+      throw new Error(`clang-format version probe failed with status ${r.status}`);
+    }
     return !r.error && r.status === 0;
-  } catch (_) {
+  } catch (error) {
+    if (strict && error.code !== 'ENOENT') throw error;
     return false;
   }
 }
@@ -144,15 +154,20 @@ function probeClangFormat(desc) {
  * Pip entry scripts often live there without being on PATH; return [] silently on failure.
  * @returns {Array<{cmd:string, args:string[]}>}
  */
-function scriptsDirCandidates() {
+function scriptsDirCandidates({ deadline = Infinity, strict, onProbeError } = {}) {
   const out = [];
-  for (const py of resolvePythonCandidates()) {
+  for (const py of resolvePythonCandidates({ deadline, strict, onProbeError })) {
+    const timeout = Math.min(10000, deadline - Date.now());
+    if (timeout <= 0) break;
     let dir = null;
     try {
       const r = spawnSync(py.cmd, [...py.args, '-c', "import sysconfig; print(sysconfig.get_path('scripts'))"],
-        { stdio: ['ignore', 'pipe', 'ignore'], timeout: 10000, windowsHide: isWindows });
+        { stdio: ['ignore', 'pipe', 'ignore'], timeout, windowsHide: isWindows });
+      if (strict && r.error && r.error.code !== 'ENOENT') throw r.error;
       if (!r.error && r.status === 0 && r.stdout) dir = String(r.stdout).trim();
-    } catch (_) {}
+    } catch (error) {
+      if (strict && error.code !== 'ENOENT') onProbeError(error);
+    }
     if (!dir) continue;
     for (const exe of isWindows ? ['clang-format.exe', 'clang-format'] : ['clang-format']) {
       const p = path.join(dir, exe);
@@ -175,22 +190,26 @@ function scriptsDirCandidates() {
  */
 function detectClangFormat(opts) {
   const o = opts || {};
-  const probe = o.probe || probeClangFormat;
-  const scriptsDirs = o.scriptsDirs || scriptsDirCandidates;
-  const pythons = o.pythons || resolvePythonCandidates;
-
-  const candidates = [
-    { cmd: 'clang-format', args: [] },
-    ...pythons().map((py) => ({ cmd: py.cmd, args: [...py.args, '-m', 'clang_format'] })),
+  let failure;
+  const onProbeError = (error) => { failure ||= error; };
+  const detectionOptions = { ...o, onProbeError };
+  const probe = o.probe || ((desc) => probeClangFormat(desc, o));
+  const sources = [
+    () => [{ cmd: 'clang-format', args: [] }],
+    () => (o.pythons || (() => resolvePythonCandidates(detectionOptions)))()
+      .map((py) => ({ cmd: py.cmd, args: [...py.args, '-m', 'clang_format'] })),
+    () => (o.scriptsDirs || (() => scriptsDirCandidates(detectionOptions)))() || [],
   ];
-  for (const desc of candidates) {
-    try { if (probe(desc)) return desc; } catch (_) {}
+  for (const source of sources) {
+    let candidates;
+    try { candidates = source(); }
+    catch (error) { onProbeError(error); continue; }
+    for (const desc of candidates) {
+      try { if (probe(desc)) return desc; }
+      catch (error) { onProbeError(error); }
+    }
   }
-  let extra = [];
-  try { extra = scriptsDirs() || []; } catch (_) { extra = []; }
-  for (const desc of extra) {
-    try { if (probe(desc)) return desc; } catch (_) {}
-  }
+  if (o.strict && failure) throw failure;
   return null;
 }
 

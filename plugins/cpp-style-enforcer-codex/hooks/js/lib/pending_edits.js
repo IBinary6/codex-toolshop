@@ -5,7 +5,7 @@ const path = require('node:path');
 
 function safePart(value, fallback) {
   const text = String(value || fallback).replace(/[^A-Za-z0-9._-]/g, '_');
-  return text.slice(0, 120) || fallback;
+  return text === '.' || text === '..' ? fallback : text.slice(0, 120) || fallback;
 }
 
 function pendingDir(input) {
@@ -35,26 +35,36 @@ function recordPendingPaths(input, filePaths) {
   }
 }
 
-function consumePendingPaths(input) {
+function readPendingPaths(input) {
   const dir = pendingDir(input);
-  if (!dir) return [];
   const paths = new Set();
+  const files = [];
+  if (!dir) return { paths, files };
+  let names;
   try {
-    for (const name of fs.readdirSync(dir)) {
-      if (!name.endsWith('.json')) continue;
-      try {
-        const values = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
-        if (!Array.isArray(values)) continue;
-        for (const value of values) {
-          if (typeof value === 'string' && value) paths.add(path.resolve(value));
-        }
-      } catch (_) {}
-    }
-    fs.rmSync(dir, { recursive: true, force: true });
-  } catch (_) {
-    return [];
+    names = fs.readdirSync(dir);
+  } catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return { paths, files };
+    throw error;
   }
-  return [...paths];
+  for (const name of names) {
+    if (!name.endsWith('.json')) continue;
+    const file = path.join(dir, name);
+    const values = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!Array.isArray(values) || !values.every((value) => typeof value === 'string' && path.isAbsolute(value))) {
+      throw new Error('Invalid legacy C++ pending edit record');
+    }
+    files.push(file);
+    for (const value of values) paths.add(path.resolve(value));
+  }
+  return { paths, files };
 }
 
-module.exports = { recordPendingPaths, consumePendingPaths, pendingDir };
+function clearPendingFiles(files) {
+  for (const file of files) {
+    try { fs.unlinkSync(file); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+}
+
+module.exports = { recordPendingPaths, readPendingPaths, clearPendingFiles };

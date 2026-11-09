@@ -2,8 +2,8 @@
 
 // Hook protocol robustness tests for gaps in the official contract:
 //   Gap A: malformed stdin must not crash post_edit.js or pre_commit.js; both exit 0.
-//   Gap B: Stop block stdout trims to one valid JSON object without diagnostics.
-//   Gap C: block is mandatory with Python available, without an if(hasPython) bypass.
+//   Gap B: PostToolUse produces one internal-context object; Stop has no output.
+//   Gap C: verify an actual cpplint violation without an if(hasPython) bypass.
 //
 // Gaps B and C require Python; cpplint.py is bundled, so no pip install is needed.
 //     Gap A requires no external tools.
@@ -76,7 +76,13 @@ try {
   for (const [name, raw] of malformedInputs) {
     const r = runRaw(postEdit, raw, repoA);
     assert.strictEqual(r.status, 0, `post_edit malformed input [${name}]: must exit 0 without crashing (actual status=${r.status}, stderr=${r.stderr})`);
+    assert.strictEqual(r.stderr, '');
     assertCleanStdout(r.stdout, `post_edit malformed input [${name}]`);
+    if (name === 'invalid JSON' || name === 'empty stdin') {
+      const hook = JSON.parse(r.stdout).hookSpecificOutput;
+      assert.strictEqual(hook.hookEventName, 'PostToolUse');
+      assert.match(hook.additionalContext, /Hook input/);
+    }
   }
 
   // ====== Gap A: malformed stdin or missing command in pre_commit.js. ======
@@ -90,7 +96,11 @@ try {
   for (const [name, raw] of preMalformed) {
     const r = runRaw(preCommit, raw, repoPC);
     assert.strictEqual(r.status, 0, `pre_commit malformed input [${name}]: must exit 0 without crashing (actual status=${r.status}, stderr=${r.stderr})`);
+    assert.strictEqual(r.stderr, '');
     assertCleanStdout(r.stdout, `pre_commit malformed input [${name}]`);
+    const hook = JSON.parse(r.stdout).hookSpecificOutput;
+    assert.strictEqual(hook.permissionDecision, 'deny');
+    assert.match(hook.additionalContext, /Hook input/);
   }
 
   // A C-style cast survives clang-format, so cpplint must report readability/casting after the full pipeline.
@@ -102,7 +112,7 @@ try {
   assert.ok(hasPython,
     'Coverage gap C: this test requires Python and the bundled cpplint.py; without Python the block path cannot be verified');
 
-  // PostToolUse only records; Stop lints a new file and emits clean decision:block JSON.
+  // PostToolUse checks a new file; the compatibility Stop emits no feedback.
   {
     const repo = newRepo('cse-rb-block-');
     const f = path.join(repo, 'new.cpp');
@@ -116,8 +126,14 @@ try {
       tool_input: { file_path: f },
     };
     const post = runRaw(postEdit, JSON.stringify(hookInput), repo);
-    assert.strictEqual(post.status, 0, 'block: post_edit recording still exits 0');
-    assert.strictEqual(post.stdout.trim(), '', 'block: post_edit does not check early');
+    assert.strictEqual(post.status, 0);
+    assert.strictEqual(post.stderr, '');
+    assertCleanStdout(post.stdout, 'PostToolUse');
+    const parsed = JSON.parse(post.stdout);
+    assert.deepStrictEqual(Object.keys(parsed), ['hookSpecificOutput']);
+    assert.strictEqual(parsed.hookSpecificOutput.hookEventName, 'PostToolUse');
+    assert.match(parsed.hookSpecificOutput.additionalContext, /casting/);
+    const checked = fs.readFileSync(f);
     const r = runRaw(stopCheck, JSON.stringify({
       session_id: hookInput.session_id,
       turn_id: hookInput.turn_id,
@@ -125,14 +141,9 @@ try {
       hook_event_name: 'Stop',
       stop_hook_active: false,
     }), repo);
-    assert.strictEqual(r.status, 0, 'block: Stop exits 0 even on a violation, never 2');
-    const t = r.stdout.trim();
-    assert.ok(t.length > 0, 'block: violations produce stdout');
-    // Gap B: trimmed stdout is one valid JSON object with no diagnostics.
-    assertCleanStdout(r.stdout, 'block stop_check');
-    const parsed = JSON.parse(t);
-    assert.strictEqual(parsed.decision, 'block', 'block: decision:block');
-    assert.ok(typeof parsed.reason === 'string' && parsed.reason.length > 0, 'block: reason is nonempty');
+    assert.strictEqual(r.status, 0);
+    assert.strictEqual(r.stdout + r.stderr, '', 'Stop exits silently even when the edit had violations');
+    assert.deepStrictEqual(fs.readFileSync(f), checked);
   }
 
   // pre_commit denial: violating staged .cpp plus real commit in full mode yields clean deny JSON and exit 0.

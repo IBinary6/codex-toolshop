@@ -398,7 +398,22 @@ class LazyMcp {
     if (this.closed) throw localError('Dbg MCP session is closed');
     if (this.terminalError) throw this.terminalError;
     let child;
-    try { child = this.options.launch(); } catch (_) { throw localError('Dbg MCP runtime could not be prepared'); }
+    try {
+      if (this.options.prepare) {
+        const controller = new AbortController();
+        this.preparing = controller;
+        try { await this.options.prepare(controller.signal); } finally { this.preparing = null; }
+      }
+      if (this.closed) throw localError('Dbg MCP session is closed');
+      child = this.options.launch();
+    } catch (error) {
+      if (error.code === 'DBG_NEEDS_DOCTOR') throw new RpcError({
+        code: -32004, message: 'Dbg needs Python 3.11 or newer. Prepare the runtime with Dbg doctor.',
+        data: { reason: 'needs_doctor' },
+      });
+      if (error.rpc) throw error;
+      throw localError('Dbg MCP runtime could not be prepared');
+    }
     const context = { child, snapshot: this.options.snapshot(), pending: new Map(), callbacks: new Map(), cursors: new Set() };
     this.backend = context;
     context.closed = new Promise((resolve) => child.once('close', () => { context.exited = true; resolve(true); }));
@@ -449,7 +464,7 @@ class LazyMcp {
   scheduleRetirement() {
     clearTimeout(this.discoveryTimer);
     const context = this.backend;
-    if (this.active || this.closed || this.starting || this.hostRequests.size || !context?.ready ||
+    if (this.options.keepAlive || this.active || this.closed || this.starting || this.hostRequests.size || !context?.ready ||
         context.stopping || context.pending.size || context.callbacks.size) return;
     const grace = context.cursors.size ? this.options.pageGraceMs ?? PAGE_GRACE_MS : this.options.discoveryGraceMs ?? DISCOVERY_GRACE_MS;
     this.discoveryTimer = setTimeout(() => this.stopBackend(context), grace);
@@ -505,7 +520,9 @@ class LazyMcp {
     this.lines.close();
     this.input.pause();
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.removeListener(signal, this.signal);
-    Promise.resolve(this.backend && this.stopBackend(this.backend)).then(this.finish);
+    this.preparing?.abort();
+    const cleanup = this.backend ? this.stopBackend(this.backend) : this.starting;
+    Promise.resolve(cleanup).catch(() => {}).then(this.finish);
     return this.finished;
   }
 }

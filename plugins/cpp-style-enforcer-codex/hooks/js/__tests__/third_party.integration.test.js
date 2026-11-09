@@ -33,7 +33,7 @@ try {
     fs.writeFileSync(file, bad);
     assert.deepEqual(runCpplint(file, { resolvePython() { throw new Error('Must not launch lint'); } }), []);
     assert.equal(hook('post_edit', { turn_id: name, tool_input: { file_path: file } }), '');
-    assert.deepEqual(JSON.parse(hook('stop_check', { turn_id: name })), {});
+    assert.equal(hook('stop_check', { turn_id: name }), '');
     assert.deepEqual(fs.readFileSync(file), bad, 'Does not format or add a BOM, copyright header, or CRLF');
     run('git', ['add', '--', name + '/lib.cpp']);
   }
@@ -43,7 +43,7 @@ try {
   run('git', ['add', '--', 'src/owned.cpp']);
   const mixed = JSON.parse(hook('pre_commit', { tool_input: { command: 'git commit -m check' } }));
   assert.equal(mixed.hookSpecificOutput.permissionDecision, 'deny');
-  const reason = mixed.hookSpecificOutput.permissionDecisionReason;
+  const reason = mixed.hookSpecificOutput.additionalContext;
   assert.match(reason, /src\/owned.cpp/);
   assert.doesNotMatch(reason, /(?:3rd|thridpart|Third-Party|vendor)\/lib.cpp/);
   console.log('third_party.integration.test.js PASS');

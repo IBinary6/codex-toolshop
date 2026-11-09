@@ -8,7 +8,7 @@ The plugin supports existing team configuration: new files and projects get the 
 
 | Behavior | Codex version | Claude Code version |
 | --- | --- | --- |
-| After an edit | `PostToolUse` records touched files; `Stop` processes them together | `PostToolUse` processes edited files in sequence |
+| After an edit | `PostToolUse` repairs touched files and sends remaining issues to Codex as internal context | `PostToolUse` processes edited files in sequence |
 | Before a commit | Recognizes an actual `git commit` and checks only staged C++ files | Also recognizes `git commit` and checks the staging area |
 | New and existing files | `.codex-cpp-style/cpp-style.json`, with `.claude-cpp-style` compatibility | `.claude-cpp-style/cpp-style.json` plus a global template |
 | cpplint line endings | Normalize endings by project rules and add a final newline before lint; keep newline checks enabled | Existing LF/CRLF behavior |
@@ -30,18 +30,17 @@ codex plugin marketplace add https://github.com/IBinary6/codex-toolshop.git
 codex plugin add cpp-style-enforcer-codex@codex-toolshop
 ```
 
-3. Open a new Codex conversation to load the hooks and skill.
+3. Open a new Codex conversation to load the plugin. Approve its hooks in Codex if the host requests trust; no skill invocation or manual checking command is needed.
 
 ## What it does
 
-The plugin registers four hook types:
+The plugin registers three hook types:
 
 | Hook | Trigger | Action |
 | --- | --- | --- |
 | `SessionStart` | A conversation starts, resumes, or clears context | Prepare a missing user template; do not write project files or install anything over the network. |
-| `PostToolUse` | Codex writes or edits a file | Record only C/C++ files edited in this turn in the plugin data directory; do not read or rewrite source files. |
-| `Stop` | Codex is about to finish a turn | Format touched files and apply BOM, copyright, and project line-ending rules, then run cpplint. If files changed or violations remain, ask Codex to complete final verification. |
-| `PreToolUse` | Before Codex executes a Bash command | Recognize a real `git commit`, check only staged C/C++ files, and block the commit on violations without rewriting files. |
+| `PostToolUse` | Codex writes or edits a file | Format edited C/C++ files, apply BOM, copyright, and project line-ending rules, then run cpplint. Remaining violations and incomplete checks become internal repair instructions for Codex. |
+| `PreToolUse` | Before Codex executes a shell command | Recognize a real `git commit`, check only staged C/C++ files, and block the commit on violations without rewriting files. |
 
 The workflow covers `clang-format`, UTF-8 BOM normalization for new files (tracked files retain their original BOM state), copyright header insertion or updates, bundled `cpplint.py`, and staged-content checks before commits.
 
@@ -72,21 +71,23 @@ On Windows:
 py -3 -m pip install clang-format==18.1.8
 ```
 
-`iconv-lite` must come from the plugin package or a Codex-provided plugin data directory. Running `npm install` in an arbitrary working directory does not make it resolvable by hooks. Without it, GBK transcoding and BOM handling safely skip those files. Hooks are quiet by default, emitting a Codex decision only to block an operation or report a significant issue.
+`iconv-lite` must come from the plugin package or a Codex-provided plugin data directory. Running `npm install` in an arbitrary working directory does not make it resolvable by hooks. Without it, GBK transcoding and BOM handling safely skip those files.
 
-## Deferred checks
+## Internal repair feedback
 
-Editing does not immediately run `clang-format` or rewrite a BOM, avoiding intermediate diffs during consecutive Codex edits. `PostToolUse` silently records paths. At the end of a turn, `Stop` processes the C/C++ files touched in that turn and completes successful automatic repairs silently. If violations remain, the hook asks Codex to fix them, review the diff, and verify again. A turn already continued automatically by Stop shows remaining issues without forcing another continuation. Pre-commit hooks always check the staged content without modifying it.
+Checks run after each successful edit, while Codex can still repair the result and rerun affected verification. Successful checks are silent. Remaining violations, check errors, and timeouts are delivered through `PostToolUse.additionalContext`, asking Codex to fix and recheck them without copying hook diagnostics into chat. The latest runtime diagnostic is also retained locally in plugin runtime data. The plugin does not register a `Stop` hook or emit `systemMessage` or hook status messages, and does not depend on unsupported `suppressOutput` fields. The retained `stop_check` entry point is a silent no-op. A chat that still uses an older installed plugin version needs to reload the plugin to receive these changes.
+
+Pre-commit hooks still deny a commit whose staged content fails checks; detailed repair instructions use internal context. Codex may display the tool's denied status in its own UI. The plugin cannot hide host-owned tool activity or guarantee a model obeys an instruction, but it no longer injects lint reports as chat messages or synthetic user prompts. Pre-commit checks never modify the working tree or staging area.
 
 Project configuration is generated only after an actual edit. Both new and old files prefer an existing `.clang-format` or `_clang-format`, including an inherited parent configuration; Google is only the fallback. cpplint reads BOM files without modifying them. Missing runtime, abnormal exit, or an incomplete check cannot count as a pass.
 
-New Visual Studio source files and all tracked files keep their include order, avoiding a move of `windows.h` after headers that depend on its types or macros. New files in other projects follow project sort settings. Existing `clang-format off/on` protection must be retained. VS Stop and commit checks disable only cpplint's `build/include_order`; all other checks continue.
+New Visual Studio source files and all tracked files keep their include order, avoiding a move of `windows.h` after headers that depend on its types or macros. New files in other projects follow project sort settings. Existing `clang-format off/on` protection must be retained. VS edit and commit checks disable only cpplint's `build/include_order`; all other checks continue.
 
-Automatic edit processing, Stop, and commit checks exclude these third-party directory segments, as does the bundled cpplint wrapper: `3rd`, `3rdparty`, `3rd_party`, `3rd-party`, `thirdparty`, `third_party`, `third-party`, `thirdpart`, `third_part`, `third-part`, `thridpart`, `thridparty`, `thrid_party`, `thrid-party`, `vendor`, `external`, `deps`, `packages`. Matching uses complete path segments without case sensitivity, so a business path such as `third_party_adapter` is not excluded. Those directories receive no automatic BOM, newline, copyright, formatting, or lint changes. Identify an unlisted custom directory as third party before deciding its scope. When using the raw Python cpplint CLI manually, select files first; the raw CLI has no such directory filter.
+Automatic edit processing and commit checks exclude these third-party directory segments, as does the bundled cpplint wrapper: `3rd`, `3rdparty`, `3rd_party`, `3rd-party`, `thirdparty`, `third_party`, `third-party`, `thirdpart`, `third_part`, `third-part`, `thridpart`, `thridparty`, `thrid_party`, `thrid-party`, `vendor`, `external`, `deps`, `packages`. Matching uses complete path segments without case sensitivity, so a business path such as `third_party_adapter` is not excluded. Those directories receive no automatic BOM, newline, copyright, formatting, or lint changes. Identify an unlisted custom directory as third party before deciding its scope. When using the raw Python cpplint CLI manually, select files first; the raw CLI has no such directory filter.
 
 ## Line-ending policy
 
-After formatting, BOM, and copyright handling, and before cpplint, `Stop` runs a separate line-ending repair. Edited files in Visual Studio source projects use CRLF even if previously converted to LF. Other projects select `"lf"`, `"crlf"`, or `"preserve"` (default) through the global template or project `lineEnding` setting. Preserve mode chooses the majority ending in the existing body, the first ending on a tie, or LF if none exists; mixed endings are normalized to that choice.
+After formatting, BOM, and copyright handling, and before cpplint, `PostToolUse` runs a separate line-ending repair. Edited files in Visual Studio source projects use CRLF even if previously converted to LF. Other projects select `"lf"`, `"crlf"`, or `"preserve"` (default) through the global template or project `lineEnding` setting. Preserve mode chooses the majority ending in the existing body, the first ending on a tie, or LF if none exists; mixed endings are normalized to that choice.
 
 Project detection checks only ancestor directories of the source file for the nearest marker. `.vcxproj`, `.vcproj`, `.sln`, and `.slnx` indicate a Visual Studio source project; the nearest `CMakeLists.txt` indicates CMake. Visual Studio files generated under a CMake build directory are not native VS markers, and sibling build directories are not scanned. If both build entries are in one directory, CMake takes precedence. Set project `lineEnding: "crlf"` explicitly if CRLF is needed in such a layout or when the marker is outside the source ancestry. For example, a CMake project can request LF:
 

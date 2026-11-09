@@ -178,16 +178,10 @@ test('CLI and plugin can share an explicitly chosen data directory', () => {
   assert.equal(dataDir({ DBG_HOME: '/tmp/dbg-test' }), path.resolve('/tmp/dbg-test'));
 });
 
-test('every bundled MCP uses the same script launcher with an independent backend', () => {
+test('the plugin does not register a persistent stdio MCP launcher', () => {
   const root = path.resolve(__dirname, '..');
   const config = JSON.parse(fs.readFileSync(path.join(root, '.mcp.json'), 'utf8'));
-  assert.equal(Object.keys(config.mcpServers).length, 5);
-  for (const entry of Object.values(config.mcpServers)) {
-    assert.equal(entry.command, 'node');
-    assert.equal(entry.args[0], 'scripts/launch.cjs');
-    assert.equal(entry.args[1], 'mcp');
-    assert.equal(entry.cwd, '.');
-  }
+  assert.deepEqual(config.mcpServers, {});
 });
 
 test('running MCP launcher and backend release plugin cache for parent-directory rename', async () => {

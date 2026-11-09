@@ -14,7 +14,7 @@ assert.ok(reason.includes('msg 1') && reason.includes('msg 5'), 'Show the first 
 assert.ok(!reason.includes('msg 6'), 'Do not show the sixth entry');
 assert.ok(/3 more violations/.test(reason), 'Eight unique entries: show five and report three more');
 assert.strictEqual(MAX_ERRORS_SHOWN, 5, 'MAX_ERRORS_SHOWN=5');
-assert.ok(/please fix/.test(reason), 'formatViolations asks for repair of hard violations');
+assert.match(reason, /C\+\+ style verification reported these issues/);
 
 // Identical entries deduplicate to one without a remaining count.
 const dup = [

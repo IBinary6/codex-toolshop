@@ -48,17 +48,20 @@ function matchLineEnding(formatted, source) {
  * @param {{isNew?:boolean, root?:string|null, detect?:function():({cmd:string,args:string[]}|null)}} [opts]
  * @returns {boolean} Whether the file was rewritten
  */
-function applyClangFormat(filePath, opts) {
+function applyClangFormat(filePath, opts = {}) {
   const isNew = !opts || opts.isNew !== false; // Default: whole-file mode for new files.
   const root = opts && opts.root ? opts.root : null;
   // Detect only: edit hooks do not install with pip, avoiding blocks or timeouts.
   const detect = (opts && opts.detect) || detectClangFormat;
-  let desc = null;
-  try { desc = detect(); } catch (_) { desc = null; }
+  let desc;
+  try { desc = detect({ deadline: opts.deadline, strict: opts.strict }); }
+  catch (error) { if (opts.strict) throw error; return false; }
+  if (opts.deadline <= Date.now()) throw new Error('clang-format detection exceeded the time budget');
   if (!desc) return false; // clang-format unavailable: skip silently.
 
   let raw;
-  try { raw = fs.readFileSync(filePath); } catch (_) { return false; }
+  try { raw = fs.readFileSync(filePath); }
+  catch (error) { if (opts.strict) throw error; return false; }
   const { hadBom, body } = stripBom(raw);
 
   let args;
@@ -67,19 +70,24 @@ function applyClangFormat(filePath, opts) {
     // VS headers may depend on earlier types or macros; do not reorder includes merely because a file is uncommitted.
     if (isVisualStudioSource(filePath, root)) args.push('--sort-includes=false');
   } else {
-    const ranges = changedLineRanges(filePath, root);
+    const ranges = changedLineRanges(filePath, root, opts);
     if (!ranges || ranges.length === 0) return false; // No changed lines: skip formatting.
     args = ['-style=file', '-fallback-style=Google', '--sort-includes=false', `-assume-filename=${filePath}`];
     for (const [s, e] of ranges) args.push(`--lines=${s}:${e}`);
   }
 
+  const timeout = Math.min(10000, (opts.deadline ?? Infinity) - Date.now());
+  if (timeout <= 0) throw new Error('clang-format exceeded the time budget');
   const r = spawnSync(
     desc.cmd,
     [...desc.args, ...args],
-    { input: body, stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000, maxBuffer: 32 * 1024 * 1024, windowsHide: isWindows }
+    { input: body, stdio: ['pipe', 'pipe', 'pipe'], timeout, maxBuffer: 32 * 1024 * 1024, windowsHide: isWindows }
   );
   // clang-format failure: skip silently.
-  if (r.error || r.status !== 0 || !r.stdout) return false;
+  if (r.error || r.status !== 0 || !r.stdout) {
+    if (opts.strict) throw r.error || new Error(`clang-format exited with status ${r.status}`);
+    return false;
+  }
 
   const rawFormatted = Buffer.isBuffer(r.stdout) ? r.stdout : Buffer.from(r.stdout);
   // Restore input line endings so clang-format does not turn CRLF into an entire-file diff.
@@ -89,7 +97,8 @@ function applyClangFormat(filePath, opts) {
   try {
     fs.writeFileSync(filePath, restoreBom(hadBom, formatted));
     return true;
-  } catch (_) {
+  } catch (error) {
+    if (opts.strict) throw error;
     return false;
   }
 }

@@ -29,10 +29,11 @@ function gitDir(filePath) {
  * @param {string} filePath
  * @returns {string|null}
  */
-function repoRoot(filePath) {
+function repoRoot(filePath, options = {}) {
   const r = spawnSync('git', ['rev-parse', '--show-toplevel'], {
-    cwd: gitDir(filePath), stdio: 'pipe', timeout: 3000, windowsHide: isWindows,
+    cwd: gitDir(filePath), stdio: 'pipe', timeout: timeout(3000, options), windowsHide: isWindows,
   });
+  if (options.strict && r.error) throw r.error;
   if (r.status !== 0) return null;
   return (r.stdout || Buffer.alloc(0)).toString('utf-8').trim() || null;
 }
@@ -45,15 +46,16 @@ function repoRoot(filePath) {
  * @param {string|null} root
  * @returns {boolean}
  */
-function isNew(filePath, root) {
+function isNew(filePath, root, options = {}) {
   if (!root) return true;
   // A Windows runner may pass TEMP as an 8.3 short path such as RUNNER~1, while git rev-parse
   // returns a long path. Resolve real paths first so path.relative does not produce a false ../../RUNNER~1/... path.
   const rel = path.relative(canonicalPath(root), canonicalPath(filePath))
     .split(path.sep).join('/');
   const r = spawnSync('git', ['cat-file', '-e', `HEAD:${rel}`], {
-    cwd: root, stdio: 'pipe', timeout: 3000, windowsHide: isWindows,
+    cwd: root, stdio: 'pipe', timeout: timeout(3000, options), windowsHide: isWindows,
   });
+  if (options.strict && r.error) throw r.error;
   return r.status !== 0;
 }
 
@@ -65,11 +67,12 @@ function isNew(filePath, root) {
  * @param {string|null} root
  * @returns {Array<[number,number]>|null}
  */
-function changedLineRanges(filePath, root) {
+function changedLineRanges(filePath, root, options = {}) {
   if (!root) return null;
   const r = spawnSync('git', ['diff', '-U0', 'HEAD', '--', filePath], {
-    cwd: root, stdio: 'pipe', timeout: 5000, windowsHide: isWindows,
+    cwd: root, stdio: 'pipe', timeout: timeout(5000, options), windowsHide: isWindows,
   });
+  if (options.strict && (r.error || r.status !== 0)) throw r.error || new Error('Git could not determine changed lines');
   if (r.status !== 0) return null;
   const out = (r.stdout || Buffer.alloc(0)).toString('utf-8');
   const re = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm;
@@ -82,6 +85,10 @@ function changedLineRanges(filePath, root) {
     ranges.push([start, start + len - 1]);
   }
   return ranges;
+}
+
+function timeout(maximum, { deadline = Infinity }) {
+  return Math.max(1, Math.min(maximum, deadline - Date.now()));
 }
 
 module.exports = { repoRoot, isNew, changedLineRanges };

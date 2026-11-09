@@ -6,11 +6,12 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
-const { spawnSync, spawn } = require('node:child_process');
+const { spawnSync, spawn, execFile } = require('node:child_process');
 const { pythonCandidates: sharedCandidates } = require('./_shared/python-candidates.cjs');
 const { LazyMcp } = require('./lazy_mcp.cjs');
+const onDemand = require('./on_demand.cjs');
 const UV_VERSION = '0.12.10';
-const BACKENDS = ['x64dbg', 'x32dbg', 'ghidra', 'windbg', 'ida-mcp'];
+const BACKENDS = onDemand.ENDPOINTS;
 
 function dataDir(env = process.env, platform = process.platform) {
   if (env.DBG_HOME) return path.resolve(env.DBG_HOME);
@@ -21,6 +22,7 @@ function dataDir(env = process.env, platform = process.platform) {
 
 const BOOTSTRAP_LOCK_WAIT_MS = 15 * 60 * 1000;
 const BOOTSTRAP_LOCK_STALE_MS = 30 * 60 * 1000;
+const PYTHON_VERSION_QUERY = 'import sys; print(str(sys.version_info.major)+"."+str(sys.version_info.minor))';
 
 function pythonCandidates(env = process.env, platform = process.platform) {
   const explicit = env.DBG_PYTHON ? [[env.DBG_PYTHON]] : [];
@@ -33,18 +35,36 @@ function findPython(options = {}) {
   const platform = options.platform || process.platform;
   const run = options.run || spawnSync;
   for (const candidate of [...pythonCandidates(env, platform), ...(options.extra || [])]) {
-    const query = 'import sys; print(str(sys.version_info.major)+"."+str(sys.version_info.minor))' +
-      (options.absolute ? '; print(sys.executable)' : '');
+    const query = PYTHON_VERSION_QUERY + (options.absolute ? '; print(sys.executable)' : '');
     const result = run(candidate[0], [...candidate.slice(1), '-c', query], {
       encoding: 'utf8', timeout: 5000, windowsHide: true, env,
     });
     if (result.error || result.status !== 0) continue;
-    const [version, executable] = String(result.stdout || '').trim().split(/\r?\n/);
-    const match = version.match(/^(\d+)\.(\d+)$/);
-    if (!match || Number(match[1]) < 3 || Number(match[1]) === 3 && Number(match[2]) < 11) continue;
-    if (!options.absolute) return candidate;
-    if (isFile(executable)) return [executable];
+    const python = usablePython(result.stdout, options.absolute, candidate);
+    if (python) return python;
   }
+  return null;
+}
+
+function usablePython(stdout, absolute, candidate) {
+  const [version, executable] = String(stdout || '').trim().split(/\r?\n/);
+  const match = version.match(/^(\d+)\.(\d+)$/);
+  if (!match || Number(match[1]) < 3 || Number(match[1]) === 3 && Number(match[2]) < 11) return null;
+  if (!absolute) return candidate;
+  return isFile(executable) ? [executable] : null;
+}
+
+async function findPythonAsync(signal) {
+  for (const [command, ...args] of [...pythonCandidates(), ...recordedPython()]) {
+    signal.throwIfAborted();
+    const python = await new Promise((resolve) => {
+      execFile(command, [...args, '-c', PYTHON_VERSION_QUERY + '; print(sys.executable)'], {
+        signal, timeout: 5000, windowsHide: true, maxBuffer: 16384,
+      }, (error, stdout) => resolve(error ? null : usablePython(stdout, true)));
+    });
+    if (python) return python;
+  }
+  signal.throwIfAborted();
   return null;
 }
 
@@ -275,12 +295,14 @@ function deployment(home, version, backend) {
   const stamps = files.map((file) => fileStamp(file, native && file === runtime?.command?.[0]));
   const legacyStamps = tool === 'windbg' && Array.isArray(record?.legacy_runtime?.command) ?
     [record.legacy_runtime.command[0], record.legacy_runtime.env?.CDB_PATH, record.legacy_runtime.env?.KD_PATH].map((file) => fileStamp(file)) : [];
+  // A single-tool doctor can leave older WinDbg records in place. Only that record can attest its policy.
+  const policyReady = tool !== 'windbg' || ((record?.backend_mode ?? 'auto') === mode &&
+    (status !== 'deployed' || mode === 'auto' || record.backend === mode));
   const ready = !!version && state.plugin_version === version && state.schema_version === 1 &&
     (config || !fs.existsSync(configFile)) && ['auto', 'native', 'legacy'].includes(mode) &&
-    (state.auto_windbg_backend ?? 'auto') === mode &&
-    (disabled || ['disabled', 'unsupported', 'not_installed'].includes(status) ||
+    (disabled || policyReady && (['disabled', 'unsupported', 'not_installed'].includes(status) ||
       (status === 'deployed' && stamps.every(Boolean) &&
-        (runtime?.type === 'http' || Array.isArray(runtime?.command) && runtime.command.length || backend === 'x32dbg')));
+        (runtime?.type === 'http' || Array.isArray(runtime?.command) && runtime.command.length || backend === 'x32dbg'))));
   const secrets = [runtime?.token, ...Object.entries(runtime?.env || {})
     .filter(([key, value]) => typeof value === 'string' && /(?:TOKEN|SECRET|PASSWORD|AUTHORIZATION|API_KEY)/i.test(key))
     .map(([, value]) => value)].filter((value) => typeof value === 'string');
@@ -322,6 +344,48 @@ function rememberPython(home, python) {
   }
 }
 
+// The same supervisor that owns debugger trees also contains doctor and its installer subprocesses.
+const OWNED_DOCTOR = [
+  'import os, sys',
+  'sys.path.insert(0, sys.argv[1])',
+  'from process_owner import ProcessOwner',
+  'owner = ProcessOwner()',
+  'try: raise SystemExit(owner.wait(owner.start([sys.executable, *sys.argv[2:]], os.environ)))',
+  'finally: owner.close()',
+].join('\n');
+
+function runOwnedDoctor(python, home, backend, signal) {
+  signal.throwIfAborted();
+  const tool = backend === 'x32dbg' ? 'x64dbg' : backend;
+  const env = { ...process.env, DBG_HOME: home,
+    DBG_MCP_OWNER_PID: String(process.pid), PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' };
+  delete env.DBG_NODE; // The plugin hook invokes the launcher directly; prepare only the requested debugger.
+  const child = spawn(python[0], [...python.slice(1), '-c', OWNED_DOCTOR, __dirname,
+    path.join(__dirname, 'doctor.py'), 'doctor', '--tool', tool], {
+    cwd: home, stdio: 'ignore', windowsHide: true,
+    env,
+  });
+  return new Promise((resolve, reject) => {
+    let escalation;
+    const stop = () => {
+      child.kill('SIGTERM');
+      if (process.platform !== 'win32') {
+        escalation = setTimeout(() => {
+          if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+        }, 3000);
+      }
+    };
+    child.once('error', () => {});
+    child.once('close', (status) => {
+      clearTimeout(escalation);
+      signal.removeEventListener('abort', stop);
+      if (signal.aborted) reject(signal.reason);
+      else resolve(status);
+    });
+    signal.addEventListener('abort', stop, { once: true });
+  });
+}
+
 function runMcp(backend, options = {}) {
   if (!BACKENDS.includes(backend)) throw new Error('Unknown MCP backend');
   // Resolve relative configuration before leaving the plugin cache directory that the host may rename.
@@ -331,21 +395,32 @@ function runMcp(backend, options = {}) {
   }
   const home = path.resolve(options.dataDir || dataDir());
   fs.mkdirSync(home, { recursive: true });
-  process.chdir(home);
+  if (!options.keepAlive) process.chdir(home);
   const version = pluginVersion();
   const snapshot = () => deployment(home, version, backend);
+  let preparedPython;
   return new LazyMcp({
     ...options,
     snapshot,
     cacheFile: path.join(home, 'mcp-catalog', backend + '.json'),
+    prepare: options.keepAlive ? async (signal) => {
+      const current = snapshot();
+      preparedPython = deployedPython(home, current.state);
+      if (current.ready && preparedPython) return;
+      preparedPython ||= await (options.findPythonAsync || findPythonAsync)(signal);
+      if (!preparedPython) throw Object.assign(new Error('Python 3.11+ unavailable'), { code: 'DBG_NEEDS_DOCTOR' });
+      if (!current.ready) {
+        const status = await (options.runOwnedDoctor || runOwnedDoctor)(preparedPython, home, backend, signal);
+        if (status === 0) rememberPython(home, preparedPython);
+      }
+    } : undefined,
     launch() {
       const current = snapshot();
-      let python = current.ready && deployedPython(home, current.state);
+      let python = preparedPython || current.ready && deployedPython(home, current.state);
       if (!python) {
         python = (options.ensurePython || ensurePython)({ absolute: true });
-        // MCP may start before SessionStart. Both coordinate through the same doctor lock.
         const setup = (options.doctor || doctor)(python, ['--auto']);
-        if (setup.error) process.stderr.write('Dbg automatic deployment is incomplete; reporting current backend status.\n');
+        if (setup.error) (options.stderr || process.stderr).write('Dbg automatic deployment is incomplete; reporting current backend status.\n');
         if (setup.status === 0) rememberPython(home, python);
       }
       return (options.spawn || spawn)(python[0], [...python.slice(1), path.join(__dirname, 'managed_server.py'), backend], {
@@ -386,9 +461,17 @@ function currentCli(cli) {
 
 function main(argv = process.argv.slice(2)) {
   const mode = argv[0] || 'doctor';
-  if (!['doctor', 'mcp', 'hook'].includes(mode)) throw new Error('Usage: dbg doctor [--tool tool] [--json]');
+  if (['tools', 'call', 'status', 'stop', '_broker', 'lifecycle-hook'].includes(mode)) {
+    const home = path.resolve(dataDir());
+    const version = pluginVersion();
+    const override = process.env.DBG_PYTHON;
+    const python = override && /[\\/]/.test(override) ? path.resolve(override) : override;
+    const identity = createHash('sha256').update(JSON.stringify([__filename, version, process.execPath, home, python])).digest('hex');
+    return onDemand.main(argv, { runMcp, identity, fingerprint: (backend) => deployment(home, version, backend).fingerprint });
+  }
   if (mode === 'mcp') return runMcp(argv[1]);
   if (mode === 'hook') return runHook();
+  if (mode !== 'doctor') throw new Error('Usage: dbg doctor [--tool TOOL] [--json] | dbg tools ENDPOINT | dbg call ENDPOINT TOOL | dbg status | dbg stop');
   const python = ensurePython();
   const result = doctor(python, argv.slice(1));
   if (result.stdout) process.stdout.write(result.stdout);
@@ -398,6 +481,9 @@ function main(argv = process.argv.slice(2)) {
 }
 
 if (require.main === module) {
-  try { main(); } catch (error) { process.stderr.write(`${error.message}\n`); process.exitCode = 1; }
+  Promise.resolve().then(() => main()).catch((error) => {
+    process.stderr.write(`${error.message}\n`);
+    process.exitCode = 1;
+  });
 }
 module.exports = { dataDir, pythonCandidates, findPython, withBootstrapLock, ensurePython, runMcp, runHook, main };

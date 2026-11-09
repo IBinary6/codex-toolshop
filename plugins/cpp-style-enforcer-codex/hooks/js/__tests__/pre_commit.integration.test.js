@@ -13,7 +13,8 @@ const { commitCwd, isGitCommit, stagedCppFiles } = require(path.join(pluginRoot,
 function runHook(command, cwd = process.cwd(), inputCwd = undefined, nodeArgs = []) {
   const r = spawnSync(process.execPath, [...nodeArgs, entry], {
     cwd,
-    input: JSON.stringify({ tool_name: 'Bash', cwd: inputCwd, tool_input: { command } }),
+    input: JSON.stringify({ tool_name: typeof command === 'string' ? 'Bash' : 'exec_command', cwd: inputCwd,
+      tool_input: typeof command === 'string' ? { command } : command }),
     encoding: 'utf-8',
     timeout: 30000,
     windowsHide: process.platform === 'win32',
@@ -134,7 +135,10 @@ assert.strictEqual(isGitCommit('git status'), false, 'git status is ignored');
     assert.strictEqual(r.status, 0, 'Hook protocol requires exit 0');
     const payload = JSON.parse(r.stdout);
     assert.strictEqual(payload.hookSpecificOutput.permissionDecision, 'deny');
-    assert.ok(payload.hookSpecificOutput.permissionDecisionReason.includes('bad.cc'));
+    assert.ok(payload.hookSpecificOutput.additionalContext.includes('bad.cc'));
+    const codex = runHook({ cmd: 'git commit -m "x"', workdir: repoB }, repoA);
+    assert.strictEqual(codex.status, 0);
+    assert.strictEqual(JSON.parse(codex.stdout).hookSpecificOutput.permissionDecision, 'deny');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -180,7 +184,7 @@ assert.strictEqual(isGitCommit('git status'), false, 'git status is ignored');
     const payload = JSON.parse(r.stdout);
     assert.strictEqual(payload.hookSpecificOutput.permissionDecision, 'deny',
       'Noncompliant staged version blocks the commit');
-    assert.ok(payload.hookSpecificOutput.permissionDecisionReason.includes('src/main.cc'));
+    assert.ok(payload.hookSpecificOutput.additionalContext.includes('src/main.cc'));
     assert.ok(fs.readFileSync(source).equals(before), 'Commit check leaves the CRLF worktree unchanged');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -223,7 +227,7 @@ assert.strictEqual(isGitCommit('git status'), false, 'git status is ignored');
     assert.strictEqual(r.status, 0, 'Hook protocol requires exit 0 even when denying a commit');
     const payload = JSON.parse(r.stdout);
     assert.strictEqual(payload.hookSpecificOutput.permissionDecision, 'deny');
-    assert.match(payload.hookSpecificOutput.permissionDecisionReason, /staging area|git diff/i);
+    assert.match(payload.hookSpecificOutput.additionalContext, /staging area|git diff/i);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -241,7 +245,7 @@ assert.strictEqual(isGitCommit('git status'), false, 'git status is ignored');
     assert.strictEqual(r.status, 0, 'Hook protocol requires exit 0 even when denying a commit');
     const payload = JSON.parse(r.stdout);
     assert.strictEqual(payload.hookSpecificOutput.permissionDecision, 'deny');
-    assert.match(payload.hookSpecificOutput.permissionDecisionReason, /clean up.*snapshot|snapshot.*clean up/i);
+    assert.match(payload.hookSpecificOutput.additionalContext, /clean up.*snapshot|snapshot.*clean up/i);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -268,7 +272,7 @@ assert.strictEqual(isGitCommit('git status'), false, 'git status is ignored');
     assert.strictEqual(result.status, 0);
     const payload = JSON.parse(result.stdout);
     assert.strictEqual(payload.hookSpecificOutput.permissionDecision, 'deny');
-    assert.match(payload.hookSpecificOutput.permissionDecisionReason, /legacy.cc/);
+    assert.match(payload.hookSpecificOutput.additionalContext, /legacy.cc/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

@@ -77,9 +77,10 @@ function main() {
   assert(Object.keys(hooks).length === 1 && Object.prototype.hasOwnProperty.call(hooks, 'hooks'), 'hooks manifest must only contain top-level hooks key');
   assert(hooks.hooks.SessionStart, 'SessionStart hook missing');
   assert(hooks.hooks.PostToolUse, 'PostToolUse hook missing');
-  assert(hooks.hooks.Stop, 'Stop hook missing');
+  assert(!hooks.hooks.Stop, 'Stop must not change files or emit a continuation');
   assert(hooks.hooks.PreToolUse, 'PreToolUse hook missing');
   assert(!JSON.stringify(hooks).includes('"async"'), 'Codex skips async command hooks; manifest must not contain async');
+  assert(!JSON.stringify(hooks).includes('"statusMessage"'), 'style hooks must not show chat status messages');
   assertNoAbsoluteCommandPaths(hooks);
 
   const nodeModules = path.join(pluginRoot, 'node_modules');

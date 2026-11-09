@@ -74,7 +74,7 @@ function runCpplint(filePath, options = {}) {
   if (isExcludedPath(filePath)) return [];
   const failure = (message, category = 'runtime/cpplint') => [{ line: 0, category, message }];
   let python;
-  try { python = (options.resolvePython || resolvePython)(); } catch (error) {
+  try { python = (options.resolvePython || resolvePython)({ deadline: options.deadline, useCache: true }); } catch (error) {
     return failure(`Could not detect Python:${error.message || error}`);
   }
   if (!python || !fs.existsSync(CPPLINT_PY)) {
@@ -91,10 +91,12 @@ function runCpplint(filePath, options = {}) {
   if (filterArg) args.push(filterArg);
   args.push(filePath);
 
+  const timeout = Math.min(options.timeoutMs || 15000, (options.deadline ?? Infinity) - Date.now());
+  if (timeout <= 0) return failure('cpplint time budget exhausted; check incomplete', 'runtime/timeout');
   try {
     const r = (options.spawnSync || spawnSync)(python.cmd, [...python.args, ...args], {
       stdio: 'pipe',
-      timeout: Math.max(1000, options.timeoutMs || 15000),
+      timeout,
       maxBuffer: 16 * 1024 * 1024,
       windowsHide: isWindows,
     });
@@ -136,7 +138,7 @@ function formatViolations(violations) {
     const where = v.file ? `${v.file}:${v.line}` : `line ${v.line}`;
     return `  - ${where} [${v.category}] ${v.message}`;
   });
-  let reason = 'cpplint found these C++ style violations; please fix them:\n' + lines.join('\n');
+  let reason = 'C++ style verification reported these issues.\n' + lines.join('\n');
   if (unique.some((v) => v.category === 'whitespace/ending_newline'
       || (v.category === 'whitespace/newline' && /Mixed LF and CRLF/.test(v.message)))) {
     reason += '\nFix line endings according to project rules: Visual Studio source projects use CRLF; others follow lineEnding or their existing style. Add only the same style of final newline. Commit checks read staged content; after repairing the worktree, update only the intended staged scope without overwriting unstaged edits.';
