@@ -12,6 +12,7 @@ const tests = [
   'startup_observer.test.js',
   'hooks.integration.test.js',
   'desktop_delivery.test.js',
+  'progress.test.js',
   'runner.test.js',
 ];
 const testDirectory = path.resolve(__dirname, '..', 'hooks', 'js', '__tests__');

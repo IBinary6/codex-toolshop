@@ -111,11 +111,11 @@ async function main() {
   assert.deepEqual(readState('observer-owned', env), { status: 'started', recovered: true });
 
   // Write even if the host assigns a default title during inference; also verify deduplication, failure, and user skips.
-  for (const scenario of ['normal', 'changed', 'same', 'model-failed', 'rpc-failed', 'write-failed', 'skip']) {
+  for (const scenario of ['normal', 'changed', 'same', 'follow-up', 'model-failed', 'rpc-failed', 'write-failed', 'skip']) {
     const sessionId = `result-${scenario}`;
     armSession({ source: 'startup', session_id: sessionId }, env);
     claimSession(sessionId, env);
-    const title = '0905\uff5cFIX\uff5c\u767b\u5f55\u9519\u8bef';
+    const title = '0905\uff5c\u4fee\u590d\u767b\u5f55\u9519\u8bef';
     let current = scenario === 'changed' ? '\u5bbf\u4e3b\u751f\u6210\u7684\u9ed8\u8ba4\u6807\u9898' : scenario === 'same' ? title : '\u65e7\u6807\u9898';
     let writes = 0;
     let closes = 0;
@@ -129,7 +129,12 @@ async function main() {
         if (scenario === 'skip') return { skipped: 'user_intent' };
         return { title, model: 'test-mini', originalTitle: '\u65e7\u6807\u9898' };
       },
-      async readThreadName(id) { assert.equal(id, sessionId); return { originalTitle: current }; },
+      async readThreadName(id, options) {
+        assert.equal(id, sessionId);
+        return { originalTitle: current, ...(options?.includeTurns ? {
+          turnCount: scenario === 'follow-up' ? 2 : 1,
+        } : {}) };
+      },
       async writeThreadName(id, value) {
         assert.equal(id, sessionId);
         writes += 1;
@@ -139,11 +144,12 @@ async function main() {
     });
     await nameSession({ sessionId, prompt: '\u4fee\u590d\u767b\u5f55\u9519\u8bef' }, { env, clientFactory });
     const expected = {
-      normal: 'done', changed: 'done', same: 'done', 'model-failed': 'failed',
+      normal: 'done', changed: 'done', same: 'done', 'follow-up': 'skipped', 'model-failed': 'failed',
       'rpc-failed': 'failed',
       'write-failed': 'failed', skip: 'skipped',
     };
     assert.equal(readState(sessionId, env).status, expected[scenario]);
+    if (scenario === 'follow-up') assert.equal(readState(sessionId, env).reason, 'first_turn_ended');
     if (scenario === 'rpc-failed') assert.deepEqual(readState(sessionId, env), {
       status: 'failed', reason: 'app_server_rpc_failed', rpcMethod: 'thread/read', rpcCode: -32600,
     });

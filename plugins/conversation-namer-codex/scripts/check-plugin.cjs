@@ -59,6 +59,7 @@ function main() {
     'hooks/js/lib/first_prompt.js',
     'hooks/js/lib/state.js',
     'hooks/js/lib/naming.js',
+    'hooks/js/lib/progress.js',
     'hooks/js/lib/app_server.js',
   ];
   for (const relative of required) {

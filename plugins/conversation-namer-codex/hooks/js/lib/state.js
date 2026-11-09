@@ -19,6 +19,15 @@ function stateFile(sessionId, env = process.env) {
   return path.join(dataDirectory(env), 'sessions', `${key}.json`);
 }
 
+/** 以排他创建去重，step 由调用方提供固定名称或哈希，不能来自未经校验的输入。 */
+function claimStep(sessionId, step, env) {
+  try {
+    const fd = fs.openSync(`${stateFile(sessionId, env)}.${step}`, 'wx', 0o600);
+    fs.closeSync(fd);
+    return true;
+  } catch (error) { if (error.code === 'EEXIST') return false; throw error; }
+}
+
 const TRANSIENT_CODES = new Set(['EBUSY', 'EPERM', 'EACCES']);
 
 /**
@@ -80,10 +89,7 @@ function armRecoveredSession(sessionId, env = process.env) {
 function claimSession(sessionId, env = process.env) {
   const state = readState(sessionId, env);
   if (state?.status !== 'pending') return false;
-  try {
-    const fd = fs.openSync(`${stateFile(sessionId, env)}.claimed`, 'wx', 0o600);
-    fs.closeSync(fd);
-  } catch (error) { if (error.code === 'EEXIST') return false; throw error; }
+  if (!claimStep(sessionId, 'claimed', env)) return false;
   writeState(sessionId, { status: 'started', ...(state.recovered ? { recovered: true } : {}) }, env);
   return true;
 }
@@ -102,4 +108,4 @@ function loadConfig(env = process.env) {
   return { model, timeoutMs: timeoutSeconds * 1000 };
 }
 
-module.exports = { dataDirectory, stateFile, readState, writeState, armSession, armRecoveredSession, claimSession, loadConfig };
+module.exports = { dataDirectory, stateFile, readState, writeState, armSession, armRecoveredSession, claimSession, claimStep, loadConfig };

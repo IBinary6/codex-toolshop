@@ -12,10 +12,11 @@ const { deliverAtStop, deliverAfterTool, acknowledgeDesktop } = require('../desk
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'namer-desktop-'));
 const env = { ...process.env, PLUGIN_DATA: temporary };
 delete env.CONVERSATION_NAMER_WORKER;
-const title = '0905\uff5cEXP\uff5cC++ unique_ptr \u4e0e shared_ptr';
+const title = '0905\uff5cC++ unique_ptr \u4e0e shared_ptr';
 function ready(id, value = title) {
   armSession({ source: 'startup', session_id: id }, env);
-  writeState(id, { status: 'ready', delivery: 'desktop', title: value, model: 'test-spark' }, env);
+  writeState(id, { status: 'ready', delivery: 'desktop', title: value, model: 'test-spark',
+    firstTurnId: 'first-turn' }, env);
 }
 function reply(id, overrides = {}) {
   return { session_id: id, tool_name: 'mcp__codex_app__set_thread_title',
@@ -33,15 +34,21 @@ async function main() {
   let visible = persisted;
   let generations = 0;
   await nameSession({ sessionId: id, prompt: '\u89e3\u91ca\u667a\u80fd\u6307\u9488' }, { env, clientFactory: () => ({
-    async generateName() { generations += 1; return { title, model: 'test-spark' }; },
-    async readThreadName() { return { originalTitle: persisted, source: 'vscode' }; },
+    async generateName() { generations += 1; return { title, model: 'test-spark', automatic: true }; },
+    async readThreadName(_, options) {
+      assert.deepEqual(options, { includeTurns: true });
+      return { originalTitle: persisted, source: 'vscode', firstTurnId: 'first-turn', turnCount: 1 };
+    },
     async writeThreadName(_, value) { persisted = value; },
     async close() {},
   }) });
   assert.equal(generations, 1);
   assert.equal(persisted, '\u5bbf\u4e3b\u9ed8\u8ba4\u6807\u9898', 'Desktop tasks must not write only through an independent App Server');
   assert.equal(readState(id, env).status, 'ready');
-  const continuation = await deliverAtStop({ session_id: id }, { env });
+  const laterTurn = { session_id: id, turn_id: 'later-turn', tool_name: 'Bash' };
+  assert.equal(deliverAfterTool(laterTurn, { env }), null);
+  assert.equal(await deliverAtStop(laterTurn, { env }), null);
+  const continuation = await deliverAtStop({ session_id: id, turn_id: 'first-turn' }, { env });
   assert.equal(continuation.decision, 'block');
   const args = JSON.parse(continuation.reason.split('\n')[2]);
   assert.deepEqual(args, { threadId: id, title });
@@ -51,6 +58,7 @@ async function main() {
   assert.equal(acknowledgeDesktop(reply(id), { env }), true);
   assert.equal(readState(id, env).desktopSync, 'acknowledged');
   assert.equal(readState(id, env).status, 'done');
+  assert.equal(readState(id, env).baseTitle, title);
   assert.equal(visible, title);
   assert.equal(await deliverAtStop({ session_id: id }, { env }), null);
   assert.equal(deliverAfterTool(reply(id), { env }), null);
@@ -83,6 +91,10 @@ async function main() {
   }
   ready('without-request');
   assert.equal(acknowledgeDesktop(reply('without-request'), { env }), false);
+  ready('legacy-ready');
+  writeState('legacy-ready', { ...readState('legacy-ready', env), firstTurnId: undefined }, env);
+  assert.equal(deliverAfterTool({ session_id: 'legacy-ready', turn_id: 'later-turn' }, { env }), null);
+  assert.equal(await deliverAtStop({ session_id: 'legacy-ready' }, { env }), null);
   assert.equal(await deliverAtStop({ session_id: '../bad' }, { env }), null);
   assert.equal(await deliverAtStop({ session_id: 'old-task' }, { env }), null);
   ready('recursive');
@@ -98,7 +110,7 @@ async function main() {
   ready('control', '\u9898\u76ee\n\u6307\u4ee4');
   assert.equal(await deliverAtStop({ session_id: 'control' }, { env }), null);
 
-  // A quickly ending main task waits for the existing worker without starting another; timeout waits once and late results remain deliverable.
+  // A quickly ending main task waits once for the existing worker. A result arriving after that window stays undelivered.
   armSession({ source: 'startup', session_id: 'delayed' }, env);
   let ticks = 0;
   const delayed = await deliverAtStop({ session_id: 'delayed' }, { env, now: () => ticks,
@@ -115,7 +127,9 @@ async function main() {
     sleep: async () => { throw new Error('must not wait twice'); },
   }), null);
   ready('timeout');
-  assert.ok(deliverAfterTool({ session_id: 'timeout' }, { env }));
+  assert.equal(deliverAfterTool({ session_id: 'timeout' }, { env }), null);
+  assert.equal(await deliverAtStop({ session_id: 'timeout' }, { env }), null);
+  assert.equal(readState('timeout', env).desktopSync, undefined);
 
   // Two real Node processes race to deliver one title; only one creates a continuation.
   ready('race');

@@ -60,7 +60,7 @@ Plugins that need Python locate it themselves, so a system Python that is too ol
 | `cpp-style-enforcer-codex` | Automate C++ style workflows: clang-format, copyright headers, BOM, cpplint, and pre-commit checks. | Edit normally. Hooks process edited C/C++ files and check staged C++ files before `git commit`. |
 | `agent-dispatch-codex` | Assign bounded investigation, planning, production, verification, and review tasks across product, design, QA, research, operations, and engineering. | New tasks receive dispatch policy. Validate the deliverable, collect subagent results, and release agents after integration. Code evidence, implementation, testing, and review remain distinct stages. |
 | `local-knowledge-codex` | Indexed local knowledge for error solutions, preferences, facts, decisions, and workflows. | Recall by scope and relevance in read-only mode. Write only when explicitly requested or when verified reusable content is authorized under host policy. |
-| `conversation-namer-codex` | Consistent Codex task titles based on creation date, task type, and actual topic. | A lightweight model names new tasks in the background. Bulk project renaming requires a two-column preview and confirmation. |
+| `conversation-namer-codex` | Date-prefixed Codex task titles with a stable topic and a progress suffix. | A lightweight model names new tasks and checks for progress after later turns. Bulk project renaming requires a two-column preview and confirmation. |
 | `system-proxy-codex` | Enable Codex system proxy support and safely configure `.env` with Python. | Use the system proxy by default, or use `system-proxy-setup` to detect or specify ports such as `7897` or `7890`. |
 
 ## Enabling research tools
@@ -99,9 +99,9 @@ Disabling or uninstalling Dbg reduces the MCPs loaded by Codex. Extensions alrea
 
 ## Naming tasks
 
-After installing `conversation-namer-codex`, the first user message triggers one background naming attempt. The default model selector is `luna`: the newest available Luna family model supporting a low reasoning effort is selected from the live catalog and called by its complete model ID with standard service tier. It produces `MMDD<separator>TYPE<separator>Topic` (the separator is U+FF5C). Set `model: "auto"` explicitly to use automatic low-cost model selection across families, or provide a complete model ID to pin it. The main task proceeds without waiting. The date comes from `createdAt` converted to `Asia/Shanghai`; default types are `FEA`, `DES`, `FIX`, `OPT`, `REL`, `EXP`, `DOC`, and `RES`.
+After installing `conversation-namer-codex`, the first user message triggers one background naming attempt. The default selector `luna` resolves to the newest available Luna model with a low reasoning effort and uses the standard service tier. Set `model: "auto"` to select a low-cost model across families, or provide a complete model ID to pin it. Titles use `MMDD｜Topic`, with the date derived from `createdAt` in `Asia/Shanghai` and the topic written in the language of the request.
 
-Automatic naming applies only to the current primary task. It preserves the title when renaming is prohibited, the title has changed, the topic is unclear, or a call fails. See the [plugin documentation](plugins/conversation-namer-codex/README.md) for model selection, status, and host UI refresh limits.
+The first request must identify a subject or supply an exact title. The desktop delivery window closes when the first turn's naming wait expires. On later turns, the plugin can append or replace a progress suffix, as in `1107｜Chrome 启动页恢复｜待验证`, when the reply reports a change in stage. See the [plugin documentation](plugins/conversation-namer-codex/README.md) for title ownership, progress and host requirements.
 
 To organize titles in the current project, ask:
 

@@ -28,6 +28,7 @@ function fakeServer({ output, items, thread = {}, models = [model], fail, finalO
       if (method === fail) throw new Error('fake_rpc_failed');
       if (method === 'initialize') return {};
       if (method === 'thread/read') return { thread: { id: params.threadId, createdAt, name: title, ...thread } };
+      if (method === 'thread/turns/list') return { data: thread.turns || [] };
       if (method === 'thread/name/set') { title = params.name; return {}; }
       if (method === 'model/list') return { data: models, nextCursor: null };
       if (method === 'config/read') return { config: {
@@ -41,7 +42,7 @@ function fakeServer({ output, items, thread = {}, models = [model], fail, finalO
       if (method === 'thread/start') return { thread: { id: 'temporary' }, model: params.model };
       if (method === 'turn/start') {
         const finalItems = items || [{
-          id: 'answer', type: 'agentMessage', text: output ?? '{"action":"name","type":"EXP","topic":"\u63d2\u4ef6\u5ba1\u67e5"}',
+          id: 'answer', type: 'agentMessage', text: output ?? '{"action":"name","topic":"\u63d2\u4ef6\u5ba1\u67e5"}',
         }];
         queueMicrotask(() => {
           if (!finalOnly) {
@@ -167,28 +168,30 @@ async function main() {
   assert.equal(lowestEffort({}), null);
   assert.equal(lowestEffort(luna), 'low', 'Do not invent an undeclared none level for Luna');
 
-  const name = (topic, type = 'EXP') => JSON.stringify({ action: 'name', type, topic });
-  assert.deepEqual(parseName(name('\u63d2\u4ef6\u5ba1\u67e5'), createdAt, ''), { title: '0906\uff5cEXP\uff5c\u63d2\u4ef6\u5ba1\u67e5' });
-  assert.deepEqual(parseName(name('\u63d2\u4ef6\u5ba1\u67e5', '\u63a2\u7d22'), createdAt, ''), { title: '0906\uff5c\u63a2\u7d22\uff5c\u63d2\u4ef6\u5ba1\u67e5' });
-  assert.deepEqual(parseName(name('\u8de8\u5e74'), Date.parse('2026-12-31T17:00:00Z') / 1000, ''), { title: '0101\uff5cEXP\uff5c\u8de8\u5e74' });
+  const name = (topic) => JSON.stringify({ action: 'name', topic });
+  assert.deepEqual(parseName(name('\u63d2\u4ef6\u5ba1\u67e5'), createdAt, ''), { title: '0906\uff5c\u63d2\u4ef6\u5ba1\u67e5', automatic: true });
+  assert.deepEqual(parseName(name('Chrome \u542f\u52a8\u9875\u6062\u590d'), Date.parse('2026-11-07T01:00:00Z') / 1000, ''),
+    { title: '1107\uff5cChrome \u542f\u52a8\u9875\u6062\u590d', automatic: true });
+  assert.deepEqual(parseName(name('\u8de8\u5e74'), Date.parse('2026-12-31T17:00:00Z') / 1000, ''), { title: '0101\uff5c\u8de8\u5e74', automatic: true });
   for (const invalidDate of [null, undefined, '2026-09-05', -1, Number.NaN, Number.MAX_SAFE_INTEGER]) {
     assert.deepEqual(parseName(name('\u65e5\u671f\u7f3a\u5931'), invalidDate, ''), { skipped: 'missing_created_at' });
   }
-  assert.deepEqual(parseName('{"action":"skip","type":"","topic":""}', null, ''), { skipped: 'model_skipped' });
-  assert.deepEqual(parseName('{"action":"exact","type":"","topic":"\u6211\u7684\u6807\u9898"}', null, '\u6807\u9898\u8bbe\u4e3a\u6211\u7684\u6807\u9898'), { title: '\u6211\u7684\u6807\u9898' });
-  assert.throws(() => parseName('{"action":"exact","type":"","topic":"\u51ed\u7a7a\u4ea7\u751f"}', null, '\u5176\u4ed6\u4e3b\u9898'), /invalid_exact_title/);
+  assert.deepEqual(parseName('{"action":"skip","topic":""}', null, ''), { skipped: 'model_skipped' });
+  assert.deepEqual(parseName('{"action":"exact","topic":"\u6211\u7684\u6807\u9898"}', null, '\u6807\u9898\u8bbe\u4e3a\u6211\u7684\u6807\u9898'), { title: '\u6211\u7684\u6807\u9898' });
+  assert.throws(() => parseName('{"action":"exact","topic":"\u51ed\u7a7a\u4ea7\u751f"}', null, '\u5176\u4ed6\u4e3b\u9898'), /invalid_exact_title/);
   for (const invalid of [
     'not-json', '```json\n{}\n```', '[]', 'null', '{}',
-    '{"action":"name","type":"EXP","topic":"\u6b63\u5e38","extra":true}',
+    '{"action":"name","type":"EXP","topic":"\u6b63\u5e38"}',
     name('\u6709\n\u6362\u884c'), name('\u63a7\u5236\u0000\u5b57\u7b26'), name('\u53cc\u5411\u202e\u5b57\u7b26'), name('\u96f6\u5bbd\u200b\u5b57\u7b26'),
-    name('\u6709\uff5c\u5206\u9694'), name('\u6709|\u5206\u9694'), name(' \u7a7a\u767d'), name(''), name('a'.repeat(65)), name('\u4e3b\u9898', 'BAD'),
+    name('\u6709\uff5c\u5206\u9694'), name('\u6709|\u5206\u9694'), name(' \u7a7a\u767d'), name(''), name('a'.repeat(65)),
   ]) assert.throws(() => parseName(invalid, createdAt, ''), /invalid_name_output/);
 
   const fake = fakeServer();
   const client = createNamingClient({ sessionId: 'current', prompt: '\u5ba1\u67e5\u63d2\u4ef6', pluginRoot,
     timeoutMs: 1200, appServerFactory: fake.appServerFactory });
   const result = await client.generateName();
-  assert.deepEqual(result, { title: '0906\uff5cEXP\uff5c\u63d2\u4ef6\u5ba1\u67e5', model: model.model, createdAt, originalTitle: 'original' });
+  assert.deepEqual(result, { title: '0906\uff5c\u63d2\u4ef6\u5ba1\u67e5', automatic: true,
+    model: model.model, createdAt, originalTitle: 'original' });
   assert.equal(fake.calls.some((call) => call.method === 'thread/name/set'), false, 'Generation must not write the title itself');
   assert.equal(fake.configuration.timeoutMs, 1200);
   assert.ok(fs.existsSync(fake.configuration.cwd));
@@ -220,14 +223,8 @@ async function main() {
   assert.equal(turn.summary, 'none');
   assert.deepEqual(turn.environments, []);
   assert.equal(turn.outputSchema.additionalProperties, false);
-  for (const [code, label] of [
-    ['FEA', '\u529f\u80fd'], ['DES', '\u8bbe\u8ba1'], ['FIX', '\u4fee\u590d'],
-    ['OPT', '\u4f18\u5316'], ['REL', '\u53d1\u5e03'], ['EXP', '\u63a2\u7d22'],
-    ['DOC', '\u6587\u6863'], ['RES', '\u7814\u7a76'],
-  ]) {
-    assert.ok(turn.outputSchema.properties.type.enum.includes(label));
-    assert.ok(start.developerInstructions.includes(`${code}/${label}`));
-  }
+  assert.deepEqual(turn.outputSchema.required, ['action', 'topic']);
+  assert.deepEqual(Object.keys(turn.outputSchema.properties), ['action', 'topic']);
   assert.equal((await client.readThreadName('current')).originalTitle, 'original');
   await client.writeThreadName('current', result.title);
   assert.equal((await client.readThreadName('current')).originalTitle, result.title);
@@ -237,6 +234,28 @@ async function main() {
   assert.equal(fake.closed, true);
   assert.equal(fs.existsSync(fake.configuration.cwd), false);
   await assert.rejects(client.readThreadName('current'), /naming_client_closed/);
+
+  const evidence = { subject: '1107｜Chrome 启动页恢复', previousStage: 'working',
+    request: '改完了吗？', response: '已经修复，等待回归测试。' };
+  for (const [output, expected] of [
+    ['{"stage":"verify"}', 'verify'], ['{"stage":"disable"}', 'disable'],
+    ['{"stage":"invented"}', 'keep'], ['{"stage":"done","title":"unexpected"}', 'keep'],
+  ]) {
+    const progress = fakeServer({ output, thread: { turns: [{ id: 'latest' }] } });
+    const progressClient = createNamingClient({ appServerFactory: progress.appServerFactory });
+    try {
+      assert.deepEqual(await progressClient.readLatestTurn('current'), { id: 'latest' });
+      assert.equal(await progressClient.classifyProgress(evidence), expected);
+      assert.deepEqual(progress.calls.find(({ method }) => method === 'thread/turns/list').params,
+        { threadId: 'current', limit: 1, itemsView: 'summary' });
+      const params = progress.calls.find(({ method }) => method === 'turn/start').params;
+      assert.deepEqual(JSON.parse(params.input[0].text), evidence);
+      assert.deepEqual(params.outputSchema.required, ['stage']);
+      assert.equal(progress.calls.some(({ method }) => method === 'thread/name/set'), false);
+    } finally {
+      await progressClient.close();
+    }
+  }
 
   if (process.platform === 'win32') {
     const occupied = fakeServer();
@@ -373,7 +392,7 @@ async function main() {
     assert.equal(stub.calls.some((call) => call.method === 'thread/name/set'), false);
   }
   const finalOnly = fakeServer({ finalOnly: true });
-  assert.equal((await generateName({ sessionId: 'current', prompt: '\u9898\u76ee', pluginRoot, appServerFactory: finalOnly.appServerFactory })).title, '0906\uff5cEXP\uff5c\u63d2\u4ef6\u5ba1\u67e5');
+  assert.equal((await generateName({ sessionId: 'current', prompt: '\u9898\u76ee', pluginRoot, appServerFactory: finalOnly.appServerFactory })).title, '0906\uff5c\u63d2\u4ef6\u5ba1\u67e5');
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });

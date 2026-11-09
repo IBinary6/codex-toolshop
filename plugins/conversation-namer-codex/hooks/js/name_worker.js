@@ -23,27 +23,36 @@ async function nameSession(input, { env = process.env, clientFactory } = {}) {
       writeState(sessionId, { status: 'skipped', reason: result.skipped }, env);
       return;
     }
-    const current = await client.readThreadName(sessionId);
+    const current = await client.readThreadName(sessionId, { includeTurns: true });
+    if (current.turnCount > 1) {
+      writeState(sessionId, { status: 'skipped', reason: 'first_turn_ended' }, env);
+      return;
+    }
     // A recovered task was accepted only while untitled. Preserve any title supplied during inference.
     if (state.recovered && current.originalTitle !== null && current.originalTitle !== '') {
       writeState(sessionId, { status: 'skipped', reason: 'existing_title' }, env);
       return;
     }
+    const name = { title: result.title, model: result.model, firstTurnId: current.firstTurnId,
+      ...(result.automatic ? { baseTitle: result.title } : {}) };
     // Notifications from an independent App Server do not reach the desktop connection; the current task uses the host tool to write.
     if (current.source === 'vscode') {
-      writeState(sessionId, { status: 'ready', title: result.title, model: result.model,
-        delivery: 'desktop' }, env);
+      if (typeof current.firstTurnId !== 'string' || !current.firstTurnId) {
+        writeState(sessionId, { status: 'skipped', reason: 'missing_first_turn_id' }, env);
+        return;
+      }
+      writeState(sessionId, { ...name, status: 'ready', delivery: 'desktop' }, env);
       return;
     }
     if (current.originalTitle === result.title) {
-      writeState(sessionId, { status: 'done', title: result.title, model: result.model }, env);
+      writeState(sessionId, { ...name, status: 'done' }, env);
       return;
     }
     // Use the plugin result for first naming even if the host writes a default title while the model runs.
     await client.writeThreadName(sessionId, result.title);
     const verified = await client.readThreadName(sessionId);
     if (verified.originalTitle !== result.title) throw new Error('Title verification failed');
-    writeState(sessionId, { status: 'done', title: result.title, model: result.model }, env);
+    writeState(sessionId, { ...name, status: 'done' }, env);
   } catch (error) {
     const reason = /^(?:app_server|naming|invalid)_[a-z_]+$/.test(error.message)
       ? error.message : 'naming_failed';
