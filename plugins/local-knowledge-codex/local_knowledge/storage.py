@@ -32,6 +32,18 @@ _SENSITIVITIES = frozenset({"normal", "confidential"})
 _STATUSES = frozenset({"active", "archived"})
 _CJK_RE = re.compile(r"[\u3400-\u9fff]+")
 _WORD_RE = re.compile(r"[a-z0-9][a-z0-9_./:+-]*", re.IGNORECASE)
+_ERROR_CODE_RE = re.compile(r"(?<![a-z0-9_])(?:[a-z]{1,8}\d{3,5}|0x[0-9a-f]{4,16})(?![a-z0-9_])",
+                            re.IGNORECASE)
+_TOPIC_WORD_RE = re.compile(r"[a-z][a-z0-9_]*(?:(?:::|\.)[a-z][a-z0-9_]*)*", re.IGNORECASE)
+_GENERIC_WORDS = frozenset({
+    "about", "and", "can", "could", "does", "error", "external", "failed", "fix", "for",
+    "from", "git", "hook", "how", "issue", "plugin", "problem", "should", "symbol",
+    "that", "the", "this", "unresolved", "use", "using", "what", "when", "with",
+})
+_GENERIC_EXCEPTIONS = frozenset({
+    "assertionerror", "modulenotfounderror", "referenceerror", "syntaxerror", "typeerror",
+})
+_AUTOMATIC_OCCASIONS = frozenset({"prompt", "turn", "tool_failure"})
 _FTS_COLUMNS = ("canonical_key", "title", "content", "cues", "tags")
 _FTS_TRIGGER_NAMES = (
     "knowledge_items_fts_insert",
@@ -157,6 +169,56 @@ def _tokenize(text: str) -> tuple[str, ...]:
         if len(run) == 1:
             tokens.append(run)
     return tuple(tokens)
+
+
+def _topic_signals(text: str) -> tuple[set[str], set[str], set[str]]:
+    """Return exact technical terms and contiguous topic phrases, excluding isolated general words."""
+    text = _clean_text(text)
+    words = _TOPIC_WORD_RE.findall(text)
+    terms = {word.casefold() for word in words}
+    signatures = {
+        word.casefold() for word in words
+        if re.search(r"_|::|\.|[a-z][A-Z]", word)
+        and word.casefold() not in _GENERIC_EXCEPTIONS
+    }
+    signatures.update(code.casefold() for code in _ERROR_CODE_RE.findall(text))
+    phrases = {
+        run[index:index + 4]
+        for run in _CJK_RE.findall(text)
+        for index in range(len(run) - 3)
+    }
+    for run in re.findall(r"(?<![a-z0-9_])[a-z]+(?: [a-z]+)+(?![a-z0-9_])", text.casefold()):
+        plain_words = run.split()
+        phrases.update(
+            f"{left} {right}" for left, right in zip(plain_words, plain_words[1:])
+            if len(left) >= 3 and len(right) >= 3 and {left, right}.isdisjoint(_GENERIC_WORDS)
+        )
+    return terms, signatures, phrases
+
+
+class _AutomaticMatch:
+    """Require topic evidence before a search result can be injected into a chat."""
+
+    def __init__(self, cue: str, *, tool_failure: bool):
+        self.cue = _clean_text(cue).casefold()
+        self.terms, self.signatures, self.phrases = _topic_signals(cue)
+        self.error_codes = ({code.casefold() for code in _ERROR_CODE_RE.findall(cue)}
+                            if tool_failure else set())
+
+    def matches(self, labels: Iterable[str], body: str, cues: Iterable[str] = ()) -> bool:
+        if self.error_codes:
+            # A generic diagnostic phrase can occur with completely different error codes.
+            codes = {code.casefold() for code in _ERROR_CODE_RE.findall(" ".join((*labels, body)))}
+            return bool(self.error_codes & codes)
+        for cue in cues:
+            if len(cue) == 3 and _CJK_RE.fullmatch(cue) and cue in self.cue:
+                return True
+        topics = tuple(label for label in labels if label.strip()) or (body,)
+        for topic in topics:
+            terms, signatures, phrases = _topic_signals(topic)
+            if self.signatures & terms or self.terms & signatures or self.phrases & phrases:
+                return True
+        return False
 
 
 def _fts_query(cue: str) -> str:
@@ -680,7 +742,8 @@ class KnowledgeBase:
         return score, ", ".join(reasons)
 
     @staticmethod
-    def _row_candidate(row: sqlite3.Row, cue: str) -> dict[str, Any] | None:
+    def _row_candidate(row: sqlite3.Row, cue: str,
+                       automatic: _AutomaticMatch | None = None) -> dict[str, Any] | None:
         """Score candidates from the new table and convert them to recall results."""
         item = KnowledgeItem(
             id=int(row["id"]), kind=row["kind"], canonical_key=row["canonical_key"],
@@ -690,12 +753,16 @@ class KnowledgeBase:
             authority=row["authority"], sensitivity=row["sensitivity"], status=row["status"],
             revision=int(row["revision"]), created_at=row["created_at"], updated_at=row["updated_at"],
         )
+        if automatic is not None and not automatic.matches(
+            (item.title, *item.cues, *item.tags), item.content, item.cues
+        ):
+            return None
         weighted = " ".join((item.title, item.content, *item.cues, *item.tags, item.canonical_key))
         score = KnowledgeBase._score_text(cue, weighted)
-        if score is None or score[0] < _MIN_MATCH_SCORE:
+        if automatic is None and (score is None or score[0] < _MIN_MATCH_SCORE):
             return None
         result = item.to_dict()
-        result["score"], result["match_reason"] = score
+        result["score"], result["match_reason"] = score or (1.0, "exact topic match")
         return result
 
     def _candidate_rows(self, conn: sqlite3.Connection, cue: str,
@@ -786,7 +853,8 @@ class KnowledgeBase:
             [*params, candidate_limit],
         ).fetchall()
 
-    def _legacy_results(self, cue: str, limit: int) -> list[dict[str, Any]]:
+    def _legacy_results(self, cue: str, limit: int,
+                        automatic: _AutomaticMatch | None = None) -> list[dict[str, Any]]:
         """Read actual FTS/LIKE hits from legacy bug tables without nearby-category fallback."""
         if not cue.strip():
             return []
@@ -808,6 +876,10 @@ class KnowledgeBase:
             raise KnowledgeError(f"legacy knowledge lookup failed: {error}") from error
         results: list[dict[str, Any]] = []
         for record in records:
+            if automatic is not None and not automatic.matches(
+                (record.title, record.key_pattern, record.context, *record.tags), record.content
+            ):
+                continue
             text = " ".join((record.key_pattern, record.context, record.cause,
                              record.content, " ".join(record.tags)))
             score = self._score_text(cue, text)
@@ -886,6 +958,9 @@ class KnowledgeBase:
         if limit <= 0:
             raise KnowledgeArgumentError("limit must be greater than zero")
         policies = self._allowed_policies(policy, occasion, explicit, cue)
+        occasion_key = (occasion or "").casefold().replace("-", "_")
+        automatic = (_AutomaticMatch(cue, tool_failure=occasion_key == "tool_failure")
+                     if cue and not explicit and occasion_key in _AUTOMATIC_OCCASIONS else None)
         results: list[dict[str, Any]] = []
         if policies and self._has_knowledge_table:
             scope_sql, scope_params = self._scope_sql(scope_kind, scope_key)
@@ -893,11 +968,11 @@ class KnowledgeBase:
                 rows = self._candidate_rows(conn, cue, policies, scope_sql,
                                             scope_params, explicit, limit, kind)
             for row in rows:
-                result = self._row_candidate(row, cue)
+                result = self._row_candidate(row, cue, automatic)
                 if result is not None:
                     results.append(result)
         if include_legacy_bugs and cue and kind in (None, "bug"):
-            results.extend(self._legacy_results(cue, max(limit * 2, limit)))
+            results.extend(self._legacy_results(cue, max(limit * 2, limit), automatic))
         results.sort(key=lambda item: (-float(item.get("score", 0)), -int(item.get("id", 0))))
         return self._fit_budget(results[:limit], max_chars)
 

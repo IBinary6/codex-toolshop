@@ -79,7 +79,7 @@ function main() {
   });
 
   const badCpp = path.join(repo, 'bad.cpp');
-  fs.writeFileSync(badCpp, 'int main() { int x = (int)3; return x; }\n', 'utf8');
+  fs.writeFileSync(badCpp, 'int main() { int x = (int)3; return x; }', 'utf8');
 
   const editPayload = {
     session_id: 'test-hooks-session',
@@ -101,9 +101,12 @@ function main() {
     stop_hook_active: false,
   }, repo, dataDir);
   assert.strictEqual(stop.status, 0, stop.stderr);
+  assert.ok(fs.readFileSync(badCpp, 'utf8').endsWith('\n'), 'Stop repairs the final newline before linting');
   const stopPayload = JSON.parse(stop.stdout);
   assert.strictEqual(stopPayload.decision, 'block');
   assert.match(stopPayload.reason, /cpplint|C\+\+|violations/);
+  assert.match(stopPayload.reason, /Codex: fix the remaining issues yourself/);
+  assert.doesNotMatch(stopPayload.reason, /normalized/);
 
   sh('git', ['add', 'bad.cpp'], { cwd: repo });
   const pre = runHook('pre_commit', { tool_input: { command: 'git commit -m test' } }, repo, dataDir);

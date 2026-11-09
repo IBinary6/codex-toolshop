@@ -214,6 +214,37 @@ try {
   }, hookEnv);
   assert.match(JSON.parse(structuredOutput).hookSpecificOutput.additionalContext,
     new RegExp(`id=${id}`));
+
+  const [menuId] = legacyFixture(path.join(temp, 'bugs.db'), 'add', [{
+    category: 'runtime', title: 'IContextMenu Hook default action',
+    key_pattern: 'Windows IContextMenu Hook default action',
+    context: 'Windows Explorer IContextMenu Hook dispatches actions',
+    content: 'QueryContextMenu handles CMF_DEFAULTONLY',
+    tags: ['QueryContextMenu', 'CMF_DEFAULTONLY'],
+  }]);
+  const unrelatedHook = '\u9664\u4e86\u521a\u521a\u4e0a\u9762\u8fd9\u4e2a\u95ee\u9898\uff0c\u4f60\u68c0\u67e5\u4e00\u4e0b\u6211\u5f53\u524d\u63d2\u4ef6\u91cc\u9762\u5176\u4ed6\u6240\u6709\u5e26\u6709 hook \u7684\u63d2\u4ef6\u5565\u7684\uff0c\u4f1a\u4e0d\u4f1a\u4e5f\u6709\u8fd9\u79cd\u95ee\u9898\uff1f\u5c31\u662f\u4f1a\u51fa\u73b0\u5728\u4e0a\u4e0b\u6587\u4e2d\u3001\u5bfc\u81f4\u4eba\u5f88\u8be7\u5f02\u7684\u95ee\u9898\uff1f';
+  assert.equal(run('user_prompt_submit', { prompt: unrelatedHook }, hookEnv), '');
+  assert.match(run('user_prompt_submit', {
+    prompt: 'QueryContextMenu CMF_DEFAULTONLY \u4e3a\u4ec0\u4e48\u5931\u6548\uff1f',
+  }, hookEnv), new RegExp(`id=${menuId}\\b`));
+
+  const workflow = spawnPythonSync([path.join(root, 'local_knowledge', 'cli.py'),
+    '--format', 'json', 'remember', '--kind', 'workflow', '--title', '\u516c\u5171\u5e93 C1083 \u4e0e\u94fe\u63a5\u9519\u8bef\u8bca\u65ad\u987a\u5e8f',
+    '--content', 'C++ \u516c\u5171\u5e93\u7f3a\u5934\u6587\u4ef6\u7684\u95ee\u9898\uff0c\u68c0\u67e5\u6784\u5efa\u914d\u7f6e\uff0c\u518d\u4fee\u590d\u3002\u68c0\u67e5\u4e5f\u4fdd\u7559\u3002',
+    '--cues', 'C1083,LUDASHI_PC_PUBLIC_ROOT,\u516c\u5171\u5e93',
+  ], { env: { ...process.env, ...hookEnv }, encoding: 'utf8' });
+  assert.equal(workflow.status, 0, workflow.stderr);
+  const { id: workflowId } = JSON.parse(workflow.stdout);
+  const unrelatedStyle = 'C++ \u63d2\u4ef6\u53ea\u662f\u81ea\u52a8\u4fee\u683c\u5f0f\u65f6\u5c31\u9759\u9ed8\u5904\u7406\uff0c\u5c3d\u91cf\u4e0d\u8981\u63d0\u793a\u3002\u8fdd\u89c4\u4e5f\u7531 AI \u4fee\u590d\u3002\u63d0\u4ea4\u68c0\u67e5\u4e5f\u4fdd\u7559\u3002\u5176\u4ed6\u63d2\u4ef6\u5148\u522b\u52a8\uff0c\u6d4b\u8bd5\u901a\u8fc7\u540e\u4ece\u8fdc\u7aef\u66f4\u65b0\u5230\u672c\u673a\u3002';
+  assert.equal(run('user_prompt_submit', { prompt: unrelatedStyle }, hookEnv), '');
+  assert.match(run('user_prompt_submit', {
+    prompt: 'C1083 \u7f3a\u5934\u6587\u4ef6\uff0cLUDASHI_PC_PUBLIC_ROOT \u600e\u4e48\u914d\uff1f',
+  }, hookEnv), new RegExp(`id=${workflowId}\\b`));
+
+  assert.equal(run('post_tool_use', {
+    tool_name: 'Bash', exit_code: 1,
+    tool_output: 'error LNK2001 unresolved external symbol Bar',
+  }, hookEnv), '', 'A different linker code must not inject the LNK2019 fix');
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }

@@ -9,7 +9,6 @@ const { shouldHandle } = require('./lib/target');
 const { consumePendingPaths } = require('./lib/pending_edits');
 const { loadConfig } = require('./lib/config');
 const { repoRoot, isNew } = require('./lib/git');
-const { formatChangedFiles } = require('./lib/report');
 const { ensureClangFormatConfig } = require('./lib/ensure_clang_format_config');
 const { ensureProjectConfig } = require('./lib/ensure_project_config');
 const { applyClangFormat } = require('./steps/clang_format');
@@ -66,7 +65,6 @@ async function main() {
     });
   if (filePaths.length === 0) return finish();
 
-  const changedFiles = [];
   const allViolations = [];
   for (const filePath of filePaths) {
     const config = loadConfig(filePath);
@@ -86,26 +84,23 @@ async function main() {
     }
     if (hasChecks) step('ensure_project_config', () => ensureProjectConfig(root));
 
-    let changed = false;
     if (effectiveChecks.clangFormat) {
-      changed = step('clang_format', () => applyClangFormat(filePath, { isNew: isNewFile, root })) === true || changed;
+      step('clang_format', () => applyClangFormat(filePath, { isNew: isNewFile, root }));
     }
     // Tracked files retain their encoding; BOM normalization applies only to new files without a historical encoding contract.
     if (isNewFile && effectiveChecks.bom) {
-      changed = step('bom', () => applyBom(filePath)) === true || changed;
+      step('bom', () => applyBom(filePath));
     }
     if (effectiveChecks.copyright && copyrightInfo && copyrightInfo.company) {
-      changed = step('copyright', () => applyCopyright(filePath, copyrightInfo, root)) === true || changed;
+      step('copyright', () => applyCopyright(filePath, copyrightInfo, root));
     }
     // Basic line-ending repair is independent of style switches and clang-format availability; it does not modify the Git index.
     try {
-      changed = applyLineEndings(filePath, eol) || changed;
+      applyLineEndings(filePath, eol);
     } catch (error) {
       allViolations.push({ file: displayPath(filePath, root), line: 0,
         category: 'runtime/line_endings', message: `Line-ending repair incomplete: ${error.message || error}` });
     }
-    if (changed) changedFiles.push(displayPath(filePath, root));
-
     if (effectiveChecks.cpplint) {
       const lintRoot = lintRootForFile(filePath, root, input.cwd);
       const suppressCopyright = !(copyrightInfo && copyrightInfo.company) || checks.copyright === false;
@@ -118,16 +113,11 @@ async function main() {
     }
   }
 
-  if (changedFiles.length === 0 && allViolations.length === 0) return finish();
+  // A successful automatic repair needs no Stop feedback or extra model turn.
+  if (allViolations.length === 0) return finish();
 
-  const reasons = [];
-  if (changedFiles.length > 0) {
-    reasons.push(`C++ Style normalized ${changedFiles.length} files:\n` +
-      formatChangedFiles(changedFiles));
-  }
-  if (allViolations.length > 0) reasons.push(formatViolations(allViolations));
-  reasons.push('Review the final diff, fix remaining violations, and rerun relevant verification. Keep CRLF in Visual Studio source projects; other projects follow lineEnding. Add a missing final newline in the chosen style instead of converting everything to LF.');
-  const reason = reasons.join('\n\n');
+  const reason = formatViolations(allViolations)
+    + '\nCodex: fix the remaining issues yourself, review the diff, and rerun the relevant checks.';
 
   if (input.stop_hook_active) {
     return finish({ systemMessage: reason });
@@ -137,5 +127,5 @@ async function main() {
 
 main().catch((error) => {
   try { diag(`stop_check top-level error: ${error && error.message ? error.message : error}`); } catch (_) {}
-  finish({ systemMessage: 'C++ Style final check failed; run the pre-commit check manually.' });
+  finish({ systemMessage: 'C++ Style final check failed. Codex should diagnose it and recheck before committing.' });
 });

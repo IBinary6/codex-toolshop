@@ -55,8 +55,7 @@ try {
   }, project, dataDir);
   assert.ok(fs.readFileSync(source).subarray(0, 3).equals(Buffer.from([0xEF, 0xBB, 0xBF])),
     'Stop adds the missing BOM');
-  const payload = JSON.parse(stopOutput);
-  assert.strictEqual(payload.decision, 'block', 'After batch repair, Codex continues final verification');
+  assert.deepStrictEqual(JSON.parse(stopOutput), {}, 'A successful automatic rewrite emits no feedback');
 
   const secondStop = runHook('stop_check', {
     session_id: 'session-a',
@@ -66,6 +65,18 @@ try {
     stop_hook_active: true,
   }, project, dataDir);
   assert.deepStrictEqual(JSON.parse(secondStop), {}, 'The turn ends when no files remain pending');
+
+  fs.writeFileSync(source, 'int main() { return 0; }', 'utf8');
+  assert.strictEqual(runHook('post_edit', hookInput, project, dataDir), '');
+  const activeStop = runHook('stop_check', {
+    session_id: 'session-a',
+    turn_id: 'turn-a',
+    cwd: project,
+    hook_event_name: 'Stop',
+    stop_hook_active: true,
+  }, project, dataDir);
+  assert.deepStrictEqual(JSON.parse(activeStop), {}, 'Automatic repairs stay silent during a continuation');
+  assert.ok(fs.readFileSync(source, 'utf8').endsWith('\n'), 'Stop restores the missing final newline');
 
   console.log('deferred_style.integration.test.js PASS');
 } finally {

@@ -76,9 +76,7 @@ py -3 -m pip install clang-format==18.1.8
 
 ## Deferred checks
 
-Editing does not immediately run `clang-format` or rewrite a BOM, avoiding intermediate diffs during consecutive Codex edits. At the end of a turn, `Stop` processes the C/C++ files touched in that turn. If normalization changes them or cpplint still reports violations, the hook asks Codex to review the final diff, fix issues, and verify again. A turn already continued automatically by Stop shows remaining issues without forcing another continuation. Pre-commit hooks always check without modifying.
-
-`PostToolUse` silently records paths and injects no model context. `Stop` is also silent when there are no rewrites or violations. A rewrite report lists at most ten paths and shows a count for the rest, keeping large edits from filling the context.
+Editing does not immediately run `clang-format` or rewrite a BOM, avoiding intermediate diffs during consecutive Codex edits. `PostToolUse` silently records paths. At the end of a turn, `Stop` processes the C/C++ files touched in that turn and completes successful automatic repairs silently. If violations remain, the hook asks Codex to fix them, review the diff, and verify again. A turn already continued automatically by Stop shows remaining issues without forcing another continuation. Pre-commit hooks always check the staged content without modifying it.
 
 Project configuration is generated only after an actual edit. Both new and old files prefer an existing `.clang-format` or `_clang-format`, including an inherited parent configuration; Google is only the fallback. cpplint reads BOM files without modifying them. Missing runtime, abnormal exit, or an incomplete check cannot count as a pass.
 
