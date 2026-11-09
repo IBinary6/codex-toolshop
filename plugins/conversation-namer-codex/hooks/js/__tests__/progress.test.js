@@ -4,7 +4,7 @@ const assert = require('assert').strict;
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { deliverAtStop, deliverAfterTool } = require('../desktop_delivery');
+const { deliverAtStop } = require('../desktop_delivery');
 const { armSession, readState, writeState } = require('../lib/state');
 
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'namer-progress-'));
@@ -17,10 +17,17 @@ function conversation(id, { source = 'vscode', managed = true } = {}) {
   armSession({ source: 'startup', session_id: id }, env);
   writeState(id, { status: 'done', title: subject, firstTurnId: 'first',
     ...(managed ? { baseTitle: subject } : {}) }, env);
-  const task = { title: subject, generations: 0, writes: 0, opens: 0, closes: 0 };
-  task.stop = (turnId, classify, { active = false, delegated = false, latest = turnId, response = '实现已提交，回归待跑。' } = {}) => {
+  const task = { title: subject, generations: 0, writes: 0, desktopWrites: 0, opens: 0, closes: 0 };
+  task.stop = (turnId, classify, { active = false, delegated = false, latest = turnId,
+    response = '实现已提交，回归待跑。', confirmed = true } = {}) => {
     return deliverAtStop({ session_id: id, turn_id: turnId, stop_hook_active: active,
-      last_assistant_message: response }, { env, clientFactory(settings) {
+      last_assistant_message: response }, { env, async desktopWriter(args) {
+      assert.equal(args.sessionId, id);
+      assert.equal(args.turnId, turnId);
+      task.desktopWrites += 1;
+      if (confirmed) task.title = args.title;
+      return confirmed;
+    }, clientFactory(settings) {
       assert.equal(settings.timeoutMs, 12000);
       task.opens += 1;
       return {
@@ -47,15 +54,6 @@ function conversation(id, { source = 'vscode', managed = true } = {}) {
       };
     } });
   };
-  task.ack = (request, turnId, { failed = false } = {}) => {
-    const args = JSON.parse(request.reason.split('\n')[2]);
-    assert.equal(args.threadId, id);
-    if (!failed) task.title = args.title;
-    assert.equal(deliverAfterTool({ session_id: id, turn_id: turnId,
-      tool_name: 'mcp__codex_app__set_thread_title', tool_input: args,
-      tool_response: { ...args, isError: failed },
-    }, { env }), null);
-  };
   return task;
 }
 
@@ -69,38 +67,37 @@ async function main() {
   assert.equal(await desktop.stop('stale', unused, { latest: 'newer' }), null);
   assert.equal(desktop.generations, 0);
 
-  const results = await Promise.all([
+  assert.deepEqual(await Promise.all([
     desktop.stop('fix', () => update('verify', '启动页删除回归'), { delegated: true }),
     desktop.stop('fix', () => update('verify', '启动页删除回归'), { delegated: true }),
-  ]);
-  const request = results.find(Boolean);
-  assert.ok(request);
-  assert.equal(results.filter(Boolean).length, 1);
+  ]), [null, null]);
   assert.equal(desktop.generations, 1);
   assert.equal(desktop.writes, 0);
-  assert.equal(readState('desktop', env).title, subject);
-  desktop.ack(request, 'fix', { failed: true });
-  assert.equal(readState('desktop', env).progressStage, undefined);
-  desktop.ack(request, 'wrong-turn');
-  assert.equal(readState('desktop', env).title, subject);
-  desktop.ack(request, 'fix');
+  assert.equal(desktop.desktopWrites, 1);
   assert.equal(readState('desktop', env).title, `${subject} - 启动页删除回归 · 待验证`);
   assert.equal(readState('desktop', env).progressFocus, '启动页删除回归');
   assert.equal(readState('desktop', env).pendingProgress, undefined);
   assert.equal(await desktop.stop('fix', unused), null);
   assert.equal(await desktop.stop('repeat', ({ previousStage, previousFocus }) => update(previousStage, previousFocus)), null);
   assert.equal(await desktop.stop('unrelated', () => update('keep')), null);
-  desktop.ack(await desktop.stop('test', () => update('review')), 'test');
+  assert.equal(await desktop.stop('test', () => update('review')), null);
   assert.equal(readState('desktop', env).title, `${subject} - 启动页删除回归 · 待验收`);
-  desktop.ack(await desktop.stop('accepted', () => update('done')), 'accepted');
+  assert.equal(await desktop.stop('accepted', () => update('done')), null);
   assert.equal(readState('desktop', env).title, `${subject} - 启动页删除回归 · 已完成`);
-  desktop.ack(await desktop.stop('new-focus', () => update('keep', 'Edge 策略兼容性')), 'new-focus');
+  assert.equal(await desktop.stop('new-focus', () => update('keep', 'Edge 策略兼容性')), null);
   assert.equal(readState('desktop', env).title, `${subject} - Edge 策略兼容性`);
   assert.equal(readState('desktop', env).progressStage, undefined);
-  desktop.ack(await desktop.stop('return-to-subject', () => update('working', '')), 'return-to-subject');
+  assert.equal(await desktop.stop('return-to-subject', () => update('working', '')), null);
   assert.equal(readState('desktop', env).title, `${subject} - 处理中`);
   assert.equal(readState('desktop', env).baseTitle, subject);
+  assert.equal(desktop.desktopWrites, 5);
   assert.equal(desktop.opens, desktop.closes);
+
+  const failed = conversation('failed-write');
+  assert.equal(await failed.stop('unconfirmed', () => update('verify', '恢复回归'), { confirmed: false }), null);
+  assert.equal(failed.desktopWrites, 1);
+  assert.equal(readState('failed-write', env).title, subject);
+  assert.equal(readState('failed-write', env).progressStage, undefined);
 
   const manual = conversation('manual');
   manual.title = '我手动改的名字';
@@ -135,7 +132,7 @@ async function main() {
   writeState('previous-version', { ...readState('previous-version', env), title: previousVersion.title,
     progressStage: 'review' }, env);
   assert.equal(await previousVersion.stop('same-stage', () => update('keep')), null);
-  previousVersion.ack(await previousVersion.stop('deliver', () => update('done')), 'deliver');
+  assert.equal(await previousVersion.stop('deliver', () => update('done')), null);
   assert.equal(previousVersion.title, `${subject} - 已完成`);
 }
 

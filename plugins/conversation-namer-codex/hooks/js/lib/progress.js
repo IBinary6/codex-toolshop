@@ -8,7 +8,7 @@ const { claimStep, loadConfig, readState, writeState } = require('./state');
 const PROGRESS_TIMEOUT_MS = 12000;
 
 /** 只更新插件已确认写入的自动标题。每轮最多判断一次，超时或证据不全时保留标题。 */
-async function refreshProgress(input, state, { env, clientFactory = createNamingClient }) {
+async function refreshProgress(input, state, { env, clientFactory = createNamingClient, desktopWriter }) {
   const sessionId = input.session_id;
   const turnId = input.turn_id;
   const response = input.last_assistant_message;
@@ -51,13 +51,13 @@ async function refreshProgress(input, state, { env, clientFactory = createNaming
     const suffix = [focus, label].filter(Boolean).join(' \u00b7 ');
     const title = suffix ? `${state.baseTitle} - ${suffix}` : state.baseTitle;
     if (current.source === 'vscode') {
-      writeState(sessionId, { ...saved, pendingProgress: { title, focus, stage, turnId } }, env);
-      return title;
+      if (!await desktopWriter({ sessionId, turnId, title }, { env })) return null;
+    } else {
+      await client.writeThreadName(sessionId, title);
+      if ((await client.readThreadName(sessionId)).originalTitle !== title) return null;
     }
-    await client.writeThreadName(sessionId, title);
-    if ((await client.readThreadName(sessionId)).originalTitle === title) {
-      writeState(sessionId, { ...saved, title, progressFocus: focus, progressStage: stage }, env);
-    }
+    writeState(sessionId, { ...saved, title, progressFocus: focus, progressStage: stage,
+      pendingProgress: undefined }, env);
     return null;
   } catch {
     return null;

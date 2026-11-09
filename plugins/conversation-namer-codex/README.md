@@ -13,7 +13,7 @@ The plugin requires Node.js 18 or later and a signed-in `codex` CLI available on
 
 ## Automatic naming
 
-After a new conversation receives its first user message, the plugin asks a lightweight model to generate a title in the background. For desktop tasks, the current task calls `mcp__codex_app__set_thread_title` so both persisted state and the interface update; CLI tasks write through App Server. The main model does not generate the name, read a skill, show a preview, or wait for confirmation. It makes one desktop write call after the title is ready.
+After a new conversation receives its first user message, the plugin asks a lightweight model to generate a title in the background. A desktop hook writes the title through the app's bundled title tool so both persisted state and the interface update. CLI tasks write through App Server.
 
 ```text
 MMDD｜Topic
@@ -27,7 +27,7 @@ If `SessionStart` was missed, a valid `UserPromptSubmit` with no session state l
 
 Opening progress updates do not affect naming. The first write can replace the host's initial default title. Long tasks request the write on `PostToolUse`; short answers without tool calls use `Stop`. Before preparing the write, the worker checks for a later turn. Desktop delivery requires a recorded first turn ID and compares it with the hook turn ID when the hook supplies one. Both desktop delivery paths share an atomic marker, so each task requests the initial title once.
 
-Desktop delivery passes the generated title to the host tool as a JSON string, without asking the main model to rewrite it. `PostToolUse` checks the tool name, current task ID, title, and successful response before marking delivery complete. Reading the same title through another App Server connection does not confirm desktop delivery. An explicit current user instruction against renaming or tool calls takes precedence; the hook does not expand authorization.
+The hook invokes only `set_thread_title` on the bundled Codex App Tools MCP service, using the current task and turn IDs supplied by the host. It marks delivery complete when the tool acknowledges the matching task ID and title. The hook exits with no continuation or chat feedback. An explicit current user instruction against renaming or tool calls takes precedence.
 
 Brief questions get titles when they identify a subject. Greetings and requests with no clear subject keep the host's title, as do requests that explicitly decline automatic naming. If the user supplies a complete title, the plugin uses that text verbatim. The model receives only the first message and short naming rules. Its temporary task is not saved as a sidebar conversation and disables project instructions, plugin hooks, MCP, memory, and work tools. Without a valid creation time, the plugin does not guess the date.
 
@@ -64,14 +64,14 @@ The executable follows the recognized host: desktop tasks on Windows or macOS us
 | `pending` | Waiting for the first request |
 | `started` | One naming inference has been claimed |
 | `ready` + `delivery: desktop` | Title generated; desktop write not yet confirmed |
-| `ready` + `desktopSync: requested` | Current task asked to call the desktop tool; success not yet confirmed |
+| `ready` + `desktopSync: requested` | Hook attempted a desktop tool call; success not yet confirmed |
 | `done` + `desktopSync: acknowledged` | Desktop tool returned the matching task ID and title |
 | `done` (CLI) | App Server wrote and read back the same title |
 | `skipped / failed` | Skipped or failed; no automatic retry |
 
 RPC failures additionally record an allowlisted `rpcMethod` and numeric `rpcCode` when available. These identify the failing operation without saving server error text, prompts, provider configuration, or credentials. Existing failure records are not rewritten and cannot retrospectively reveal their failing operation. A missing session record means naming registration has not been observed for that task; it is different from a recorded model or delivery failure.
 
-When `PLUGIN_DATA` is unset, the path is `$CODEX_HOME/plugins/data/conversation-namer-codex`; `CODEX_HOME` defaults to `.codex` under the user's home directory. A forcibly terminated background process or system shutdown may leave a task in `started`; that state does not prove it is still running or succeeded. If the desktop tool is unavailable, fails, or the main model does not perform delivery, the state remains `ready`. The plugin does not falsely mark it `done` or fall back to UI automation, direct database edits, or an independent App Server write.
+When `PLUGIN_DATA` is unset, the path is `$CODEX_HOME/plugins/data/conversation-namer-codex`; `CODEX_HOME` defaults to `.codex` under the user's home directory. A forcibly terminated background process or system shutdown may leave a task in `started`; that state does not prove it is still running or succeeded. If the desktop tool is unavailable or fails, the state remains `ready` and the hook exits quietly.
 
 The startup observer waits up to 60 seconds with backoff polling and does not call the naming model. If the first request is absent, it stops and leaves `pending`, so a later manual first message can still be named. Once it has the request, generation and writing are also bounded by `timeoutSeconds`. For a tool-created task, `pending` without `.claimed` means the job has not been claimed; `started / failed / skipped` means it entered the naming path and must not trigger another model call.
 
@@ -80,8 +80,8 @@ If a short answer finishes while naming is still in progress, `Stop` waits at mo
 ## Limitations
 
 - Automatic naming depends on the CLI interfaces `model/list`, `thread/start`, `turn/start`, `thread/read`, and `thread/name/set`. Missing CLI access, login, or interfaces cause failure and retain the original title.
-- Desktop writing requires `mcp__codex_app__set_thread_title` in the current task. Desktop/editor tasks whose App Server source is `vscode` use this path. If an editor host lacks the tool, delivery remains unconfirmed. CLI tasks continue to write persistent state. API success alone does not establish that the desktop display was verified.
-- The first desktop delivery and each suffix change add one title tool call. A write requested by `Stop` adds a continuation. The first delivery can overwrite a default or manually set title at that point. For suffix updates, the last title check and the host write are separate operations.
+- Desktop writing requires the app-provided connection and its bundled `codex-app-tools` MCP service. Editor hosts without this connection keep their existing title. The write attempt is bounded to three seconds, with a separate short process cleanup budget. CLI tasks use App Server.
+- The first desktop delivery can replace a host default or manually set title. For suffix updates, the last title check and the host write are separate operations.
 - After a CLI plugin update, a running desktop process may still cache the old plugin path. If the new version is installed on the command line but a new task reports an old hook or MCP path missing, fully quit and reopen the app, then check a naturally triggered hook. Running a hook manually does not replace that check.
 - A first message longer than 20,000 characters or without text is skipped.
 - Missing-startup recovery deliberately skips any existing title (including a host default), multiple turns, unknown thread sources, and tasks older than its five-minute window. It cannot backfill an already established conversation. It runs only when `UserPromptSubmit` is observed; it does not recover an absent hook process or change resume behavior. Normal startup registration retains the first-write behavior described above. App Server has no conditional title-write operation, so the final title check and write are not atomic.

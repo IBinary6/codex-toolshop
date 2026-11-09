@@ -56,6 +56,7 @@ function main() {
     'hooks/js/name_worker.js',
     'hooks/js/startup_observer.js',
     'hooks/js/desktop_delivery.js',
+    'hooks/js/lib/desktop_title.js',
     'hooks/js/lib/first_prompt.js',
     'hooks/js/lib/state.js',
     'hooks/js/lib/naming.js',

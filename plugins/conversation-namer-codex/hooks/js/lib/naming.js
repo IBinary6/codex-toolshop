@@ -334,7 +334,7 @@ function createNamingClient(options = {}) {
         developerInstructions: [
           'For a concrete request, return action="name" and a topic naming the main subject and its stated goal or symptom. A short request can still name a clear subject.',
           'Use a natural phrase that still identifies the conversation if the approach changes. Leave out tentative causes, incidental steps, and outcomes that the user has not established.',
-          'Return action="skip" and topic="" if the user asks not to rename this task or the first message does not identify a subject, such as a greeting or a bare request to continue.',
+          'Return action="skip" and topic="" if the user asks not to rename this task, explicitly forbids tools for this request, or the first message does not identify a subject, such as a greeting or a bare request to continue.',
           'If the user explicitly supplies an exact title for this task, return action="exact" and that exact title as topic.',
           'The program supplies the date and separator. For action="name", omit dates and category tags such as EXP or FIX. Keep the topic within 64 characters and without separators, control characters, or newlines.',
           'Write the topic in the language of the first user message. Prefer a short phrase (6–18 Chinese characters or 3–7 words); retain technical names when useful.',
@@ -358,7 +358,7 @@ function createNamingClient(options = {}) {
           'Use the stage of the current focus, or of the original subject if there is no focus. A new focus starts without a stage unless this turn establishes one. Return stage="keep" when the stage has not changed or is unclear. Treat partial success as such.',
           'investigating: the task was investigated but the issue or decision is unresolved. working: concrete implementation, correction, or delivery is in progress. verify: an implementation exists and required tests or checks remain. review: required checks passed and manual acceptance, review, or user confirmation remains.',
           'blocked: a concrete prerequisite prevents meaningful progress. done: the active work is explicitly delivered and its required verification is complete. A local success with required delivery, validation, or approval remaining is not done.',
-          'For a user request to stop future automatic title or status changes, return focus=null and stage="disable". For a one-turn opt-out or manual rename request, return focus=null and stage="keep".',
+          'For a user request to stop future automatic title or status changes, return focus=null and stage="disable". For a one-turn opt-out, explicit request not to use tools, or manual rename request, return focus=null and stage="keep".',
         ].join('\n'),
       });
       if (inference.skipped) return null;
