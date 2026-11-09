@@ -44,7 +44,7 @@ async function deliverAtStop(input, {
   const { refreshProgress } = require('./lib/progress');
   const title = await refreshProgress(input, state, { env, clientFactory });
   return title ? titleDelivery(sessionId, title,
-    'Conversation Namer: The progress stage for this conversation has changed. The subject and date are preserved.') : null;
+    'Conversation Namer: The current work or stage has changed. The original subject and date are preserved.') : null;
 }
 
 function requestDesktopTitle(sessionId, turnId, state, env) {
@@ -102,7 +102,7 @@ function acknowledgeDesktop(input, { env = process.env } = {}) {
   const result = acknowledgedTitle(input.tool_response);
   if (!result || result.threadId !== sessionId || result.title !== title) return false;
   const updated = initial ? { status: 'done', desktopSync: 'acknowledged' }
-    : { title, progressStage: pending.stage, pendingProgress: undefined };
+    : { title, progressFocus: pending.focus, progressStage: pending.stage, pendingProgress: undefined };
   writeState(sessionId, { ...state, ...updated }, env);
   return true;
 }

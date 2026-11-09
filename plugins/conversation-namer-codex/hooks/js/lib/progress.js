@@ -26,10 +26,16 @@ async function refreshProgress(input, state, { env, clientFactory = createNaming
     const request = firstPrompt({ turns: [{ items: [...turn.items].reverse() }] });
     if (!request?.trim() || request.length > 20000) return null;
 
-    const stage = await client.classifyProgress({
-      subject: state.baseTitle, previousStage: state.progressStage ?? null, request, response,
+    const decision = await client.classifyProgress({
+      subject: state.baseTitle, previousFocus: state.progressFocus ?? null,
+      previousStage: state.progressStage ?? null, request, response,
     });
-    if (stage === state.progressStage || (stage !== 'disable' && !Object.hasOwn(PROGRESS_LABELS, stage))) return null;
+    if (!decision) return null;
+    const previousFocus = state.progressFocus ?? '';
+    const focus = decision.focus ?? previousFocus;
+    const stage = decision.stage === 'keep'
+      ? (focus === previousFocus ? state.progressStage : undefined) : decision.stage;
+    if (focus === previousFocus && stage === state.progressStage) return null;
 
     const [current, latest] = await Promise.all([client.readThreadName(sessionId), client.readLatestTurn(sessionId)]);
     if (current.originalTitle !== state.title || latest?.id !== turnId) return null;
@@ -40,15 +46,16 @@ async function refreshProgress(input, state, { env, clientFactory = createNaming
       return null;
     }
 
-    const label = PROGRESS_LABELS[stage][/\p{Script=Han}/u.test(state.baseTitle) ? 0 : 1];
-    const title = `${state.baseTitle}\uff5c${label}`;
+    const label = PROGRESS_LABELS[stage]?.[/\p{Script=Han}/u.test(state.baseTitle) ? 0 : 1];
+    const suffix = [focus, label].filter(Boolean).join(' \u00b7 ');
+    const title = suffix ? `${state.baseTitle} - ${suffix}` : state.baseTitle;
     if (current.source === 'vscode') {
-      writeState(sessionId, { ...saved, pendingProgress: { title, stage, turnId } }, env);
+      writeState(sessionId, { ...saved, pendingProgress: { title, focus, stage, turnId } }, env);
       return title;
     }
     await client.writeThreadName(sessionId, title);
     if ((await client.readThreadName(sessionId)).originalTitle === title) {
-      writeState(sessionId, { ...saved, title, progressStage: stage }, env);
+      writeState(sessionId, { ...saved, title, progressFocus: focus, progressStage: stage }, env);
     }
     return null;
   } catch {

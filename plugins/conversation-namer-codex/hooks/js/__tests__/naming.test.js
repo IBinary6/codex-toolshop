@@ -235,22 +235,27 @@ async function main() {
   assert.equal(fs.existsSync(fake.configuration.cwd), false);
   await assert.rejects(client.readThreadName('current'), /naming_client_closed/);
 
-  const evidence = { subject: '1107｜Chrome 启动页恢复', previousStage: 'working',
+  const evidence = { subject: '1107｜Chrome 启动页恢复', previousFocus: null, previousStage: 'working',
     request: '改完了吗？', response: '已经修复，等待回归测试。' };
   for (const [output, expected] of [
-    ['{"stage":"verify"}', 'verify'], ['{"stage":"disable"}', 'disable'],
-    ['{"stage":"invented"}', 'keep'], ['{"stage":"done","title":"unexpected"}', 'keep'],
+    ['{"focus":"恢复逻辑回归","stage":"verify"}', { focus: '恢复逻辑回归', stage: 'verify' }],
+    ['{"focus":null,"stage":"disable"}', { focus: null, stage: 'disable' }],
+    ['{"focus":"","stage":"keep"}', { focus: '', stage: 'keep' }],
+    ['{"stage":"verify"}', null], ['{"focus":null,"stage":"invented"}', null],
+    ['{"focus":123,"stage":"done"}', null], ['{"focus":null,"stage":"done","title":"unexpected"}', null],
+    [JSON.stringify({ focus: 'a'.repeat(27), stage: 'done' }), null],
+    ...['话题｜已完成', '话题 - 已完成', '话题 · 已完成', '有\n换行'].map(focus => [JSON.stringify({ focus, stage: 'done' }), null]),
   ]) {
     const progress = fakeServer({ output, thread: { turns: [{ id: 'latest' }] } });
     const progressClient = createNamingClient({ appServerFactory: progress.appServerFactory });
     try {
       assert.deepEqual(await progressClient.readLatestTurn('current'), { id: 'latest' });
-      assert.equal(await progressClient.classifyProgress(evidence), expected);
+      assert.deepEqual(await progressClient.classifyProgress(evidence), expected);
       assert.deepEqual(progress.calls.find(({ method }) => method === 'thread/turns/list').params,
         { threadId: 'current', limit: 1, itemsView: 'summary' });
       const params = progress.calls.find(({ method }) => method === 'turn/start').params;
       assert.deepEqual(JSON.parse(params.input[0].text), evidence);
-      assert.deepEqual(params.outputSchema.required, ['stage']);
+      assert.deepEqual(params.outputSchema.required, ['focus', 'stage']);
       assert.equal(progress.calls.some(({ method }) => method === 'thread/name/set'), false);
     } finally {
       await progressClient.close();

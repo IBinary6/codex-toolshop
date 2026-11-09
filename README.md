@@ -60,7 +60,7 @@ Plugins that need Python locate it themselves, so a system Python that is too ol
 | `cpp-style-enforcer-codex` | Automate C++ style workflows: clang-format, copyright headers, BOM, cpplint, and pre-commit checks. | Edit normally. Hooks process edited C/C++ files and check staged C++ files before `git commit`. |
 | `agent-dispatch-codex` | Assign bounded investigation, planning, production, verification, and review tasks across product, design, QA, research, operations, and engineering. | New tasks receive dispatch policy. Validate the deliverable, collect subagent results, and release agents after integration. Code evidence, implementation, testing, and review remain distinct stages. |
 | `local-knowledge-codex` | Indexed local knowledge for error solutions, preferences, facts, decisions, and workflows. | Recall by scope and relevance in read-only mode. Write only when explicitly requested or when verified reusable content is authorized under host policy. |
-| `conversation-namer-codex` | Date-prefixed Codex task titles with a stable topic and a progress suffix. | A lightweight model names new tasks and checks for progress after later turns. Bulk project renaming requires a two-column preview and confirmation. |
+| `conversation-namer-codex` | Date-prefixed Codex task titles with a stable original topic and a suffix for current work and stage. | A lightweight model names new tasks and checks later turns for a change in focus or progress. Bulk project renaming requires a two-column preview and confirmation. |
 | `system-proxy-codex` | Enable Codex system proxy support and safely configure `.env` with Python. | Use the system proxy by default, or use `system-proxy-setup` to detect or specify ports such as `7897` or `7890`. |
 
 ## Enabling research tools
@@ -101,7 +101,7 @@ Disabling or uninstalling Dbg reduces the MCPs loaded by Codex. Extensions alrea
 
 After installing `conversation-namer-codex`, the first user message triggers one background naming attempt. The default selector `luna` resolves to the newest available Luna model with a low reasoning effort and uses the standard service tier. Set `model: "auto"` to select a low-cost model across families, or provide a complete model ID to pin it. Titles use `MMDD｜Topic`, with the date derived from `createdAt` in `Asia/Shanghai` and the topic written in the language of the request.
 
-The first request must identify a subject or supply an exact title. The desktop delivery window closes when the first turn's naming wait expires. On later turns, the plugin can append or replace a progress suffix, as in `1107｜Chrome 启动页恢复｜待验证`, when the reply reports a change in stage. See the [plugin documentation](plugins/conversation-namer-codex/README.md) for title ownership, progress and host requirements.
+The first request must identify a subject or supply an exact title. The desktop delivery window closes when the first turn's naming wait expires. Later turns can add the current work and stage, as in `1107｜Chrome 启动页恢复 - 批量删除回归 · 待验证`. See the [plugin documentation](plugins/conversation-namer-codex/README.md) for title ownership, progress and host requirements.
 
 To organize titles in the current project, ask:
 

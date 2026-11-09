@@ -11,6 +11,7 @@ const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'namer-progress-'));
 const env = { ...process.env, PLUGIN_DATA: temporary };
 delete env.CONVERSATION_NAMER_WORKER;
 const subject = '1107｜Chrome 启动页恢复';
+const update = (stage, focus = null) => ({ focus, stage });
 
 function conversation(id, { source = 'vscode', managed = true } = {}) {
   armSession({ source: 'startup', session_id: id }, env);
@@ -62,7 +63,8 @@ async function main() {
   assert.equal(desktop.generations, 0);
 
   const results = await Promise.all([
-    desktop.stop('fix', () => 'verify'), desktop.stop('fix', () => 'verify'),
+    desktop.stop('fix', () => update('verify', '启动页删除回归')),
+    desktop.stop('fix', () => update('verify', '启动页删除回归')),
   ]);
   const request = results.find(Boolean);
   assert.ok(request);
@@ -75,17 +77,22 @@ async function main() {
   desktop.ack(request, 'wrong-turn');
   assert.equal(readState('desktop', env).title, subject);
   desktop.ack(request, 'fix');
-  assert.equal(readState('desktop', env).title, `${subject}｜待验证`);
+  assert.equal(readState('desktop', env).title, `${subject} - 启动页删除回归 · 待验证`);
+  assert.equal(readState('desktop', env).progressFocus, '启动页删除回归');
   assert.equal(readState('desktop', env).pendingProgress, undefined);
   assert.equal(await desktop.stop('fix', unused), null);
-  assert.equal(await desktop.stop('repeat', ({ previousStage }) => previousStage), null);
-  assert.equal(await desktop.stop('unrelated', () => 'keep'), null);
-  desktop.ack(await desktop.stop('test', () => 'review'), 'test');
-  assert.equal(readState('desktop', env).title, `${subject}｜待验收`);
-  desktop.ack(await desktop.stop('accepted', () => 'done'), 'accepted');
-  assert.equal(readState('desktop', env).title, `${subject}｜已完成`);
-  desktop.ack(await desktop.stop('reopened', () => 'working'), 'reopened');
-  assert.equal(readState('desktop', env).title, `${subject}｜处理中`);
+  assert.equal(await desktop.stop('repeat', ({ previousStage, previousFocus }) => update(previousStage, previousFocus)), null);
+  assert.equal(await desktop.stop('unrelated', () => update('keep')), null);
+  desktop.ack(await desktop.stop('test', () => update('review')), 'test');
+  assert.equal(readState('desktop', env).title, `${subject} - 启动页删除回归 · 待验收`);
+  desktop.ack(await desktop.stop('accepted', () => update('done')), 'accepted');
+  assert.equal(readState('desktop', env).title, `${subject} - 启动页删除回归 · 已完成`);
+  desktop.ack(await desktop.stop('new-focus', () => update('keep', 'Edge 策略兼容性')), 'new-focus');
+  assert.equal(readState('desktop', env).title, `${subject} - Edge 策略兼容性`);
+  assert.equal(readState('desktop', env).progressStage, undefined);
+  desktop.ack(await desktop.stop('return-to-subject', () => update('working', '')), 'return-to-subject');
+  assert.equal(readState('desktop', env).title, `${subject} - 处理中`);
+  assert.equal(readState('desktop', env).baseTitle, subject);
   assert.equal(desktop.opens, desktop.closes);
 
   const manual = conversation('manual');
@@ -95,7 +102,7 @@ async function main() {
   const changedDuring = conversation('changed-during');
   assert.equal(await changedDuring.stop('manual-during-inference', () => {
     changedDuring.title = '我手动改的名字';
-    return 'verify';
+    return update('verify', '恢复回归');
   }), null);
   assert.equal(readState('changed-during', env).pendingProgress, undefined);
 
@@ -103,18 +110,26 @@ async function main() {
   assert.equal(await locked.stop('later', unused), null);
   assert.equal(locked.opens, 0);
   const optOut = conversation('opt-out');
-  assert.equal(await optOut.stop('disable', () => 'disable'), null);
+  assert.equal(await optOut.stop('disable', () => update('disable')), null);
   assert.equal(readState('opt-out', env).progressDisabled, true);
   assert.equal(await optOut.stop('later', unused), null);
 
   const cli = conversation('cli', { source: 'cli' });
   assert.equal(await cli.stop('cli-error', () => { throw new Error('app_server_timeout'); }), null);
   assert.equal(cli.writes, 0);
-  assert.equal(await cli.stop('cli-blocked', () => 'blocked'), null);
+  assert.equal(await cli.stop('cli-blocked', () => update('blocked')), null);
   assert.equal(cli.writes, 1);
-  assert.equal(cli.title, `${subject}｜受阻`);
+  assert.equal(cli.title, `${subject} - 受阻`);
   assert.equal(readState('cli', env).title, cli.title);
   assert.equal(cli.opens, cli.closes);
+
+  const previousVersion = conversation('previous-version');
+  previousVersion.title = `${subject}｜待验收`;
+  writeState('previous-version', { ...readState('previous-version', env), title: previousVersion.title,
+    progressStage: 'review' }, env);
+  assert.equal(await previousVersion.stop('same-stage', () => update('keep')), null);
+  previousVersion.ack(await previousVersion.stop('deliver', () => update('done')), 'deliver');
+  assert.equal(previousVersion.title, `${subject} - 已完成`);
 }
 
 main().finally(() => fs.rmSync(temporary, { recursive: true, force: true }))

@@ -1,6 +1,6 @@
 {
   "name": "conversation-namer-codex",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "Automatically name new Codex conversations from the first user message with a lightweight model.",
   "author": {
     "name": "IBinary6",
@@ -17,7 +17,7 @@
   "interface": {
     "displayName": "Conversation Namer",
     "shortDescription": "Give Codex conversations consistent, date-prefixed titles.",
-    "longDescription": "Names new conversations as MMDD\uff5cTopic and appends a short progress stage when later turns report a milestone. The date and subject stay fixed.",
+    "longDescription": "Names new conversations as MMDD\uff5cTopic. Later turns can add the current work and stage after the original date and subject.",
     "developerName": "IBinary6",
     "category": "Productivity",
     "capabilities": [
