@@ -37,6 +37,8 @@ The date and original topic form a permanent prefix. The suffix describes the cu
 
 On `Stop`, the same lightweight model checks the latest request and reply against the original subject, previous focus and stage. An intentional pivot with work underway can change the focus. A side question, plan, or repeated update keeps the existing title. The check uses the latest turn summary and has an App Server budget of up to 12 seconds. A missing response, unavailable RPC, or timeout preserves the existing title. Desktop changes are acknowledged through the host tool. CLI changes are read back after writing.
 
+When the desktop sends a follow-up from another conversation, the turn summary can omit the request. The plugin then reads the opening items of that same turn through `thread/items/list` and recognizes the host's follow-up envelope.
+
 Titles generated and confirmed by versions 0.1.13 and later are eligible. The plugin checks that the current title still matches its last confirmed title before proposing an update. Exact user-supplied titles and manually changed titles are excluded. Ask the assistant to stop updating the title for this conversation to opt out.
 
 ## Lightweight model and state

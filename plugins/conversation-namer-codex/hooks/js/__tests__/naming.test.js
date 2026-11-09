@@ -29,6 +29,10 @@ function fakeServer({ output, items, thread = {}, models = [model], fail, finalO
       if (method === 'initialize') return {};
       if (method === 'thread/read') return { thread: { id: params.threadId, createdAt, name: title, ...thread } };
       if (method === 'thread/turns/list') return { data: thread.turns || [] };
+      if (method === 'thread/items/list') return { data: [
+        { turnId: params.turnId, item: { type: 'functionCallOutput', name: 'send_message_to_thread' } },
+        { turnId: 'other-turn', item: { type: 'userMessage' } },
+      ] };
       if (method === 'thread/name/set') { title = params.name; return {}; }
       if (method === 'model/list') return { data: models, nextCursor: null };
       if (method === 'config/read') return { config: {
@@ -250,9 +254,14 @@ async function main() {
     const progressClient = createNamingClient({ appServerFactory: progress.appServerFactory });
     try {
       assert.deepEqual(await progressClient.readLatestTurn('current'), { id: 'latest' });
+      assert.deepEqual(await progressClient.readTurnOpeningItems('current', 'latest'), [
+        { type: 'functionCallOutput', name: 'send_message_to_thread' },
+      ]);
       assert.deepEqual(await progressClient.classifyProgress(evidence), expected);
       assert.deepEqual(progress.calls.find(({ method }) => method === 'thread/turns/list').params,
         { threadId: 'current', limit: 1, itemsView: 'summary' });
+      assert.deepEqual(progress.calls.find(({ method }) => method === 'thread/items/list').params,
+        { threadId: 'current', turnId: 'latest', limit: 8, sortDirection: 'asc' });
       const params = progress.calls.find(({ method }) => method === 'turn/start').params;
       assert.deepEqual(JSON.parse(params.input[0].text), evidence);
       assert.deepEqual(params.outputSchema.required, ['focus', 'stage']);

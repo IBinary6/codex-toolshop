@@ -299,6 +299,14 @@ function createNamingClient(options = {}) {
       });
       return data?.[0];
     },
+    async readTurnOpeningItems(sessionId, turnId) {
+      if (!validatedSessionId({ session_id: sessionId })) throw new Error('invalid_session_id');
+      const client = await start();
+      const { data } = await client.request('thread/items/list', {
+        threadId: sessionId, turnId, limit: 8, sortDirection: 'asc',
+      });
+      return data.filter(row => row.turnId === turnId).map(row => row.item);
+    },
     async writeThreadName(sessionId, title) {
       if (!validatedSessionId({ session_id: sessionId }) || !validTitleText(title, 120)) {
         throw new Error('invalid_title_write');

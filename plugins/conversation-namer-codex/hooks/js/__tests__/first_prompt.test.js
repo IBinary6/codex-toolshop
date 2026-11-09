@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('assert').strict;
-const { delegationPrompt, firstPrompt } = require('../lib/first_prompt');
+const { delegationPrompt, firstPrompt, latestPrompt } = require('../lib/first_prompt');
 
 const envelope = {
   type: 'functionCallOutput', name: 'create_thread', namespace: 'codex_app',
@@ -31,3 +31,9 @@ for (const patch of [
 // XML, newlines, and shell characters inside the envelope are data; do not decode entities or evaluate commands.
 const literal = '\u4fdd\u7559 <input>\u4f8b\u5b50</input> &amp; $(echo value)\n\u4e0b\u4e00\u884c';
 assert.equal(delegationPrompt({ ...envelope, output: envelope.output.replace('\u89e3\u91ca C++ RAII \u7684\u4f5c\u7528', literal) }), literal);
+const followUp = { ...envelope, name: 'send_message_to_thread' };
+assert.equal(firstPrompt({ turns: [{ items: [followUp] }] }), null);
+assert.equal(latestPrompt([envelope]), null);
+assert.equal(latestPrompt([followUp, { type: 'agentMessage', text: 'progress' }]), '解释 C++ RAII 的作用');
+assert.equal(latestPrompt([followUp, message]), '第一条问题');
+assert.equal(latestPrompt([{ ...followUp, namespace: 'other' }]), null);

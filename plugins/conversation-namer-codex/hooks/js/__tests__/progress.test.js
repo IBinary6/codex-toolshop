@@ -18,16 +18,23 @@ function conversation(id, { source = 'vscode', managed = true } = {}) {
   writeState(id, { status: 'done', title: subject, firstTurnId: 'first',
     ...(managed ? { baseTitle: subject } : {}) }, env);
   const task = { title: subject, generations: 0, writes: 0, opens: 0, closes: 0 };
-  task.stop = (turnId, classify, { active = false, latest = turnId, response = '实现已提交，回归待跑。' } = {}) => {
+  task.stop = (turnId, classify, { active = false, delegated = false, latest = turnId, response = '实现已提交，回归待跑。' } = {}) => {
     return deliverAtStop({ session_id: id, turn_id: turnId, stop_hook_active: active,
       last_assistant_message: response }, { env, clientFactory(settings) {
       assert.equal(settings.timeoutMs, 12000);
       task.opens += 1;
       return {
         async readThreadName() { return { originalTitle: task.title, source }; },
-        async readLatestTurn() { return { id: latest, items: [{
+        async readLatestTurn() { return { id: latest, items: delegated ? [] : [{
           type: 'userMessage', content: [{ type: 'text', text: '继续' }],
         }] }; },
+        async readTurnOpeningItems(threadId, requestedTurnId) {
+          assert.equal(delegated, true);
+          assert.equal(threadId, id);
+          assert.equal(requestedTurnId, turnId);
+          return [{ type: 'functionCallOutput', name: 'send_message_to_thread', namespace: 'codex_app',
+            output: '<codex_delegation><source_thread_id>caller</source_thread_id><input>继续</input></codex_delegation>' }];
+        },
         async classifyProgress(evidence) {
           task.generations += 1;
           assert.equal(evidence.subject, subject);
@@ -63,8 +70,8 @@ async function main() {
   assert.equal(desktop.generations, 0);
 
   const results = await Promise.all([
-    desktop.stop('fix', () => update('verify', '启动页删除回归')),
-    desktop.stop('fix', () => update('verify', '启动页删除回归')),
+    desktop.stop('fix', () => update('verify', '启动页删除回归'), { delegated: true }),
+    desktop.stop('fix', () => update('verify', '启动页删除回归'), { delegated: true }),
   ]);
   const request = results.find(Boolean);
   assert.ok(request);

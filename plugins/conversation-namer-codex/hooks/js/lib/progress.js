@@ -1,7 +1,7 @@
 'use strict';
 
 const { createHash } = require('crypto');
-const { firstPrompt } = require('./first_prompt');
+const { latestPrompt } = require('./first_prompt');
 const { createNamingClient, PROGRESS_LABELS } = require('./naming');
 const { claimStep, loadConfig, readState, writeState } = require('./state');
 
@@ -23,7 +23,8 @@ async function refreshProgress(input, state, { env, clientFactory = createNaming
   try {
     const [thread, turn] = await Promise.all([client.readThreadName(sessionId), client.readLatestTurn(sessionId)]);
     if (thread.originalTitle !== state.title || turn?.id !== turnId || !Array.isArray(turn.items)) return null;
-    const request = firstPrompt({ turns: [{ items: [...turn.items].reverse() }] });
+    // 摘要保留普通用户消息，但省略桌面跟进消息的委托项。后者位于当前轮次开头。
+    const request = latestPrompt(turn.items) ?? latestPrompt(await client.readTurnOpeningItems(sessionId, turnId));
     if (!request?.trim() || request.length > 20000) return null;
 
     const decision = await client.classifyProgress({
